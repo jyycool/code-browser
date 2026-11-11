@@ -16,8 +16,8 @@ credential. npm **provenance** and PyPI **PEP 740 attestations** are generated a
 > cold-start). The repo is **public**, which is required for npm provenance.
 
 ## Workflows
-- [`.github/workflows/npm.yml`](../.github/workflows/npm.yml) — build (`tsc`) + `npm publish` from `sdk/node`.
-- [`.github/workflows/pypi.yml`](../.github/workflows/pypi.yml) — `python -m build` + upload from `sdk/python` (two-job split: ungated build → gated publish).
+- [`.github/workflows/npm.yml`](../../.github/workflows/npm.yml) — build (`tsc`) + `npm publish` from `sdk/node`.
+- [`.github/workflows/pypi.yml`](../../.github/workflows/pypi.yml) — `python -m build` + upload from `sdk/python` (two-job split: ungated build → gated publish).
 
 Both trigger on `push:` of a `sdk-v*` tag, with a `workflow_dispatch` manual fallback. Each runs
 behind a GitHub **Environment** (`npm` / `pypi`) with a required-reviewer approval gate.
@@ -67,7 +67,7 @@ the same fields — it converts on first upload and does not reserve the name, s
    Releasing the .NET SDK on the same version? It has **two more** spots, and a unit test fails the
    publish if they disagree — `sdk/dotnet/src/Clearcote/Clearcote.csproj` (`<Version>`) and
    `sdk/dotnet/src/Clearcote/Clearcote.cs` (`public const string Version`). See
-   [sdk/dotnet/PUBLISHING.md](../sdk/dotnet/PUBLISHING.md); it ships on its own `dotnet-v*` tag.
+   [sdk/dotnet/PUBLISHING.md](../../sdk/dotnet/PUBLISHING.md); it ships on its own `dotnet-v*` tag.
 2. Commit and push to `main`.
 3. Tag and push:
    ```bash
@@ -96,8 +96,8 @@ the same fields — it converts on first upload and does not reserve the name, s
 
 ## MCP server (`clearcote-mcp`) — its own tag line
 
-The MCP server in [`mcp/`](../mcp/) publishes on a dedicated **`mcp-v*`** tag (workflow
-[`mcp.yml`](../.github/workflows/mcp.yml)), independent of the SDK's `sdk-v*` line — it versions
+The MCP server in [`mcp/`](../../mcp/) publishes on a dedicated **`mcp-v*`** tag (workflow
+[`mcp.yml`](../../.github/workflows/mcp.yml)), independent of the SDK's `sdk-v*` line — it versions
 separately (starts at `0.1.0`). One `mcp-v*` tag publishes **both** the Python package
 (`clearcote-mcp` → PyPI) and the npm launcher (`clearcote-mcp` → npm), via OIDC.
 
@@ -110,7 +110,7 @@ separately (starts at `0.1.0`). One `mcp-v*` tag publishes **both** the Python p
    git push origin mcp-v0.1.0
    ```
 3. The push runs `mcp.yml` — a version-consistency guard + the MCP tests
-   ([`mcp-ci.yml`](../.github/workflows/mcp-ci.yml): a fresh resolve of `./mcp` at the latest
+   ([`mcp-ci.yml`](../../.github/workflows/mcp-ci.yml): a fresh resolve of `./mcp` at the latest
    dependencies and at the declared floors), then pauses at the `pypi` and `npm` environment gates.
    Approve each; both publish via OIDC. `mcp-ci.yml` also runs weekly and checks the package as
    published, because an upstream `mcp` release can break a fresh install with no commit here.
@@ -123,14 +123,14 @@ separately (starts at `0.1.0`). One `mcp-v*` tag publishes **both** the Python p
 
 ### Listing it in the official MCP Registry
 
-[`mcp/server.json`](../mcp/server.json) is the registry entry (`io.github.clearcotelabs/clearcote-mcp`, both
+[`mcp/server.json`](../../mcp/server.json) is the registry entry (`io.github.clearcotelabs/clearcote-mcp`, both
 packages). The registry stores only this metadata and checks that each package names the entry: `mcpName` in
 `mcp/npm/package.json` and the `mcp-name:` comment at the top of `mcp/README.md` (the PyPI description). Both
 reach the registries only with a release, so publish the entry **after** the `mcp-v*` release that contains them
 is live on PyPI and npm, with `server.json` at that version. The `io.github.clearcotelabs/` namespace needs proof of
 the `clearcotelabs` organisation, which the interactive `mcp-publisher login github` cannot give (it only reaches
 the personal `io.github.<user>/` namespace). Publish with the manual
-[`mcp-registry.yml`](../.github/workflows/mcp-registry.yml) workflow instead: it logs in with the workflow's GitHub
+[`mcp-registry.yml`](../../.github/workflows/mcp-registry.yml) workflow instead: it logs in with the workflow's GitHub
 OIDC token, so nothing is stored.
 
 ```bash

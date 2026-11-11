@@ -142,7 +142,7 @@ DPR 会同步到所有相关位置（`961` / `962`）：`Sec-CH-DPR` 请求头�
 | 语音 | `speechSynthesis.getVoices()` 返回画像语音：默认 Windows SAPI 的 en-US David / Zira / Mark，或档案中的 `speech[]`；不会为空 | `170` |
 | `Math.tanh` | Windows 画像在任何宿主上都返回与 Windows 逐位相同的结果 | `965` |
 
-macOS 画像另有 3 个字体补丁，见 [`patches/macos-150/`](../../patches/macos-150/) 与 [`docs/MACOS-FONTS.md`](../MACOS-FONTS.md)。
+macOS 画像另有 3 个字体补丁，见 [`patches/macos-150/`](../../patches/macos-150/) 与 [`MACOS-FONTS.md`](MACOS-FONTS.md)。
 
 ---
 
@@ -218,7 +218,7 @@ CSS `@media`、触摸点、编解码能力和媒体设备列表。档案里没�
 | `--canvas-bridge-allow=` / `--canvas-bridge-deny=` | 逗号分隔的 eTLD+1 列表 |
 | `--canvas-bridge-fallback=block\|local` | 缓存未命中时阻塞等待，或改为本地渲染 |
 
-服务端见 [`tools/canvas-bridge-server`](../../tools/canvas-bridge-server/)，详细说明见 [`docs/CANVAS-BRIDGE.md`](../CANVAS-BRIDGE.md)。
+服务端见 [`tools/canvas-bridge-server`](../../tools/canvas-bridge-server/)，详细说明见 [`CANVAS-BRIDGE.md`](CANVAS-BRIDGE.md)。
 
 ---
 

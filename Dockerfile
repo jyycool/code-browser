@@ -12,10 +12,10 @@
 #   docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build linux
 #   docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build windows
 #
-#   # verify (see docs/VERIFY.md):
+#   # verify (see docs/en/VERIFY.md):
 #   sha256sum -c out/clearcote-151.0.7922.108-linux-x64.tar.xz.sha256
 #
-# For byte-for-byte reproducibility pin the base image to a digest (see docs/BUILDING.md).
+# For byte-for-byte reproducibility pin the base image to a digest (see docs/en/BUILDING.md).
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive

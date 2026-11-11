@@ -40,9 +40,9 @@ Use a key with `CLEARCOTE_LICENSE_KEY=cc_lic_...`, `license_key=` / `licenseKey`
 - /sdk/python/README.md, /sdk/node/README.md — SDK reference (options, CLI, licensing, per-feature tier table)
 - /docker/README.md — the Docker image (persona env vars, licensed containers)
 - /mcp — the MCP server for Claude / Cursor / Cline
-- /docs/BUILDING.md — build from source · /docs/PATCHES.md — what each patch does
-- /docs/VERIFY.md — verify a release · /docs/UPGRADING.md — upgrading
-- /docs/CANVAS-BRIDGE.md — optional real-GPU canvas bridge
+- /docs/en/BUILDING.md — build from source · /docs/en/PATCHES.md — what each patch does
+- /docs/en/VERIFY.md — verify a release · /docs/en/UPGRADING.md — upgrading
+- /docs/en/CANVAS-BRIDGE.md — optional real-GPU canvas bridge
 - /AGENTS.md — contributor and automation guide · /ROADMAP.md · /CREDITS.md · /DISCLAIMER.md
 
 ## Inspiration (all open source)

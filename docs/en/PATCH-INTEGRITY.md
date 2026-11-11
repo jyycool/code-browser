@@ -1,8 +1,8 @@
 # Patch integrity — the release gate standard
 
-**Clearcote *is* its patch set.** Every stealth behavior lives in [`../patches/`](../patches),
+**Clearcote *is* its patch set.** Every stealth behavior lives in [`../patches/`](../../patches),
 applied on top of a pinned Chromium (there is no compiled-in behavior that isn't a readable
-patch — see [`../patches/README.md`](../patches/README.md)). So the single most important
+patch — see [`../patches/README.md`](../../patches/README.md)). So the single most important
 release invariant is: **every patch is correctly applied, compiled in, and effective — and no
 build ships if it isn't.**
 
@@ -19,7 +19,7 @@ the detector we were trying to beat.
 That is the opposite of normal software, where a broken change usually breaks loudly. Here the
 broken change is *invisible at runtime unless you look for the specific missing behavior.* The
 only defense is an **explicit, per-patch, release-blocking check.** That is
-[`../scripts/verify_patches.py`](../scripts/verify_patches.py).
+[`../scripts/verify_patches.py`](../../scripts/verify_patches.py).
 
 ## The standard: three layers, because "applied" fails three ways
 
@@ -30,7 +30,7 @@ the next. The gate checks all three; **any failure exits non-zero and blocks the
 |---|---|---|---|
 | **1 — Source** | Are the patch's exact hunks in the tree that built the binary? | The whole `series` is peeled off the build tree, last patch first, on a scratch copy of the files it touches (`patch -R`). If every patch is in the tree exactly, each reverses cleanly; a missing/mangled one fails. Sequential, so layered patches that edit the same file (e.g. `955` on top of `002`/`070`) are checked correctly too; the tree itself is never modified. | A patch that silently rejected, fuzzed into the wrong place, or partially applied; a committed `patches/` set that no longer reproduces the built tree. |
 | **2 — Binary** | Did that source actually make it into the shipped binary? | Required **marker strings** (command-line switch values + distinctive literals the patch adds) must be present in `chrome` / `chrome.dll`. | A stale binary: the incremental build didn't recompile the touched TU, the wrong `out/` dir was packaged, or dead-code elimination dropped it. Source is right; the artifact is wrong. |
-| **3 — Runtime** | Does the patched code actually *do* its job? | A behavioral **witness** per surface (`navigator.webdriver===false`, `getVoices()` non-empty with the persona set, `measureText` grid quantization, WebGL persona renderer, …), run via [`stealth_coherence.py`](../scripts/stealth_coherence.py) against the launched binary. | "Compiled in but broken" — the code is present but a logic error or a bad interaction makes the effect wrong. |
+| **3 — Runtime** | Does the patched code actually *do* its job? | A behavioral **witness** per surface (`navigator.webdriver===false`, `getVoices()` non-empty with the persona set, `measureText` grid quantization, WebGL persona renderer, …), run via [`stealth_coherence.py`](../../scripts/stealth_coherence.py) against the launched binary. | "Compiled in but broken" — the code is present but a logic error or a bad interaction makes the effect wrong. |
 
 **Why all three, not just one.** They are not redundant; each has a blind spot the next covers:
 
@@ -57,13 +57,13 @@ what forces the standard to stay honest as patches are added:
   is neither applied nor checked.
 - No duplicate `series` entries.
 - **Manifest completeness:** every `series` patch has a witness entry in
-  [`../scripts/patch_markers.json`](../scripts/patch_markers.json). You **cannot add a patch
+  [`../scripts/patch_markers.json`](../../scripts/patch_markers.json). You **cannot add a patch
   without recording how to verify it** — a patch with no entry fails Layer 0, so it can't slip
   past Layers 2/3 unnoticed.
 
 ## Where it runs (three enforcement points — a release genuinely cannot skip it)
 
-1. **Build time** — [`scripts/01-apply-patches.sh`](../scripts/01-apply-patches.sh) runs Layer 1
+1. **Build time** — [`scripts/01-apply-patches.sh`](../../scripts/01-apply-patches.sh) runs Layer 1
    immediately after applying the series. A silent apply failure aborts the build *before any
    compilation*, not after a multi-hour build. (`CLEARCOTE_SKIP_PATCH_VERIFY=1` for local
    debugging only — never in a release build.)
@@ -71,7 +71,7 @@ what forces the standard to stay honest as patches are added:
    (`--tree` after `gen_patches.sh` regenerates `patches/`, **and** `--binary` against the
    staged `chrome.dll`) as a mandatory step. Layer 1 here proves the *committed* patch set
    reproduces the built tree; Layer 2 proves that tree's code is in the artifact being signed.
-3. **CI** — [`.github/workflows/patch-integrity.yml`](../.github/workflows/patch-integrity.yml)
+3. **CI** — [`.github/workflows/patch-integrity.yml`](../../.github/workflows/patch-integrity.yml)
    runs Layer 0 on every push/PR (integrity + manifest completeness, no tree needed). Layer 2
    against the pinned release binary is an **on-demand** job (the "Run workflow" button, on a
    Windows runner): dispatch it right after a release — when the pin matches the patch set — as a
@@ -116,7 +116,7 @@ algorithmic/geometry change with no surviving distinctive string (e.g. sub-pixel
   `patches/` **from the tree** (it self-validates zero-reject re-apply to a pristine baseline),
   then re-run the gate — it must now be clean. If a single patch fails right after
   `01-apply-patches.sh`, that patch genuinely didn't apply: fix the reject, don't skip it (see
-  the [no-skip-stealth-patches](../CONTRIBUTING.md) rule).
+  the [no-skip-stealth-patches](../../CONTRIBUTING.md) rule).
   With a layered stack the report lists every patch that failed while peeling; the **first**
   one listed is where it broke — the ones after it may only fail as a consequence.
 - **Layer 2 fails ("did not compile into the binary")** — the source has the patch but the

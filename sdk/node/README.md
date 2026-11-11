@@ -649,7 +649,7 @@ All optional. Anything not listed here is passed straight through to Playwright
 | `disableGpuFingerprint` | `--disable-gpu-fingerprint` | Turn off GPU/WebGL spoofing. |
 | `geoip` | _(directive)_ | `true` → resolve the proxy's exit-IP geo and auto-fill timezone/acceptLanguage/location/**webrtcIp**. |
 | `fingerprintProfile` | `--fingerprint-profile` | A real machine's captured fingerprint (file path / object / JSON string; the SDK gzip+base64-encodes it). Fields present override the seed-derived persona; absent fields fall back to `fingerprint`. |
-| `canvasBridge` | `--canvas-bridge-*` | Forward canvas/WebGL readbacks to a remote real-GPU host so the pixels a page hashes match the GPU your persona claims. `{ url, auth?, mode?, allow?, deny?, fallback? }`; setting `url` auto-adds `--no-sandbox`. See [docs/CANVAS-BRIDGE.md](../../docs/CANVAS-BRIDGE.md). |
+| `canvasBridge` | `--canvas-bridge-*` | Forward canvas/WebGL readbacks to a remote real-GPU host so the pixels a page hashes match the GPU your persona claims. `{ url, auth?, mode?, allow?, deny?, fallback? }`; setting `url` auto-adds `--no-sandbox`. See [docs/en/CANVAS-BRIDGE.md](../../docs/en/CANVAS-BRIDGE.md). |
 | `extensions` | `--load-extension` + `--disable-extensions-except` | Unpacked-extension directory paths to load (Chromium forces headed when extensions are present). |
 
 > **Headed launches** default to `viewport: null` (no emulated viewport) so `window.innerWidth` tracks the real OS window — an emulated `1280×720` on a real window is an impossible-window tell. Pass an explicit `viewport` to override.

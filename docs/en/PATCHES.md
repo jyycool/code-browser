@@ -5,7 +5,7 @@
 **Coherence model:** Brave per-eTLD+1 farbling, ported onto clearcote's session-seed root
 **Status:** design plan, written before the patches were built · file paths are real Chromium 149 targets
 
-> **This is the design plan, not a list of what ships.** The committed patch set in [`patches/`](../patches) is the source of truth. Several rows below were never built, among them all of the audio noise in [§2.2](#22--audio): no build adds noise to audio samples.
+> **This is the design plan, not a list of what ships.** The committed patch set in [`patches/`](../../patches) is the source of truth. Several rows below were never built, among them all of the audio noise in [§2.2](#22--audio): no build adds noise to audio samples.
 
 ---
 

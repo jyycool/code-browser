@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-patch witnesses for scripts/verify_patches.py. markers=strings validated present in a real built binary; runtime=Layer-3 behavioral witness. See docs/PATCH-INTEGRITY.md.",
+  "_comment": "Per-patch witnesses for scripts/verify_patches.py. markers=strings validated present in a real built binary; runtime=Layer-3 behavioral witness. See docs/en/PATCH-INTEGRITY.md.",
   "patches": {
     "000-fingerprint-switches.patch": {
       "surface": "Defines the clearcote fingerprint / canvas-bridge / TLS command-line switch value strings and forwards them from the browser process into the renderer process so downstream spoofing patches can read them.",

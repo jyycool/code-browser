@@ -12,7 +12,7 @@
 # Run the host mode on EACH target OS (Windows + Linux). --docker adds a bare-image Linux check that
 # also proves the required system libraries are documented (a bare `FROM debian` deploy is how most
 # Docker users break). Requires: host mode -> python3 + node/npm on PATH; docker mode -> Docker.
-# See docs/RELEASE-SMOKE-TEST.md.
+# See docs/en/RELEASE-SMOKE-TEST.md.
 set -uo pipefail
 
 VERSION="${1:?usage: smoke-release.sh <version> [--docker]}"

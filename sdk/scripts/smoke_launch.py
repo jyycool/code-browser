@@ -8,7 +8,7 @@
 Launches headless and reads a real navigator.userAgent (proves the process started AND runs JS).
 Exits non-zero on ANY failure so a release pipeline can gate on it. This imports whatever
 `clearcote` is installed in the current environment, so run it after installing the version you
-want to verify (e.g. `pip install clearcote==X`). See docs/RELEASE-SMOKE-TEST.md.
+want to verify (e.g. `pip install clearcote==X`). See docs/en/RELEASE-SMOKE-TEST.md.
 
 A FREE run must really be keyless: the SDK reads CLEARCOTE_LICENSE_KEY and ~/.clearcote/license.key
 on its own, so smoke-release.sh starts it with neither. As a guard, a FREE run whose Chrome major is

@@ -14,7 +14,7 @@
 # or run the numbered scripts in scripts/ individually (they read $TARGET).
 #
 # For a fully-pinned, reproducible environment, build inside the container instead — see the
-# Dockerfile at the repo root and docs/BUILDING.md.
+# Dockerfile at the repo root and docs/en/BUILDING.md.
 set -euo pipefail
 export TARGET="${1:-${TARGET:-windows}}"
 case "$TARGET" in windows|linux) ;; *) echo "usage: $0 [windows|linux]"; exit 2 ;; esac
@@ -36,4 +36,4 @@ run "05  package the distributable"                05-package.sh
 
 echo
 echo "DONE — artifact in $WORK/dist."
-echo "Verify, GPG-sign, and publish it per docs/RELEASING.md; verify a download per docs/VERIFY.md."
+echo "Verify, GPG-sign, and publish it per docs/en/RELEASING.md; verify a download per docs/en/VERIFY.md."

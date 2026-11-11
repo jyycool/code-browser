@@ -8,7 +8,7 @@ Clearcote is meant to be rebuilt by anyone with a capable Linux box. This guide 
 
 | Component | Pin |
 |---|---|
-| Chromium | `151.0.7922.108` (see [`UPSTREAM_REVISION`](../UPSTREAM_REVISION)) |
+| Chromium | `151.0.7922.108` (see [`UPSTREAM_REVISION`](../../UPSTREAM_REVISION)) |
 | ungoogled-chromium | tag `151.0.7922.108-1` (commit `ecbcc4c1413c961e37d4224f787fecb8534b1505`) |
 | ungoogled-chromium-windows | tag `151.0.7922.108-1.1` (commit `0314145a88835602a48d656fd9836e5f5644721c`) |
 | Toolchain | Chromium in-tree clang/lld (clang-cl + lld-link for the Windows target) |
@@ -24,7 +24,7 @@ Clearcote is meant to be rebuilt by anyone with a capable Linux box. This guide 
 
 ## The container path (recommended — same environment for everyone)
 
-The most reproducible way is to build inside the pinned [`Dockerfile`](../Dockerfile), so the OS + tools are identical to what we build with — you only need Docker (+ RAM/disk/time):
+The most reproducible way is to build inside the pinned [`Dockerfile`](../../Dockerfile), so the OS + tools are identical to what we build with — you only need Docker (+ RAM/disk/time):
 
 ```bash
 git clone https://github.com/clearcotelabs/clearcote-browser.git && cd clearcote-browser
@@ -47,7 +47,7 @@ cd clearcote-browser
 WORK=~/clearcote-build ./build.sh linux       # or: ./build.sh windows   (default is windows)
 ```
 
-[`build.sh`](../build.sh) takes the target OS (`windows` | `linux`) and runs the stages below in order, dropping the packaged archive in `$WORK/dist`. Every stage reads `$TARGET`, so you can also run them individually from [`scripts/`](../scripts):
+[`build.sh`](../../build.sh) takes the target OS (`windows` | `linux`) and runs the stages below in order, dropping the packaged archive in `$WORK/dist`. Every stage reads `$TARGET`, so you can also run them individually from [`scripts/`](../../scripts):
 
 | Stage | Script | What it does |
 |---|---|---|
@@ -68,7 +68,7 @@ The identity/privacy behavior is defined **entirely by the patch set** — read 
 
 1. **ungoogled-chromium base patches** — removes Google integration/telemetry (`utils/patches.py apply`).
 2. **ungoogled-chromium-windows overlay** — the Windows-specific patches. Applied for the Linux target too: the released Linux binary is built from the same tree, and `905-rc-invoked-guard` expects the overlay's `chrome_command_ids.h`.
-3. **Clearcote fingerprint patches** — engine-level canvas/WebGL/audio/UA/fonts/etc. spoofing, in [`patches/`](../patches), listed in `patches/series`. See [PATCHES.md](PATCHES.md).
+3. **Clearcote fingerprint patches** — engine-level canvas/WebGL/audio/UA/fonts/etc. spoofing, in [`patches/`](../../patches), listed in `patches/series`. See [PATCHES.md](PATCHES.md).
 
 `scripts/01-apply-patches.sh` applies them with the ungoogled patch tooling. Every patch is a plain unified diff against the pinned revision.
 
@@ -91,7 +91,7 @@ The build then runs with **`DEPOT_TOOLS_WIN_TOOLCHAIN=1`** (not 0) pointing `GYP
 
 ## 5. Configure + build
 
-`scripts/04-configure-build.sh` copies [`config/args.gn`](../config/args.gn) (or [`config/args.linux.gn`](../config/args.linux.gn)) into `out/Default`, runs `gn gen`, and `ninja -C out/Default chrome`. The config is the exact `args.gn` the release used (de-Googled, `proprietary_codecs=true`, and since Chromium 151 an **official** build: `is_official_build=true`, `dcheck_always_on=false`, ThinLTO + PGO).
+`scripts/04-configure-build.sh` copies [`config/args.gn`](../../config/args.gn) (or [`config/args.linux.gn`](../../config/args.linux.gn)) into `out/Default`, runs `gn gen`, and `ninja -C out/Default chrome`. The config is the exact `args.gn` the release used (de-Googled, `proprietary_codecs=true`, and since Chromium 151 an **official** build: `is_official_build=true`, `dcheck_always_on=false`, ThinLTO + PGO).
 
 **PGO profile.** `chrome_pgo_phase=2` needs the profile that `pgo_data_path` names. The Linux profile is in the source tarball. The Windows one is not; stage 04 downloads it before `gn gen` (and checks that `pgo_data_path` matches the name the tree expects). By hand, from `build/src`:
 
@@ -124,4 +124,4 @@ These bit us; the scripts handle them, but know they exist:
 
 ## Reproducibility (honest scope)
 
-Same pinned revision + same patch set + same `config/args.gn` → a functionally identical build. Building inside the [`Dockerfile`](../Dockerfile) removes the single biggest source of drift — the build *environment* (OS, libc, tool versions) is then identical to ours — which is why the container is the recommended path. Even so, Chromium builds are **not yet bit-for-bit deterministic** (embedded build paths, timestamps, linker/PGO nondeterminism), so a byte-identical hash match is the *goal*, not a guarantee today — what you can fully audit now is that every change is a readable patch, the config is public, and the whole toolchain is pinned. A fully reproducible/attested build is tracked in [ROADMAP.md](../ROADMAP.md), Phase 4. See [VERIFY.md](VERIFY.md).
+Same pinned revision + same patch set + same `config/args.gn` → a functionally identical build. Building inside the [`Dockerfile`](../../Dockerfile) removes the single biggest source of drift — the build *environment* (OS, libc, tool versions) is then identical to ours — which is why the container is the recommended path. Even so, Chromium builds are **not yet bit-for-bit deterministic** (embedded build paths, timestamps, linker/PGO nondeterminism), so a byte-identical hash match is the *goal*, not a guarantee today — what you can fully audit now is that every change is a readable patch, the config is public, and the whole toolchain is pinned. A fully reproducible/attested build is tracked in [ROADMAP.md](../../ROADMAP.md), Phase 4. See [VERIFY.md](VERIFY.md).

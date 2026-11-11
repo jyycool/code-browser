@@ -75,12 +75,15 @@ clearcote-browser/
 ├── docker/              # the CDP-endpoint Docker image
 ├── tools/               # fingerprint collector, canvas bridge server
 └── docs/
-    ├── BUILDING.md          # build from source
-    ├── VERIFY.md            # verify a release
-    ├── RELEASING.md         # maintainer release runbook (canonical)
-    ├── PATCHES.md           # patch-set overview
-    ├── RESEARCH.md          # design research
-    └── RESEARCH-DOSSIER.md  # deep build/stealth dossier
+    ├── en/                  # English docs
+    │   ├── BUILDING.md          # build from source
+    │   ├── VERIFY.md            # verify a release
+    │   ├── RELEASING.md         # maintainer release runbook (canonical)
+    │   ├── PATCHES.md           # patch-set overview
+    │   ├── FINGERPRINT.md       # every fingerprint surface + its switch
+    │   ├── RESEARCH.md          # design research
+    │   └── RESEARCH-DOSSIER.md  # deep build/stealth dossier
+    └── zh/                  # Chinese translations (same file names)
 ```
 
 ## Conventions
@@ -105,7 +108,7 @@ cp config/args.gn build/src/out/Default/args.gn
 sha256sum out/Default/<artifact>
 ```
 
-See [docs/BUILDING.md](docs/BUILDING.md) for the complete pipeline and [docs/VERIFY.md](docs/VERIFY.md) for verification.
+See [docs/en/BUILDING.md](docs/en/BUILDING.md) for the complete pipeline and [docs/en/VERIFY.md](docs/en/VERIFY.md) for verification.
 
 ## Adding or fixing a patch
 

@@ -296,7 +296,7 @@ To turn the sandbox off on purpose, pass `CC_EXTRA_ARGS=--no-sandbox`. These in 
 it off too, because Chrome cannot run its sandbox with them here: `--no-zygote`,
 `--disable-namespace-sandbox` (this image has no setuid sandbox to fall back on),
 `--renderer-cmd-prefix=` (Chrome then starts renderers itself, outside the sandbox's namespaces), and
-`--canvas-bridge-url=` (the [canvas bridge](../docs/CANVAS-BRIDGE.md) opens its socket from the
+`--canvas-bridge-url=` (the [canvas bridge](../docs/en/CANVAS-BRIDGE.md) opens its socket from the
 renderer, which the sandbox does not allow).
 
 ### Secrets and `docker inspect`
@@ -362,4 +362,4 @@ engine keeps the password in the entrypoint's relay instead, off the command lin
   (headful, the default), a Windows persona (Direct3D11) through SwiftShader. Under `CC_HEADLESS=1`
   there is no display, so a Linux persona renders through Mesa over EGL instead (same limits).
   A `--use-angle=` in `CC_EXTRA_ARGS` wins.
-  Pair with the [canvas bridge](../docs/CANVAS-BRIDGE.md) for real-GPU pixel coherence.
+  Pair with the [canvas bridge](../docs/en/CANVAS-BRIDGE.md) for real-GPU pixel coherence.

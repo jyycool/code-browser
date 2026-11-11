@@ -51,7 +51,7 @@ symbol_level = 0
 blink_symbol_level = 0
 # PGO with Chromium's own profile for this revision. The Windows profile is NOT in the source
 # tarball: scripts/04-configure-build.sh downloads the file chrome/build/win64.pgo.txt names into
-# chrome/build/pgo_profiles/ (see docs/BUILDING.md). The path below must match that name.
+# chrome/build/pgo_profiles/ (see docs/en/BUILDING.md). The path below must match that name.
 chrome_pgo_phase = 2
 pgo_data_path = "//chrome/build/pgo_profiles/chrome-win64-7922-1785927076-0ef58e9624f4234b4e8014b635eadd1fce6212cf-fe1da440d678744723d81cc39d45fc5ba3ccfa2d.profdata"
 # The official default (true) runs MSVC's `undname` on the linker output, which does not exist in a

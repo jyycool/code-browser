@@ -41,4 +41,4 @@ fetch_dep "$CGIT/external/github.com/microsoft/webauthn.git"        273689d1d542
 fetch_dep "$CGIT/external/github.com/microsoft/DirectX-Headers.git" 62c23d5ec700659453c6fe89d296554b2a5e7edc third_party/microsoft_dxheaders/src
 
 echo "OK: pruned Chromium 151 source + win sub-DEPS at $WORK/build/src"
-echo "next -> scripts/01-apply-patches.sh   (patch series: ungoogled base + windows overlay + clearcote fingerprint; see patches/ and docs/BUILDING.md)"
+echo "next -> scripts/01-apply-patches.sh   (patch series: ungoogled base + windows overlay + clearcote fingerprint; see patches/ and docs/en/BUILDING.md)"

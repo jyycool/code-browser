@@ -74,4 +74,4 @@ not a trust marker. If the fingerprint differs or a checksum fails, treat the
 release as tampered and **do not run it**.
 
 Full verification — reading the patch set and rebuilding from source — is
-documented in [docs/VERIFY.md](docs/VERIFY.md).
+documented in [docs/en/VERIFY.md](docs/en/VERIFY.md).

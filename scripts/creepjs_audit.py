@@ -14,7 +14,7 @@ scrapes CreepJS's own trust-score + lies, and emits:
   * (optional) injects the table into a README between marker comments:
         <!-- CREEPJS_RESULTS:START -->   ...   <!-- CREEPJS_RESULTS:END -->
 
-Run on EVERY release (see docs/RELEASING.md) so the README reflects the shipped
+Run on EVERY release (see docs/en/RELEASING.md) so the README reflects the shipped
 binary. Uses a demo --webrtc-ip and an explicit --timezone so NO real PII (real
 IP / location) lands in a public README.
 

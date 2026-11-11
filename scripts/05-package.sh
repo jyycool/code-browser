@@ -2,7 +2,7 @@
 # 05 — package the built browser into a distributable archive:
 #       windows -> clearcote-<V>-windows-x64.zip  (chrome.exe + DLLs + VC++ runtime)
 #       linux   -> clearcote-<V>-linux-x64.tar.xz (chrome + chrome-sandbox + .so/.pak/…)
-# The signing + checksum + GitHub-release steps live in docs/RELEASING.md.
+# The signing + checksum + GitHub-release steps live in docs/en/RELEASING.md.
 #
 #   TARGET  windows | linux   (default: windows)
 #   WORK    working dir (default: ~/clearcote-build)
@@ -84,4 +84,4 @@ if [ "$TARGET" = "linux" ]; then
 else
   printf '%s  %s\n%s  %s\n' "$ARCH_HASH" "$ASSET" "$(sha256sum "$OUT/$INNER" | awk '{print $1}')" "$INNER" > SHA256SUMS.txt
 fi
-echo "OK: $DIST/$ASSET — now verify + GPG-sign SHA256SUMS.txt + publish per docs/RELEASING.md"
+echo "OK: $DIST/$ASSET — now verify + GPG-sign SHA256SUMS.txt + publish per docs/en/RELEASING.md"

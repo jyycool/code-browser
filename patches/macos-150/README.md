@@ -6,4 +6,4 @@ not listed in [`../series`](../series): there is no macOS build of open 151, and
 rebased to the 151 tree. `scripts/01-apply-patches.sh` and `scripts/verify_patches.py` read only the
 top-level `patches/*.patch` files named in `series`, so nothing in this folder is applied or checked
 by the Windows/Linux build. What they do and how the macOS build uses them is in
-[`../../docs/MACOS-FONTS.md`](../../docs/MACOS-FONTS.md).
+[`../../docs/en/MACOS-FONTS.md`](../../docs/en/MACOS-FONTS.md).

@@ -11,7 +11,7 @@ If you deviate, document why in the release notes. Do not silently skip a step �
 ## 0. Principles (non-negotiable)
 
 1. **Every artifact is signed and checksummed.** No release without `SHA256SUMS.txt` + a GPG detached signature + the public key attached. This is the whole point of the project (see [VERIFY.md](VERIFY.md)).
-2. **Trust anchors to the pinned key, not the release.** The signing-key fingerprint `CA96F185 F96A 693A EDB3 AC1F CB00 D851 B7A8 6B0F` is published **out-of-band** in [README.md](../README.md) and [VERIFY.md](VERIFY.md), and does not change between releases. Verification means: import the key, **confirm its fingerprint equals that pinned value**, then check the signature — never trust whatever key is merely attached to a release. A release is blocked unless README **and** VERIFY.md both carry this fingerprint and the `gpg --verify` steps. *(Otherwise an attacker who controls the release swaps the zip, the sigs, and the key together and every check still passes — the GPG layer would add nothing over a bare checksum.)*
+2. **Trust anchors to the pinned key, not the release.** The signing-key fingerprint `CA96F185 F96A 693A EDB3 AC1F CB00 D851 B7A8 6B0F` is published **out-of-band** in [README.md](../../README.md) and [VERIFY.md](VERIFY.md), and does not change between releases. Verification means: import the key, **confirm its fingerprint equals that pinned value**, then check the signature — never trust whatever key is merely attached to a release. A release is blocked unless README **and** VERIFY.md both carry this fingerprint and the `gpg --verify` steps. *(Otherwise an attacker who controls the release swaps the zip, the sigs, and the key together and every check still passes — the GPG layer would add nothing over a bare checksum.)*
 3. **Verify at every boundary.** On the build box (before moving anything), after transfer to local (re-hash), after publish (`gh api`), and once as a clean-room user would. The signed `SHA256SUMS.txt` is the source of truth.
 4. **Reproducible & auditable — but don't over-claim.** The build is rebuildable from the pinned `UPSTREAM_REVISION` + the readable patch set + the published `config/args.gn`. Chromium cross-builds are **not yet bit-for-bit deterministic**, so frame the guarantee as "every change is an auditable patch and the config is public," not "rebuild and the hash matches." Reserve the hash-match/attestation promise for when a deterministic build lands (ROADMAP Phase 4).
 5. **Pre-release until validated.** Any build not yet passed against live detection sites on real Windows is `--prerelease` with the caveats spelled out. No exceptions.
@@ -131,9 +131,9 @@ python3 scripts/verify_patches.py \
   stale/mis-built (an incremental build that didn't recompile a touched file, or the wrong
   `out/` dir) — rebuild (`ninja -C out/Default chrome`), re-stage (§4), and re-run.
 
-> The same gate runs automatically at build time in [`scripts/01-apply-patches.sh`](../scripts/01-apply-patches.sh)
+> The same gate runs automatically at build time in [`scripts/01-apply-patches.sh`](../../scripts/01-apply-patches.sh)
 > (Layer 1, right after applying — a silent reject aborts before compiling) and in CI
-> ([`.github/workflows/patch-integrity.yml`](../.github/workflows/patch-integrity.yml): Layer 0
+> ([`.github/workflows/patch-integrity.yml`](../../.github/workflows/patch-integrity.yml): Layer 0
 > on every push; Layer 2 against the pinned release binary is an on-demand post-release check).
 > This §4a run is the human-gated release checkpoint that ties both to the exact artifact you are
 > about to sign.

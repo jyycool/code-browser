@@ -5,7 +5,7 @@ Patches `956`–`958`. If you are building for Windows or Linux, none of this ap
 targets never declare the bundle and never compile the registration.
 
 > **Scope: the open Chromium 150 macOS build only.** `956`–`958` live in
-> [`patches/macos-150/`](../patches/macos-150/) and are written against the 150 tree. They are not in
+> [`patches/macos-150/`](../../patches/macos-150/) and are written against the 150 tree. They are not in
 > the Chromium 151 `patches/series`, and there is no macOS build of open 151.
 
 ## The problem

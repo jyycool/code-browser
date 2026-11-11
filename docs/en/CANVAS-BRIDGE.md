@@ -59,7 +59,7 @@ The render browser can be:
   identity is then your own machine's GPU.
 
 The reference render server lives in
-[`tools/canvas-bridge-server/`](../tools/canvas-bridge-server/).
+[`tools/canvas-bridge-server/`](../../tools/canvas-bridge-server/).
 
 ## Choosing where to render — the GPU *is* your canvas identity
 

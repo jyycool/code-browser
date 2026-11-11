@@ -24,7 +24,7 @@ each OS downloads the FREE and the PRO binary once per run.
 
 ## How to run
 
-The harness lives in [`sdk/scripts/`](../sdk/scripts/): `smoke-release.sh` (orchestrator) +
+The harness lives in [`sdk/scripts/`](../../sdk/scripts/): `smoke-release.sh` (orchestrator) +
 `smoke_launch.py` / `smoke_launch.mjs` (the actual launchers, which exit non-zero on any failure;
 each takes `free`, `pro`, or nothing for both).
 

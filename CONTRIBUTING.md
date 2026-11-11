@@ -20,11 +20,11 @@ Thanks for your interest! Clearcote is built in the open and contributions are w
 
 ## Reviewing & verification
 
-PRs that change runtime behavior should explain the privacy/identity reasoning and include a way to verify the effect. See [docs/VERIFY.md](docs/VERIFY.md).
+PRs that change runtime behavior should explain the privacy/identity reasoning and include a way to verify the effect. See [docs/en/VERIFY.md](docs/en/VERIFY.md).
 
 ## Cutting a release (maintainers)
 
-Releases follow one standing procedure — build, bundle the runtime, checksum, GPG-sign against the pinned key, verify on the build box and again after transfer, publish as a signed pre-release, and announce. Do not improvise: follow **[docs/RELEASING.md](docs/RELEASING.md)** top to bottom, every time.
+Releases follow one standing procedure — build, bundle the runtime, checksum, GPG-sign against the pinned key, verify on the build box and again after transfer, publish as a signed pre-release, and announce. Do not improvise: follow **[docs/en/RELEASING.md](docs/en/RELEASING.md)** top to bottom, every time.
 
 ## Code of conduct
 

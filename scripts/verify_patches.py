@@ -25,10 +25,10 @@ WHY THREE LAYERS — "applied" means three different things, and each fails inde
   Layer 3  EFFECTIVE AT RUNTIME A behavioral witness per surface actually observes the effect.
                                Catches "compiled in but broken." Delegated to
                                scripts/stealth_coherence.py + the per-patch witnesses recorded in
-                               scripts/patch_markers.json (see docs/PATCH-INTEGRITY.md).
+                               scripts/patch_markers.json (see docs/en/PATCH-INTEGRITY.md).
 
 Any failure exits non-zero, so scripts/01-apply-patches.sh, the release runbook, and CI all
-abort. See docs/PATCH-INTEGRITY.md for the standard and how to add a witness for a new patch.
+abort. See docs/en/PATCH-INTEGRITY.md for the standard and how to add a witness for a new patch.
 
 Usage:
   # Layer 0 (series/manifest integrity) always runs.
@@ -128,7 +128,7 @@ def layer0_integrity(series: list[str], manifest: dict | None) -> list[str]:
         for p in series:
             if p not in entries:
                 fails.append(f"[manifest] '{p}' has no witness entry in {MANIFEST.name} "
-                             f"(add its markers/runtime witness — see docs/PATCH-INTEGRITY.md)")
+                             f"(add its markers/runtime witness — see docs/en/PATCH-INTEGRITY.md)")
         for p in sorted(set(entries) - set(series)):
             fails.append(f"[manifest] {MANIFEST.name} references '{p}' which is not in series")
         # cross-check windows_only agreement
@@ -359,7 +359,7 @@ def main() -> None:
         err(f"PATCH INTEGRITY FAILED — {len(fails)} problem(s); release BLOCKED:")
         for f in fails:
             print(f"    - {f}")
-        print("\nSee docs/PATCH-INTEGRITY.md. Do NOT release until every layer is clean.")
+        print("\nSee docs/en/PATCH-INTEGRITY.md. Do NOT release until every layer is clean.")
         sys.exit(1)
     print("OK: patch integrity verified — every checked layer is clean.")
 

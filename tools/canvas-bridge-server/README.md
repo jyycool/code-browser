@@ -1,6 +1,6 @@
 # Canvas Bridge — render server
 
-The server side of the [canvas bridge](../../docs/CANVAS-BRIDGE.md). It replays the
+The server side of the [canvas bridge](../../docs/en/CANVAS-BRIDGE.md). It replays the
 canvas/WebGL operations a client forwards on a **real browser** and returns that
 browser's authentic pixels (and `measureText` metrics). Whatever GPU the render
 browser runs on becomes the canvas identity your clients present.
@@ -37,7 +37,7 @@ logs it — use those exact strings for the client's `--fingerprint-gpu-vendor` 
 `--fingerprint-gpu-renderer` so the client's reported GPU matches the pixels.
 
 Then point clients at it (over a private network or tunnel — see the
-[main doc](../../docs/CANVAS-BRIDGE.md)):
+[main doc](../../docs/en/CANVAS-BRIDGE.md)):
 
 ```
 clearcote --canvas-bridge-url=ws://<host>:9099 --no-sandbox --fingerprint=<seed>

@@ -423,7 +423,7 @@ handshake and HTTP/2 settings agree too.
 
 - **Identity:** user agent and client hints (brand, platform, version, architecture), the same in JavaScript and in `Sec-CH-UA` headers.
 - **GPU:** WebGL vendor, renderer, `getParameter` limits and extensions, plus WebGPU limits that match the same GPU.
-- **Rendering:** per-site canvas and WebGL noise from the seed, or switched off; an optional [real-GPU canvas bridge](docs/CANVAS-BRIDGE.md).
+- **Rendering:** per-site canvas and WebGL noise from the seed, or switched off; an optional [real-GPU canvas bridge](docs/en/CANVAS-BRIDGE.md).
 - **Audio:** `AudioContext` reports the persona's sample rate and latency instead of the host's. Audio samples (`getChannelData`, `copyFromChannel`, offline rendering) get no noise and are the same on every seed: they match stock Chrome on the same machine, and noise would give values no real Chrome produces.
 - **Fonts:** the persona's operating-system fonts with the right widths, including on a Linux server.
 - **Hardware and screen:** cores, memory, storage quota, screen size, colour depth, pixel ratio, `getScreenDetails()`, touch points.
@@ -431,7 +431,7 @@ handshake and HTTP/2 settings agree too.
 - **Long tail:** speech voices, media codecs, media devices, CSS media queries, battery, network information, keyboard layout.
 - **Input:** human-like, trusted mouse and keyboard input that keeps `navigator.webdriver` `false` (synthetic paths in the open build, recorded human paths in the licensed build).
 
-The patches that ship: [patches/](patches/) · the design plan they were built from, which also lists surfaces that were never built: [docs/PATCHES.md](docs/PATCHES.md) · the release gate that checks them: [docs/STEALTH-COHERENCE.md](docs/STEALTH-COHERENCE.md).
+The patches that ship: [patches/](patches/) · the design plan they were built from, which also lists surfaces that were never built: [docs/en/PATCHES.md](docs/en/PATCHES.md) · the release gate that checks them: [docs/en/STEALTH-COHERENCE.md](docs/en/STEALTH-COHERENCE.md).
 
 ---
 
@@ -584,7 +584,7 @@ DPR 会同步到所有相关位置（`961` / `962`）：`Sec-CH-DPR` 请求头�
 | 语音 | `speechSynthesis.getVoices()` 返回画像语音：默认 Windows SAPI 的 en-US David / Zira / Mark，或档案中的 `speech[]`；不会为空 | `170` |
 | `Math.tanh` | Windows 画像在任何宿主上都返回与 Windows 逐位相同的结果 | `965` |
 
-macOS 画像另有 3 个字体补丁，见 [`patches/macos-150/`](patches/macos-150/) 与 [`docs/MACOS-FONTS.md`](docs/MACOS-FONTS.md)。
+macOS 画像另有 3 个字体补丁，见 [`patches/macos-150/`](patches/macos-150/) 与 [`docs/zh/MACOS-FONTS.md`](docs/zh/MACOS-FONTS.md)。
 
 ---
 
@@ -660,7 +660,7 @@ CSS `@media`、触摸点、编解码能力和媒体设备列表。档案里没�
 | `--canvas-bridge-allow=` / `--canvas-bridge-deny=` | 逗号分隔的 eTLD+1 列表 |
 | `--canvas-bridge-fallback=block\|local` | 缓存未命中时阻塞等待，或改为本地渲染 |
 
-服务端见 [`tools/canvas-bridge-server`](tools/canvas-bridge-server/)，详细说明见 [`docs/CANVAS-BRIDGE.md`](docs/CANVAS-BRIDGE.md)。
+服务端见 [`tools/canvas-bridge-server`](tools/canvas-bridge-server/)，详细说明见 [`docs/zh/CANVAS-BRIDGE.md`](docs/zh/CANVAS-BRIDGE.md)。
 
 ---
 
@@ -774,14 +774,14 @@ CA96 F185 F96A 693A EDB3  AC1F CB00 D851 B7A8 6B0F
 ```
 
 The open build can be rebuilt from this repo and compared with the published one
-([docs/VERIFY.md](docs/VERIFY.md)). To build Windows (cross-compiled) or Linux (native) on a Linux host:
+([docs/en/VERIFY.md](docs/en/VERIFY.md)). To build Windows (cross-compiled) or Linux (native) on a Linux host:
 
 ```bash
 git clone https://github.com/clearcotelabs/clearcote-browser.git
 cd clearcote-browser && WORK=~/clearcote-build ./build.sh
 ```
 
-Guide: [docs/BUILDING.md](docs/BUILDING.md) · patches: [`patches/`](patches/) (applied in the order of [`patches/series`](patches/series)).
+Guide: [docs/en/BUILDING.md](docs/en/BUILDING.md) · patches: [`patches/`](patches/) (applied in the order of [`patches/series`](patches/series)).
 
 ---
 
@@ -800,7 +800,7 @@ Puppeteer and any CDP client: yes, through the binary or a CDP endpoint. Seleniu
 **Which operating systems are supported?**
 Windows x64, Linux x64 and **macOS arm64** (Apple Silicon), plus the Docker image. The browser can present itself as
 Windows, Linux, macOS or Android on any of them.
-The macOS build is **unsigned** — clear the quarantine flag after verifying it ([VERIFY.md](docs/VERIFY.md) §2a).
+The macOS build is **unsigned** — clear the quarantine flag after verifying it ([VERIFY.md](docs/en/VERIFY.md) §2a).
 macOS x64 (Intel) is not built; on an Intel Mac `launch()` still runs the Docker image through Docker Desktop
 (SDK 0.40.0+).
 
@@ -821,7 +821,7 @@ Privacy, QA and testing, research and lawful automation. Respect site terms and 
 |---|---|
 | **Website** | [clearcotelabs.com](https://www.clearcotelabs.com/?utm_source=github&utm_medium=readme&utm_content=more) · [Docs](https://www.clearcotelabs.com/docs?utm_source=github&utm_medium=readme&utm_content=more) · [Pricing](https://www.clearcotelabs.com/pricing?utm_source=github&utm_medium=readme&utm_content=more) · [Compare alternatives](https://www.clearcotelabs.com/alternatives?utm_source=github&utm_medium=readme&utm_content=more) · [Blog](https://www.clearcotelabs.com/blog?utm_source=github&utm_medium=readme&utm_content=more) |
 | **SDK references** | [Python](sdk/python/README.md) · [Node](sdk/node/README.md) · [.NET](sdk/dotnet) |
-| **Docs** | [VERIFY](docs/VERIFY.md) · [BUILDING](docs/BUILDING.md) · [PATCHES](docs/PATCHES.md) · [UPGRADING](docs/UPGRADING.md) · [CANVAS-BRIDGE](docs/CANVAS-BRIDGE.md) · [STEALTH-COHERENCE](docs/STEALTH-COHERENCE.md) |
+| **Docs** | [VERIFY](docs/en/VERIFY.md) · [BUILDING](docs/en/BUILDING.md) · [PATCHES](docs/en/PATCHES.md) · [UPGRADING](docs/en/UPGRADING.md) · [CANVAS-BRIDGE](docs/en/CANVAS-BRIDGE.md) · [STEALTH-COHERENCE](docs/en/STEALTH-COHERENCE.md) |
 | **Hosted** | [Hosted browsers](https://www.clearcotelabs.com/docs/hosted-browsers?utm_source=github&utm_medium=readme&utm_content=more) · [Agent runs](https://www.clearcotelabs.com/docs/runs?utm_source=github&utm_medium=readme&utm_content=more) · [Playground](https://www.clearcotelabs.com/dashboard/playground?utm_source=github&utm_medium=readme&utm_content=more) · [Site status](https://github.com/clearcotelabs/clearcote-tracker) |
 | **Profiles** | [clearcote-profiles](https://github.com/clearcotelabs/clearcote-profiles) · [collector](tools/fingerprint-collect) · [Profile Manager app](https://github.com/clearcotelabs/clearcote-profile-manager) |
 | **For agents** | [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md) |

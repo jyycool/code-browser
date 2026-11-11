@@ -46,7 +46,7 @@ done < "$REPO/patches/series"
 # to the tree; if one silently rejected, fuzzed into the wrong place, or partially applied, this
 # catches it HERE — before a single object file is built — instead of quietly shipping a
 # de-stealthed binary. Same gate the release runbook re-runs against the packaged artifact.
-# See docs/PATCH-INTEGRITY.md. Set CLEARCOTE_SKIP_PATCH_VERIFY=1 only for local debugging.
+# See docs/en/PATCH-INTEGRITY.md. Set CLEARCOTE_SKIP_PATCH_VERIFY=1 only for local debugging.
 if [ "${CLEARCOTE_SKIP_PATCH_VERIFY:-0}" != "1" ]; then
   echo "  verifying: patch integrity (reverse-apply gate)"
   python3 "$REPO/scripts/verify_patches.py" --tree "$SRC" --target "$TARGET"

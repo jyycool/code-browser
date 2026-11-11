@@ -8,7 +8,7 @@
 // Launches headless and reads a real navigator.userAgent (proves the process started AND runs JS).
 // Exits non-zero on ANY failure so a release pipeline can gate on it. Imports whatever `clearcote` is
 // installed in the current directory's node_modules, so run it after `npm i clearcote@X`.
-// See docs/RELEASE-SMOKE-TEST.md.
+// See docs/en/RELEASE-SMOKE-TEST.md.
 //
 // A FREE run must really be keyless: the SDK reads CLEARCOTE_LICENSE_KEY and ~/.clearcote/license.key
 // on its own, so smoke-release.sh starts it with neither. As a guard, a FREE run whose Chrome major is
