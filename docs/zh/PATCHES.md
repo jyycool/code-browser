@@ -236,3 +236,195 @@ clearcote 的隐身姿态建立在**大多数反检测分支都弄错的两条�
 > **没有种子/画像依赖：** 所有去 Google 补丁、`webdriver-automation-scrub`、`humanize-synthetic-gesture-unmark`、`socks5-credentialed-and-dns-in-proxy`、`timing-chrome-parity-assert`、`math-libm-ulp-coherence`。
 
 ---
+
+## 4. 与 adryfish 的组合
+
+clearcote 以 **adryfish/fingerprint-chromium 142→149** 的移植为基础，然后在其上叠加按 eTLD+1 的引擎和各个面的补丁。总规则是：
+**凡是 adryfish 已经涉及的面，我们把它的噪声升级为按 eTLD+1，而不是重复打补丁**：同一个 getter 上有两条相互竞争的伪装路径 = 必然不一致。
+`clearcote-disable-global-fingerprint` 就是强制执行这一点的**构建时审计门禁**（一个编译错误，而不是之后某个阶段的审查）。
+
+### adryfish **已经**覆盖的面 → 升级（不要重复打补丁）
+
+| 指纹面 | adryfish 的覆盖 | clearcote 的行动 |
+|---|---|---|
+| **全局指纹种子** | `--fingerprint=<int32>` 单一全局种子；`--fingerprint-platform/-brand/-hardware-concurrency` | **把这个整数保留为会话 token。** 把 `FingerprintSeed()` 重定向到每个文档的 `SessionCache` 种子（`clearcote-disable-global-fingerprint`，有构建断言）。把 int32 扩展为 uint64（`clearcote-seed-switch`）。 |
+| **hardwareConcurrency** | `navigator_concurrent_hardware.cc` 中的 `--fingerprint-hardware-concurrency` 叶子覆盖 | **`hardware-concurrency-coherent` 是这一个调用点的唯一负责者**：把读取开关替换为 `Current().hardware_concurrency`。navigator 和 screen 两份规格合并为这一个补丁（没有第二个写入者）。 |
+| **deviceMemory** | adryfish 的指纹开关路径 | **`device-memory-coherent` 通过 `ApproximatedDeviceMemory` 统一来源**，让 JS 值和 CH 请求头一致。navigator + screen + adryfish 开关合并为一个按档位取值的来源补丁。 |
+| **navigator.platform / UA platform** | `--fingerprint-platform` | 经由画像 `Current()`（冻结版本），使 UA/CH/platform 来源统一（`navigator-ua-clienthints`）。 |
+| **WebGL 信息** | 149 基础中有 `kSpoofWebGLInfo` + `kSpoofWebGLRendererParam.Get()`（已在 webgl base 4104-4105 行确认）；`GL_RENDERER`→`"WebKit WebGL"` | **把现有钩子重新指向**唯一的画像 GPU（`webgl-strings-coherent`，唯一负责者）。canvas 领域的字符串补丁和以前屏幕领域的 `webgl-gpu-coherence` 是**一个补丁、一块 GPU、一个负责者**：它们不再都写这个 getter。 |
+| **音频开关** | 一等公民的 `audio` `--disable-spoofing` 开关（Chrome 144+） | 把 clearcote 按 eTLD+1 的音频级别映射到这个开关上；用按 token 的微调替换全局种子的微调。buffer/analyser/离线共享一个种子。**未实现：** adryfish 的音频噪声被关闭，也不存在按 token 的音频噪声。 |
+| **GPU vendor/renderer 开关** | `--fingerprint-gpu-vendor/-renderer` **在 Chrome 144 中被移除**（现在是 `--disable-spoofing=gpu`） | 不要复活这些开关：走 `kSpoofWebGLInfo`。 |
+
+### clearcote **全新**增加的面（adryfish 没有覆盖）
+
+| 指纹面 | 为什么是全新的 |
+|---|---|
+| **按 eTLD+1 推导**（`clearcote-etld-token`、`-mojom-token`、`-session-cache`、`-worker-seed`） | adryfish 只有全局种子：按站点的一致性引擎是新的（以 Brave 为模型）。 |
+| **冻结的画像 Chrome 版本**（`clearcote-persona-version-freeze`） | adryfish 没有一个在 UA/TLS/原型/JA4 之间共享的单一版本产物。 |
+| **Canvas 最低位扰动**（`canvas2d-farble-perturb`、`webgl-readpixels-farble`） | adryfish 没有做 Brave 风格、依赖内容的 HMAC+LFSR 扰动。 |
+| **WebGL2 内联 `GL_VERSION`/`GL_SHADING_LANGUAGE_VERSION` 改写** | adryfish 的 WebGL 钩子只覆盖 UNMASKED；内联的后端版本字符串没有覆盖（现在在 `webgl-strings-coherent` 中）。 |
+| **WebGPU 适配器 + GPU 进程源头字符串** | 较新的面，adryfish 没有覆盖。 |
+| **音频 buffer/analyser/离线 farbling**，**未实现** | adryfish 只有粗粒度的开关。 |
+| **字体允许列表（分布）+ 度量/矩形抖动 + Font Access 过滤** | 完全是新的（以 Cromite/Camoufox 为模型）。 |
+| **TLS group 表 + H2 SETTINGS 固定** | adryfish 在概念上提到了网络一致性，但没有提供 group/H2 固定。 |
+| **经 SOCKS5 的 UDP + WebRTC 泄露防护 + socks5h DNS + mDNS 一致性** | adryfish 的 README 指出其 SOCKS 不支持密码认证、也不支持 UDP：全部是新的。 |
+| **Permissions API 一致性、math/libm ULP、地理位置/媒体的权限控制** | 评审发现的新的一致性面。 |
+| **时区/区域/地理位置原生固定、媒体设备、语音、传感器、网络信息、原型一致性、自动化清理、去除 Google 残留、人类化输入** | 新的（以 BotBrowser/Camoufox/ungoogled 为模型）。 |
+
+### 统一而不重复（只实现一次：根据评审已解决）
+
+这些在各领域的 JSON 中被重复列出；每一项都是**一个唯一负责者的补丁**，在构建之前定稿：
+- `farbling-seed-core`（canvas）**==** `clearcote-session-cache`（core）**==** `fingerprint-profile-engine` 的种子部分（screen）→ **一个种子引擎。**
+- `persona-fingerprint-profile`（navigator）**==** `fingerprint-profile-engine` 的画像部分（screen）→ **一个 `clearcote-persona-profile`**（它还固定了**唯一的**画像 GPU）。
+- `persona-seed-plumbing`（screen）**==** `clearcote-seed-forward`（core）→ **一个转发补丁。**
+- `hardware-concurrency-coherent`（navigator）**==** `hardware-concurrency-memory-coherence` 的 HC 部分（screen）→ **`navigator_concurrent_hardware.cc` 只有一个负责者。**
+- `device-memory-coherent`（navigator）**==** 内存部分（screen）→ **一个按档位取值的来源补丁。**
+- `webgl-strings-farble`/`webgl-params-coherence`（canvas）**==** `webgl-gpu-coherence`（screen）→ **`webgl-strings-coherent` 是 UNMASKED/GL_VERSION getter 的唯一写入者，固定为唯一的画像 GPU。**
+  屏幕领域读取 `Current().gpu`；它不写 getter。**这解决了 NVIDIA 与 Intel 的矛盾：只有一块 GPU，Intel UHD 770 / ANGLE-D3D11（无头时为 ANGLE-SwiftShader）。**
+- `udp-over-socks5-quic-stun-tunnel`（tls-network）**==** `udp-over-socks5-tunnel`（webrtc）→ **一个 RFC 1928 UDP-ASSOCIATE 实现，一个接线点：`socket_manager.cc:315` 处的 `CreateDatagramClientSocket()` 分派。**
+
+---
+
+## 5. 覆盖矩阵
+
+每个检测面 × 阶段 × 所参照的分支。**U** = 对 adryfish 基础的升级；**N** = clearcote 全新的补丁。
+
+| 检测面 | P0 | P1 | P2 | 参照的分支 | adryfish |
+|---|:---:|:---:|:---:|---|:---:|
+| 按 eTLD+1 的种子引擎 | ● | | | Brave（`BraveSessionCache`） | U |
+| 跨进程种子一致性 | ● | | | ChromiumFish（persona-seed） | U |
+| 冻结的画像 Chrome 版本（1 个产物） | ● | | | clearcote 原创 | N |
+| Worker/worklet 种子传播 | ● | | | Brave | N |
+| Canvas 2D 读回（getImageData/toDataURL/toBlob） | ● | | | Brave（`PerturbPixels`） | N |
+| OffscreenCanvas / worker 中的 canvas | ● | | | Brave | N |
+| measureText / 文本度量 | ● | | | Brave + Camoufox | N |
+| getBoundingClientRect / 非文本矩形 | | | ● | Camoufox（改为按 eTLD+1） | N |
+| WebGL UNMASKED vendor/renderer（一块 GPU） | ● | | | Camoufox（一致的 Intel UHD 770） | U |
+| WebGL2 内联 GL_VERSION/GLSL_VERSION 泄露 | ● | | | clearcote 原创（堵住后端泄露） | U |
+| WebGL 数值参数限制 | | ● | | Camoufox + BotBrowser | N |
+| WebGL drawingBuffer / MSAA 采样数 | | ● | | Camoufox + BotBrowser | N |
+| WebGL 扩展列表 | ● | | | Brave（`WebGLFarbledExtensionHandler`） | N |
+| WebGL readPixels（UNSIGNED_BYTE） | | ● | | Brave（扰动而不是屏蔽） | N |
+| WebGL readPixels（FLOAT/HALF_FLOAT，epsilon） | | ● | | clearcote 原创（没有跳过路径） | N |
+| WebGL contextAttributes / shaderPrecision | | ● | | BotBrowser + Camoufox | N |
+| WebGPU GPUAdapterInfo（一块 GPU，真实字符串） | | ● | | Brave（`BraveScrubWebGpuAdapterInfo`） | N |
+| GPU 进程字符串（chrome://gpu、GL_VERSION） | | | ● | 新颖（唯一的画像 GPU 记录） | N |
+| renderer 字符串 ↔ readPixels 哈希一致性 | ● | | | clearcote 原创（渲染后端规则） | N |
+| AudioBuffer getChannelData/copyFromChannel（未实现） | ● | | | Brave（`audio_buffer` 宏） | U |
+| AnalyserNode 实时读取（×4，共享种子；未实现） | | ● | | Brave | N |
+| AudioContext sampleRate（== 真实渲染速率） | | ● | | ChromiumFish + Camoufox | N |
+| OfflineAudioContext 渲染隔离（共享种子；未实现） | | | ● | ChromiumFish（`IsolateAudioSamples`） | N |
+| 字体列表（CSS 字体族探测，分布） | ● | | | Cromite + ChromiumFish | N |
+| Font Access API（queryLocalFonts） | ● | | | Cromite（扩展） | N |
+| 字体度量抖动（HarfBuzz 步进） | ● | | | Camoufox（改为按 eTLD+1） | N |
+| Mac/Linux 字体名层叠泄露 | | ● | | ChromiumFish | N |
+| @font-face src:local() 侧信道 | | ● | | Cromite + Camoufox | N |
+| 打包的度量兼容字体（测试一致性） | | | ● | ChromiumFish（`lean-windows-fonts`） | N |
+| navigator.userAgent / UA 请求头 | ● | | | ChromiumFish + Camoufox | U |
+| userAgentData / Sec-CH-UA*（×11） | ● | | | ChromiumFish | U |
+| getHighEntropyValues 划分 + 完整版本列表顺序 | ● | | | clearcote 原创（固定为真实构建） | N |
+| navigator.platform / appVersion | ● | | | ChromiumFish + Camoufox | U |
+| navigator.webdriver / AutomationControlled | ● | | | BotBrowser + ChromiumFish + patchright | N |
+| Headless UA 标记 | ● | | | BotBrowser（`removeHeadless`） | N |
+| 自动化信息栏 / WebShare 一致性 | ● | | | BotBrowser + ChromiumFish | N |
+| cdc_ 全局变量 | — | — | — | （不在引擎中：只存在于 chromedriver） | — |
+| navigator.hardwareConcurrency（+worker，1 个负责者） | ● | | | ChromiumFish + Camoufox | U |
+| navigator.deviceMemory（+CH 请求头，1 个来源） | ● | | | ChromiumFish + Brave | U |
+| Permissions API 状态一致性 | | ● | | clearcote 原创 | N |
+| 原型形态 / 封闭 Shadow DOM（对照冻结版本） | | | ● | ChromiumFish（已 A/B 验证） | N |
+| screen.width/height/avail*/colorDepth | ● | | | ChromiumFish + Camoufox | U |
+| ScreenInfo 源头一致性（骨干，先于叶子） | ● | | | ChromiumFish + Camoufox | N |
+| CSS @media device-width/height（泄露：最重要的发现） | ● | | | clearcote 原创 | N |
+| CSS pointer/hover/resolution/color-gamut | ● | | | ChromiumFish | U |
+| CSS prefers-*（按画像加权，不固定） | ● | | | clearcote 原创（群组修正） | N |
+| outerWidth/Height / devicePixelRatio | ● | | | ChromiumFish（经由 ScreenInfo） | U |
+| TLS signature_algorithms（版本守卫） | | ● | | 回归断言（已在原版 149 上验证） | N |
+| TLS Trust Anchor IDs（版本守卫） | | ● | | 回归断言（已在原版 149 上验证） | N |
+| TLS supported_groups / key_share（版本表） | ● | | | 画像版本表 | U |
+| TLS cipher/GREASE/证书压缩/ALPS（守卫） | | ● | | 画像版本 + 149 验证 | U |
+| HTTP/2 SETTINGS 指纹 + 伪首部顺序 | ● | | | BotBrowser + ChromiumFish | N |
+| QUIC/H3 版本 + 传输参数 | ● | | | （锁定 149 默认值） | N |
+| WebRTC ICE IP 处理（host/srflx 泄露） | ● | | | Cromite + ChromiumFish | N |
+| mDNS .local host 候选（与拒绝一同发布） | ● | | | 加固的上游实现 + Brave 种子 | N |
+| 经 SOCKS5 的 UDP（QUIC/STUN 隧道，1 个实现） | ● | | | BotBrowser（重新实现） | N |
+| SOCKS5 凭据（RFC 1929） | ● | | | BotBrowser + adryfish 的缺口 | N |
+| DNS 走代理（socks5h） | ● | | | BotBrowser | N |
+| ICE 候选 / SDP / RTCStats IP（一致） | | ● | | Camoufox（Gecko→Blink） | N |
+| 时区（navigator/Date/Intl/国家） | ● | | | BotBrowser + Camoufox + CloakBrowser | N |
+| 区域（languages/Accept-Language/Intl） | ● | | | Camoufox + CloakBrowser | N |
+| 地理位置（受权限控制，不自动授权） | | ● | | Camoufox | N |
+| enumerateDevices（标签受权限控制） | | ● | | Camoufox + BotBrowser + Brave | N |
+| speechSynthesis.getVoices()（保留异步竞态） | | ● | | Camoufox + Brave | N |
+| getBattery（按画像的差异）/ keyboard / 传感器 | | | ● | ChromiumFish + BotBrowser | N |
+| navigator.connection（网络信息 + CH） | | | ● | BotBrowser | N |
+| Math/libm 超越函数 ULP（操作系统/架构破绽） | | | ● | clearcote 原创 | N |
+| performance.now() / 计时精度（断言） | | | ● | ChromiumFish（回归断言，原版 149） | U |
+| GCM / mtalk.google.com:5228 | ● | | | ungoogled（`disable-gcm`） | N |
+| 组件更新器（update.googleapis.com） | ● | | | clearcote 原创 | N |
+| Optimization guide 请求 | ● | | | 扩展 ungoogled 相关补丁 | N |
+| 网络时间探测 | | ● | | clearcote 原创 | N |
+| 强制门户检测 / variations 种子 | | ● | | ungoogled 部分 + clearcote 原创 | N |
+| 浏览器级人类点击（isTrusted、OOPIF、带种子） | | ● | | ChromiumFish + CloakBrowser | N |
+| CDP 鼠标输入（kFromDebugger / 轨迹，带种子） | | ● | | ChromiumFish（`humanized-input`） | N |
+| CDP 键盘节奏（带种子） | | | ● | ChromiumFish + CloakBrowser + Camoufox | N |
+| 合成手势的 kFromDebugger 标记 | | | ● | clearcote 原创 | N |
+
+**各阶段合计：** P0 = 34 个面（统一种子/画像/版本 + GPU 一致性 + TLS group 表/H2 + WebRTC 拒绝 + mDNS + 去除 Google 泄露 + 自动化清理）· P1 = 24 个面 · P2 = 13 个面。
+
+---
+
+**构建必须满足的一致性不变量（验收门禁）：**
+- **端到端只有一块 GPU：** WebGL UNMASKED renderer == WebGL2 `GL_VERSION` == WebGL 参数限制 == WebGPU 适配器 == `chrome://gpu` == readPixels 哈希集群 == 伪装的操作系统：
+  全部描述同一块画像 GPU（Intel UHD 770 / ANGLE-D3D11，或无头运行时的 ANGLE-SwiftShader）。**renderer 字符串与读回哈希不能不一致。**
+- `screen.width ≥ outerWidth ≥ innerWidth`；`screen.width − availWidth` = 合理的任务栏差值；`matchMedia('(device-width:${screen.width}px)')` 为 true（Brave `screen_farbling_browsertest`）；
+  ScreenInfo 骨干与每个叶子访问器一致。
+- **一个冻结版本：** `navigator.userAgent` 的 Chrome 版本 == `Sec-CH-UA` == 完整版本列表/GREASE 顺序 == TLS group 表 == 原型形态所声称的版本 == JA4 守卫：全部读取 `clearcote-persona-version-freeze`。
+- 时区 == IP 地理位置所在城市 == `navigator.languages` 地区 == Intl 区域。
+- `hardwareConcurrency` == `deviceMemory` == GPU 档次 == 屏幕档次，从同一个 `kHwTiers` 档次中抽取；worker 报告相同的值（没有闪变）。
+- **权限一致性：** 授权前 `enumerateDevices` 标签为空；`permissions.query` 在真正授权前读出 `prompt`；地理位置从不自动授权，在桌面上也从不使用 GPS 级精度。
+- **没有坍缩的群组：** 字体集、`prefers-color-scheme` 和电池电量按画像加权，而不是单一常量。
+- 同一 eTLD+1 → 整个会话字节级稳定（没有闪变）；不同 eTLD+1 → 不可关联；音频离线 == 实时 == buffer（一个共享种子）。
+- `performance.now()` 精度与真实 Chrome 149 逐字节一致（100µs/5µs，有回归断言）；`navigator.webdriver === false`；SOCKS5 隧道之外没有 UDP 出站。
+- **构建时：** 只要有任何面引用 adryfish 全局种子访问器，编译就失败（超级 cookie 在 P0 中不可能存在）。
+
+---
+
+## 检测方评审后的调整
+
+相比草案改了什么，以及为什么：
+
+1. **解决了 GPU 身份的矛盾（最主要的修正）。** 草案在 §2.1 中宣称 "NVIDIA RTX 3060"，却在 §2.5/§4 中固定为 "Intel UHD 770"，同时又承认 readPixels 运行在真实的 SwiftShader/ANGLE 后端上：
+   这必然导致 renderer 字符串与像素哈希不一致，也就是最强的 GPU 破绽。现在**只有一块画像 GPU**（真实 Windows 部署用 Intel UHD 770 / ANGLE-D3D11，无头运行时用 ANGLE-SwiftShader），
+   只在 `clearcote-persona-profile` 中定义一次，由**唯一负责者**（`webgl-strings-coherent`）写入，并有明确的**渲染后端规则**，以及"renderer 字符串和读回哈希来自同一块 GPU"的验收门禁。
+
+2. **把 TLS 部分从空操作的"翻转"重新定位为以版本为键的守卫。** 已确认 `kTlsMldsaSignatures` 和 `kTLSTrustAnchorIDs` **在原版 149 中已经是 `FEATURE_DISABLED_BY_DEFAULT`**，
+   所以原版 JA4 已经与真实 149 一致，"1 比特就能看出不是真 148"的说法是反的。sigalgs/trust-anchor 补丁变成了 **P1 回归断言**（确认移植没有打开它们；**不要**硬编码经典分支，
+   那会与真实 149 能完成的、由服务器触发的后量子握手不同步）。真正的工作，即**与 UA 生成器协调、可按版本选择的 `supported_groups`/`key_share` 表**，仍是 P0；
+   `tls-cipher-grease-version-guard` 从 P2 提升到 P1，让版本一致性尽早得到强制执行。
+
+3. **把 `timing-chrome-parity` 降级为回归断言。** 原版 149 的 `time_clamper.h` 已经定义了 `100µs/5µs`；在未改变的值上发布一个主动补丁，会有未来升级时漂移的风险。
+   现在它是一个 P2 断言，确认二进制仍报告原版的值（只有在 adryfish 移植使它们回退时才打补丁）。
+
+4. **把审计门禁提升到 P0，并加上构建时断言。** `clearcote-disable-global-fingerprint` 原来是 P1/被推迟的，而 P0 的面却在读取种子：这样的阶段顺序可能会在 P0 中发布可跨站关联的超级 cookie。
+   现在它在 P0a、紧接着 adryfish 重放之后落地，并带有一个 `static_assert`：只要还有任何面引用全局种子访问器，就**让编译失败**。
+
+5. **在构建之前统一了重复的补丁（而不是留作一条协调说明）。** 一个种子引擎、一个画像（现在由它负责唯一的 GPU）、`navigator_concurrent_hardware.cc` 只有一个负责者、一个 `deviceMemory` 按档位取值的来源、
+   一个 WebGL UNMASKED 写入者，以及**一个**经 SOCKS5 的 UDP 实现，带有唯一商定的接线点（`socket_manager.cc:315` 处的 `CreateDatagramClientSocket`）：解决了草案中两份相互冲突的文件列表。
+
+6. **加入了 WebGL2 内联 `GL_VERSION`/`GL_SHADING_LANGUAGE_VERSION` 泄露。** 已确认 `webgl2_rendering_context_base.cc:4789` 内联读取真实的后端版本字符串
+   （UNMASKED 会正确地在 4987 行回落到 base，所以草案在那里的担心是错位的）。`webgl-strings-coherent` 现在也覆盖这些内联版本字符串。
+
+7. **让依赖权限的面与真实 Chrome 一致地受控。** `media-devices-farble` 现在**在 `getUserMedia` 之前返回空标签**（填充标签恰恰就是它声称要修复的泄露）；
+   `geolocation-coherent-spoof` **不再自动授权**弹窗，在桌面上也从不使用 GPS 级精度；新增 `permissions-api-state-coherence`，让 `permissions.query` 与设备/地理位置的状况一致；
+   `speech-voices-spoof` 保留了 Chrome **先为空、再触发 `voiceschanged`** 的异步竞态，而不是在第一次同步调用时就返回完整列表。
+
+8. **打破了可关联的单一常量群组。** 字体允许列表变成了**按画像的加权分布**（stock / +Office / +Adobe / +OEM），而不是一个过于干净的标准集合；
+   `prefers-color-scheme`/`prefers-reduced-motion` 按画像抽取（约 45% 深色），而不是固定值；电池 `level` 带有按画像的差异，而不是整批实例都为 `1.0`。
+
+9. **补充了缺失的面。** `element-rect-jitter-pertld`（非文本的 `getBoundingClientRect`/transform 精度，与文本抖动共享种子）、`webgl-readpixels-farble` 的 FLOAT/HALF_FLOAT epsilon 路径（不跳过）、
+   WebGL `drawingBuffer`/MSAA 参数、`math-libm-ulp-coherence`（超越函数 ULP 暴露操作系统）、固定为真实构建的 `getHighEntropyValues` 划分 + 完整版本列表/GREASE 顺序、
+   OfflineAudioContext **渲染速率**断言（而不只是 getter），以及上面的 `permissions-api` 一致性。
+
+10. **修正了跨阶段的顺序。** 把**画像 Chrome 版本固定为一个冻结的 P0 产物**（`clearcote-persona-version-freeze`），由 UA/CH、TLS、原型 diff 和 JA4 守卫完全一致地使用：消除了跨阶段的版本漂移；
+    让 `screeninfo-source-override`（骨干）在叶子屏幕访问器**之前或同时**落地；并且**在 P0 中把 `mdns-local-ip-coherence` 与 `webrtc-ip-handling-default-deny` 一同发布**，
+    让候选集合在阶段之间永远不会异常地为空。
