@@ -1,0 +1,1751 @@
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/BUILD.gn b/third_party/blink/renderer/modules/webgl/BUILD.gn
+--- a/third_party/blink/renderer/modules/webgl/BUILD.gn	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/BUILD.gn	2026-07-21 14:04:53.451101113 +0000
+@@ -48,6 +48,10 @@
+     "ext_texture_norm_16.cc",
+     "ext_texture_norm_16.h",
+     "gl_string_query.h",
++    "gpu_info.cc",
++    "gpu_info.h",
++    "gpu_fingerprint.cc",
++    "gpu_fingerprint.h",
+     "khr_parallel_shader_compile.cc",
+     "khr_parallel_shader_compile.h",
+     "nv_shader_noperspective_interpolation.cc",
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/gpu_fingerprint.cc b/third_party/blink/renderer/modules/webgl/gpu_fingerprint.cc
+--- a/third_party/blink/renderer/modules/webgl/gpu_fingerprint.cc	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/gpu_fingerprint.cc	2026-07-21 14:04:53.451101113 +0000
+@@ -0,0 +1,116 @@
++#include "third_party/blink/renderer/modules/webgl/gpu_fingerprint.h"
++
++#include "base/command_line.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_util.h"
++#include "components/ungoogled/fingerprint_data.h"
++#include "components/ungoogled/ungoogled_switches.h"
++#include "third_party/blink/renderer/modules/webgl/gpu_info.h"
++
++// GPU deviceID信息可以在这里查询
++// 570.144是驱动号，替换成最新的驱动号
++// https://download.nvidia.com/XFree86/Linux-x86_64/570.144/README/supportedchips.html
++// https://deviceandbrowserinfo.com/data/fingerprints/attribute/webGLRenderer
++// https://devicehunt.com/view/type/pci/vendor/10DE
++
++namespace blink {
++
++using ungoogled::fingerprint::kMacosGpuModelCount;
++
++namespace {
++
++// Returns the appropriate GL_VENDOR string based on platform
++std::string GetGLVendorString(const std::string& platform) {
++  if (platform == "macos") {
++    return "Google Inc. (Apple)";
++  } else if (platform == "linux") {
++    return "Google Inc. (NVIDIA Corporation)";
++  } else {
++    // Windows
++    return "Google Inc. (NVIDIA)";
++  }
++}
++
++// Returns a GL_RENDERER string based on platform and a per-site farbling seed.
++std::string GetGLRendererString(const std::string& platform,
++                                uint64_t effective_seed) {
++  if (platform == "macos") {
++    // Use helper function to get macOS GPU string
++    return GetMacosGpuString(effective_seed % kMacosGpuModelCount);
++  } else if (platform == "linux") {
++    // For Linux, get the basic GPU model but format for Linux
++    size_t model_index = effective_seed % GetGpuCount();
++    // Get the Windows GPU info to extract the model name
++    const GpuInfo& gpu_info = GetGpuInfo(model_index);
++    // Format for Linux (no device ID, different suffix)
++    return GetLinuxGpuString(gpu_info.model_name);
++  } else {
++    // Default to Windows format
++    return GetGpuInfo(effective_seed % GetGpuCount()).renderer_string;
++  }
++}
++
++}  // namespace
++
++// Public functions that will be used in WebGL code
++std::string GetGLVendorStringForFingerprint() {
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++  // 如果禁用GPU指纹，直接返回空字符串
++  if (command_line->HasSwitch(switches::kDisableGpuFingerprint) ||
++      command_line->HasSwitch(switches::kDisableGpuStringSpoof)) {
++    return "";
++  }
++
++  // 优先级1: 如果指定了 fingerprint-gpu-vendor，直接使用
++  if (command_line->HasSwitch(switches::kFingerprintGpuVendor)) {
++    return command_line->GetSwitchValueASCII(switches::kFingerprintGpuVendor);
++  }
++
++  // 优先级2: 如果指定了 fingerprint，根据平台生成
++  if (command_line->HasSwitch(switches::kFingerprint)) {
++    std::string platform = "windows";  // Default platform
++    if (command_line->HasSwitch(switches::kFingerprintPlatform)) {
++      platform = base::ToLowerASCII(
++          command_line->GetSwitchValueASCII(switches::kFingerprintPlatform));
++    }
++    return GetGLVendorString(platform);
++  }
++
++  // 优先级3: 都没有指定，返回空字符串（使用默认值）
++  return "";
++}
++
++std::string GetGLRendererStringForFingerprint(uint64_t effective_seed) {
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++  // 如果禁用GPU指纹，直接返回空字符串
++  if (command_line->HasSwitch(switches::kDisableGpuFingerprint) ||
++      command_line->HasSwitch(switches::kDisableGpuStringSpoof)) {
++    return "";
++  }
++
++  // 优先级1: 如果指定了 fingerprint-gpu-renderer，直接使用
++  if (command_line->HasSwitch(switches::kFingerprintGpuRenderer)) {
++    return command_line->GetSwitchValueASCII(switches::kFingerprintGpuRenderer);
++  }
++
++  // 优先级2: 如果指定了 fingerprint，根据平台和 per-site 种子生成。
++  // 种子由调用方按 eTLD+1 计算（ungoogled::GetFarbleSeed64），使得 GPU 型号
++  // 选择按站点稳定但跨站点解相关。
++  if (command_line->HasSwitch(switches::kFingerprint)) {
++    std::string platform = "windows";  // Default platform
++
++    if (command_line->HasSwitch(switches::kFingerprintPlatform)) {
++      platform = base::ToLowerASCII(
++          command_line->GetSwitchValueASCII(switches::kFingerprintPlatform));
++    }
++
++    return GetGLRendererString(platform, effective_seed);
++  }
++
++  // 优先级3: 都没有指定，返回空字符串（使用默认值）
++  return "";
++}
++
++}  // namespace blink
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/gpu_fingerprint.h b/third_party/blink/renderer/modules/webgl/gpu_fingerprint.h
+--- a/third_party/blink/renderer/modules/webgl/gpu_fingerprint.h	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/gpu_fingerprint.h	2026-07-21 14:04:53.451101113 +0000
+@@ -0,0 +1,21 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_GPU_FINGERPRINT_H_
++#define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_GPU_FINGERPRINT_H_
++
++#include <cstdint>
++#include <string>
++
++namespace blink {
++
++// Returns the GL_VENDOR string based on platform and fingerprint.
++// Vendor selection is platform-only (no seed), so this takes no seed argument.
++std::string GetGLVendorStringForFingerprint();
++
++// Returns the GL_RENDERER string based on platform and a per-site farbling
++// seed. |effective_seed| is the per-eTLD+1 seed (see ungoogled::GetFarbleSeed64)
++// and is used to pick the GPU model so the renderer string is stable per site
++// but decorrelated across sites.
++std::string GetGLRendererStringForFingerprint(uint64_t effective_seed);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_GPU_FINGERPRINT_H_
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/gpu_info.cc b/third_party/blink/renderer/modules/webgl/gpu_info.cc
+--- a/third_party/blink/renderer/modules/webgl/gpu_info.cc	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/gpu_info.cc	2026-07-21 14:04:53.451101113 +0000
+@@ -0,0 +1,100 @@
++#include "third_party/blink/renderer/modules/webgl/gpu_info.h"
++
++#include "base/strings/stringprintf.h"
++#include "components/ungoogled/fingerprint_data.h"
++
++namespace blink {
++
++using ungoogled::fingerprint::GpuModelInfo;
++using ungoogled::fingerprint::kGpuModelCount;
++using ungoogled::fingerprint::kGpuModels;
++using ungoogled::fingerprint::kLinuxGpuSuffix;
++using ungoogled::fingerprint::kLinuxVendorString;
++using ungoogled::fingerprint::kMacosGpuModelCount;
++using ungoogled::fingerprint::kMacosGpuModels;
++using ungoogled::fingerprint::kWindowsGpuSuffix;
++using ungoogled::fingerprint::kWindowsVendorString;
++
++// Generate full Windows GPU info on demand
++GpuInfo GetWindowsGpuInfo(size_t index) {
++  if (index >= kGpuModelCount) {
++    // Default to last one (RTX 4090) if out of bounds
++    index = kGpuModelCount - 1;
++  }
++
++  const GpuModelInfo& model = kGpuModels[index];
++  GpuInfo info;
++  info.model_name = model.model_name;
++  info.device_id = model.device_id;
++
++  // Build the Windows renderer string
++  std::string device_id_part = (model.device_id && model.device_id[0]) ?
++    " (" + std::string(model.device_id) + ")" : "";
++
++  info.renderer_string = "ANGLE (" + std::string(kWindowsVendorString) +
++                         ", NVIDIA " + info.model_name +
++                         device_id_part + " " + kWindowsGpuSuffix + ")";
++
++  return info;
++}
++
++// All Windows GPU info list - generated from kGpuModels
++std::vector<GpuInfo> GetAllWindowsGpuInfo() {
++  std::vector<GpuInfo> result;
++  result.reserve(kGpuModelCount);
++
++  for (size_t i = 0; i < kGpuModelCount; ++i) {
++    result.push_back(GetWindowsGpuInfo(i));
++  }
++
++  return result;
++}
++
++// Lazy-initialized list of Windows GPU info
++const std::vector<GpuInfo>& GetWindowsGpuInfoList() {
++  static const std::vector<GpuInfo>* windows_gpu_info = nullptr;
++  if (!windows_gpu_info) {
++    windows_gpu_info = new std::vector<GpuInfo>(GetAllWindowsGpuInfo());
++  }
++  return *windows_gpu_info;
++}
++
++// Implementation of the functions declared in the header
++size_t GetGpuCount() {
++  return kGpuModelCount;
++}
++
++const GpuInfo& GetGpuInfo(size_t index) {
++  // Use the Windows GPU info list
++  const std::vector<GpuInfo>& windows_list = GetWindowsGpuInfoList();
++
++  // Ensure index is in bounds
++  if (index >= windows_list.size()) {
++    return windows_list.back();
++  }
++
++  return windows_list[index];
++}
++
++// Helper function to get a macOS GPU model string
++std::string GetMacosGpuString(size_t index) {
++  if (index >= kMacosGpuModelCount) {
++    // Default to M3 if out of bounds
++    index = kMacosGpuModelCount - 1;  // Index of M3 in the array
++  }
++
++  return base::StringPrintf("ANGLE (Apple, ANGLE Metal Renderer: Apple %s, Unspecified Version)",
++                         kMacosGpuModels[index]);
++}
++
++// Helper function to get a Linux GPU renderer string
++std::string GetLinuxGpuString(const std::string& model_name) {
++  // Note the difference: no device ID and no space before /PCIe
++  // Also using the Linux-specific vendor string
++  return base::StringPrintf("ANGLE (%s, NVIDIA %s%s)",
++                         kLinuxVendorString,
++                         model_name.c_str(),
++                         kLinuxGpuSuffix);
++}
++
++}  // namespace blink
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/gpu_info.h b/third_party/blink/renderer/modules/webgl/gpu_info.h
+--- a/third_party/blink/renderer/modules/webgl/gpu_info.h	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/gpu_info.h	2026-07-21 14:04:53.451101113 +0000
+@@ -0,0 +1,36 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_GPU_INFO_H_
++#define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_GPU_INFO_H_
++
++#include <string>
++#include <vector>
++
++namespace blink {
++
++// Structure to hold GPU information
++struct GpuInfo {
++  std::string model_name;
++  std::string device_id;
++  std::string renderer_string;
++};
++
++// Returns the number of available GPUs in our database
++size_t GetGpuCount();
++
++// Returns GPU info for a given index
++const GpuInfo& GetGpuInfo(size_t index);
++
++// Helper function to get a macOS GPU model string
++std::string GetMacosGpuString(size_t index);
++
++// Helper function to get a Linux GPU renderer string
++std::string GetLinuxGpuString(const std::string& model_name);
++
++// Generate Windows GPU info for a specific index
++GpuInfo GetWindowsGpuInfo(size_t index);
++
++// Access to all Windows GPU info
++const std::vector<GpuInfo>& GetWindowsGpuInfoList();
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_GPU_INFO_H_
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+--- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc	2026-07-21 14:04:53.455101129 +0000
+@@ -37,6 +37,8 @@
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ 
++#include "components/ungoogled/persona_profile.h"
++
+ // Populates all parameters for texImage2D, including width, height, depth (set
+ // to 1), and border. Many callers will need to zero-out border in order to
+ // preserve existing behavior (see https://crbug.com/1313604).
+@@ -111,6 +113,43 @@
+ 
+ const GLuint64 kMaxClientWaitTimeout = 0u;
+ 
++// clearcote: NEVER report a limit higher than the driver can really do -- an
++// upward spoof is falsifiable (the page allocates the resource and watches it
++// fail). Clamp the persona value to the live GL cap at read time; equivalent to
++// clamping the persona at init, but robust across multiple contexts and
++// GPU-process restarts, and it costs exactly the one GetIntegerv that stock
++// Chrome already performs for this pname.
++GLint ClampPersonaLimit(gpu::gles2::GLES2Interface* gl,
++                        GLenum pname,
++                        int persona_value) {
++  GLint real = 0;
++  gl->GetIntegerv(pname, &real);
++  GLint v = static_cast<GLint>(persona_value);
++  return (real > 0 && v > real) ? real : v;
++}
++
++GLfloat ClampPersonaLimitF(gpu::gles2::GLES2Interface* gl,
++                           GLenum pname,
++                           float persona_value) {
++  GLfloat real = 0.f;
++  gl->GetFloatv(pname, &real);
++  GLfloat v = static_cast<GLfloat>(persona_value);
++  return (real > 0.f && v > real) ? real : v;
++}
++
++// clearcote (algebraic coherence): MAX_VARYING_VECTORS is the ONE independent
++// varying limit. ANGLE derives MAX_VARYING_COMPONENTS,
++// MAX_VERTEX_OUTPUT_COMPONENTS and MAX_FRAGMENT_INPUT_COMPONENTS from it as
++// exactly 4x (renderer11_utils.cpp GetMaxVaryingVectors), so a page that reads
++// all four and divides catches any drift between a spoofed vectors value and an
++// unspoofed components value. Only the vectors value lives on the persona;
++// every components limit is computed as 4x THIS, so they cannot disagree.
++GLint PersonaMaxVaryingVectors(gpu::gles2::GLES2Interface* gl) {
++  return ClampPersonaLimit(
++      gl, GL_MAX_VARYING_VECTORS,
++      ungoogled::CurrentPersona().webgl_max_varying_vectors);
++}
++
+ // TODO(kainino): Change outByteLength to GLuint and change the associated
+ // range checking (and all uses) - overflow becomes possible in cases below
+ bool ValidateSubSourceAndGetData(DOMArrayBufferView* view,
+@@ -645,6 +684,35 @@
+       auto values = base::HeapArray<GLint>::WithSize(length);
+       ContextGL()->GetInternalformativ(target, internalformat, GL_SAMPLES,
+                                        length, values.data());
++      // clearcote: getParameter(MAX_SAMPLES) reports the persona cap, so this
++      // per-format sample list must not contradict it -- max(list) <= MAX_SAMPLES
++      // holds on every real driver. We keep the MAX_SAMPLES spoof (dropping it
++      // would let a SwiftShader/headless backend contradict the claimed discrete
++      // GPU everywhere else in the table) and instead filter this list to it.
++      // The filter is purely SUBTRACTIVE: combined with the downward-only clamp
++      // in ClampPersonaLimit it can never advertise a sample count that
++      // renderbufferStorageMultisample would then refuse to allocate.
++      if (!ungoogled::CurrentPersona().webgl_real) {
++        const GLint max_samples = ClampPersonaLimit(
++            ContextGL(), GL_MAX_SAMPLES,
++            ungoogled::CurrentPersona().webgl_max_samples);
++        size_t keep = 0;
++        for (GLint s : values) {
++          if (s <= max_samples)
++            ++keep;
++        }
++        if (keep != values.size()) {
++          if (keep == 0)
++            return WebGLAny(script_state, DOMInt32Array::Create(0));
++          auto kept = base::HeapArray<GLint>::WithSize(keep);
++          size_t i = 0;
++          for (GLint s : values) {
++            if (s <= max_samples)
++              kept[i++] = s;
++          }
++          return WebGLAny(script_state, DOMInt32Array::Create(kept));
++        }
++      }
+       return WebGLAny(script_state, DOMInt32Array::Create(values));
+     }
+     default:
+@@ -4762,10 +4830,99 @@
+   }
+ }
+ 
++namespace {
++
++// clearcote (algebraic coherence): the uniform-block limits are not independent. A page can read
++// MAX_VERTEX_UNIFORM_BLOCKS, MAX_FRAGMENT_UNIFORM_BLOCKS and MAX_COMBINED_UNIFORM_BLOCKS and check
++// that combined >= vertex + fragment -- an identity every real driver satisfies. Storing all three
++// as independent persona constants only satisfies it by luck of what the host driver happened to
++// clamp the parts down to.
++//
++// Measured: persona 14/14 with a stored combined of 24 PASSED on ANGLE/D3D11 (real parts 12/12, so
++// 12+12=24 reconciled) and FAILED on Mesa (real parts 14/14, so 14+14=28 > 24) -- the same build,
++// the same table, two different verdicts. That contradiction alone kept the whole Render & GPU
++// subsystem 'Discarded as untrustworthy'.
++//
++// So: cap the parts to the driver's real combine/bind budget, then DERIVE the totals from them.
++struct CcUniformBlockBudget {
++  GLint vertex;
++  GLint fragment;
++  GLint combined;
++  GLint bindings;
++};
++
++CcUniformBlockBudget CcComputeUniformBlockBudget(gpu::gles2::GLES2Interface* gl) {
++  GLint real_combined = 0, real_bindings = 0;
++  gl->GetIntegerv(GL_MAX_COMBINED_UNIFORM_BLOCKS, &real_combined);
++  gl->GetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &real_bindings);
++
++  GLint v = ClampPersonaLimit(gl, GL_MAX_VERTEX_UNIFORM_BLOCKS,
++                              ungoogled::CurrentPersona().webgl_max_vertex_uniform_blocks);
++  GLint f = ClampPersonaLimit(gl, GL_MAX_FRAGMENT_UNIFORM_BLOCKS,
++                              ungoogled::CurrentPersona().webgl_max_fragment_uniform_blocks);
++
++  // Never advertise more blocks than the driver can actually combine or bind: a program declaring
++  // them would fail to link, which is the very 'reported limits the driver will not honour'
++  // contradiction this is meant to avoid.
++  GLint budget = real_combined;
++  if (real_bindings > 0 && real_bindings < budget) {
++    budget = real_bindings;
++  }
++  if (budget > 0) {
++    while (v + f > budget && (v > 1 || f > 1)) {
++      if (v >= f && v > 1) {
++        --v;
++      } else if (f > 1) {
++        --f;
++      } else {
++        break;
++      }
++    }
++  }
++
++  GLint combined = v + f;
++  GLint bindings = ClampPersonaLimit(gl, GL_MAX_UNIFORM_BUFFER_BINDINGS,
++                                     ungoogled::CurrentPersona().webgl_max_uniform_buffer_bindings);
++  if (bindings < combined) {
++    bindings = combined;  // still <= real_bindings, since combined <= budget <= real_bindings
++  }
++  return {v, f, combined, bindings};
++}
++
++}  // namespace
++
+ ScriptValue WebGL2RenderingContextBase::getParameter(ScriptState* script_state,
+                                                      GLenum pname) {
+   if (isContextLost())
+     return ScriptValue::CreateNull(script_state->GetIsolate());
++  // clearcote: --disable-gpu-fingerprint (persona.webgl_real) reports the REAL backend.
++  if (ungoogled::CurrentPersona().webgl_real) {
++    switch (pname) {
++      case GL_MAX_3D_TEXTURE_SIZE:
++      case GL_MAX_ARRAY_TEXTURE_LAYERS:
++      case GL_MAX_COLOR_ATTACHMENTS:
++      case GL_MAX_COMBINED_UNIFORM_BLOCKS:
++      case GL_MAX_DRAW_BUFFERS:
++      case GL_MAX_FRAGMENT_UNIFORM_BLOCKS:
++      case GL_MAX_FRAGMENT_UNIFORM_COMPONENTS:
++      case GL_MAX_SAMPLES:
++      case GL_MAX_UNIFORM_BUFFER_BINDINGS:
++      case GL_MAX_VERTEX_UNIFORM_BLOCKS:
++      case GL_MAX_VERTEX_UNIFORM_COMPONENTS:
++      // clearcote: the three varying components limits are derived from the
++      // persona MAX_VARYING_VECTORS below, so honest mode must revert them too.
++      case GL_MAX_VARYING_COMPONENTS:
++      case GL_MAX_VERTEX_OUTPUT_COMPONENTS:
++      case GL_MAX_FRAGMENT_INPUT_COMPONENTS:
++        return GetIntParameter(script_state, pname);
++      // clearcote: MAX_TEXTURE_LOD_BIAS is spoofed below and is a float -- it
++      // was missing from this bypass, leaving honest mode incoherent.
++      case GL_MAX_TEXTURE_LOD_BIAS:
++        return GetFloatParameter(script_state, pname);
++      default:
++        break;
++    }
++  }
+   switch (pname) {
+     case GL_SHADING_LANGUAGE_VERSION: {
+       return WebGLAny(
+@@ -4789,21 +4946,39 @@
+     case GL_FRAGMENT_SHADER_DERIVATIVE_HINT:
+       return GetUnsignedIntParameter(script_state, pname);
+     case GL_MAX_3D_TEXTURE_SIZE:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_3D_TEXTURE_SIZE,
++                                        ungoogled::CurrentPersona().webgl_max_3d_texture_size));
+     case GL_MAX_ARRAY_TEXTURE_LAYERS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_ARRAY_TEXTURE_LAYERS,
++                                        ungoogled::CurrentPersona().webgl_max_array_texture_layers));
+     case GC3D_MAX_CLIENT_WAIT_TIMEOUT_WEBGL:
+       return WebGLAny(script_state, kMaxClientWaitTimeout);
+     case GL_MAX_COLOR_ATTACHMENTS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_COLOR_ATTACHMENTS,
++                                        ungoogled::CurrentPersona().webgl_max_color_attachments));
+     case GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS:
+       return GetInt64Parameter(script_state, pname);
+     case GL_MAX_COMBINED_UNIFORM_BLOCKS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote: DERIVED from the two per-stage limits as reported (see
++      // CcComputeUniformBlockBudget) so combined >= vertex + fragment holds on every host.
++      return WebGLAny(script_state, CcComputeUniformBlockBudget(ContextGL()).combined);
+     case GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS:
+       return GetInt64Parameter(script_state, pname);
+     case GL_MAX_DRAW_BUFFERS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_DRAW_BUFFERS,
++                                        ungoogled::CurrentPersona().webgl_max_draw_buffers));
+     case GL_MAX_ELEMENT_INDEX:
+       return GetInt64Parameter(script_state, pname);
+     case GL_MAX_ELEMENTS_INDICES:
+@@ -4811,19 +4986,35 @@
+     case GL_MAX_ELEMENTS_VERTICES:
+       return GetIntParameter(script_state, pname);
+     case GL_MAX_FRAGMENT_INPUT_COMPONENTS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote: DERIVED -- 4x MAX_VARYING_VECTORS (see above).
++      return WebGLAny(script_state, 4 * PersonaMaxVaryingVectors(ContextGL()));
+     case GL_MAX_FRAGMENT_UNIFORM_BLOCKS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      CcComputeUniformBlockBudget(ContextGL()).fragment);
+     case GL_MAX_FRAGMENT_UNIFORM_COMPONENTS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_FRAGMENT_UNIFORM_COMPONENTS,
++                                        ungoogled::CurrentPersona().webgl_max_fragment_uniform_components));
+     case GL_MAX_PROGRAM_TEXEL_OFFSET:
+       return GetIntParameter(script_state, pname);
+     case GL_MAX_SAMPLES:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_SAMPLES,
++                                        ungoogled::CurrentPersona().webgl_max_samples));
+     case GL_MAX_SERVER_WAIT_TIMEOUT:
+       return GetInt64Parameter(script_state, pname);
+     case GL_MAX_TEXTURE_LOD_BIAS:
+-      return GetFloatParameter(script_state, pname);
++      // clearcote persona: coherent GPU limit (float), clamped to the real cap.
++      return WebGLAny(script_state,
++                      ClampPersonaLimitF(
++                          ContextGL(), GL_MAX_TEXTURE_LOD_BIAS,
++                          ungoogled::CurrentPersona().webgl_max_texture_lod_bias));
+     case GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS:
+       return GetIntParameter(script_state, pname);
+     case GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS:
+@@ -4833,15 +5024,27 @@
+     case GL_MAX_UNIFORM_BLOCK_SIZE:
+       return GetInt64Parameter(script_state, pname);
+     case GL_MAX_UNIFORM_BUFFER_BINDINGS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote: never fewer than the blocks a program may declare (see
++      // CcComputeUniformBlockBudget), still clamped to the real driver.
++      return WebGLAny(script_state, CcComputeUniformBlockBudget(ContextGL()).bindings);
+     case GL_MAX_VARYING_COMPONENTS:
+-      return GetIntParameter(script_state, pname);
+     case GL_MAX_VERTEX_OUTPUT_COMPONENTS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote: DERIVED, never stored -- exactly 4x MAX_VARYING_VECTORS, the
++      // same relation ANGLE/D3D11 produces. Leaving these on the real driver
++      // while spoofing MAX_VARYING_VECTORS was a pure-arithmetic self-
++      // contradiction any page could divide out.
++      return WebGLAny(script_state, 4 * PersonaMaxVaryingVectors(ContextGL()));
+     case GL_MAX_VERTEX_UNIFORM_BLOCKS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      CcComputeUniformBlockBudget(ContextGL()).vertex);
+     case GL_MAX_VERTEX_UNIFORM_COMPONENTS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_VERTEX_UNIFORM_COMPONENTS,
++                                        ungoogled::CurrentPersona().webgl_max_vertex_uniform_components));
+     case GL_MIN_PROGRAM_TEXEL_OFFSET:
+       return GetIntParameter(script_state, pname);
+     case GL_PACK_ROW_LENGTH:
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/webgl_object.h b/third_party/blink/renderer/modules/webgl/webgl_object.h
+--- a/third_party/blink/renderer/modules/webgl/webgl_object.h	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/webgl_object.h	2026-07-21 14:04:53.455101129 +0000
+@@ -93,6 +93,11 @@
+   const GLuint& Object() const { return object_; }
+   bool HasObject() const { return object_ != 0; }
+ 
++  // Canvas bridge: stable id assigned by the bridge client so the remote
++  // render server can map this object across forwarded commands (0 = unset).
++  uint32_t BridgeId() const { return bridge_id_; }
++  void SetBridgeId(uint32_t id) { bridge_id_ = id; }
++
+   virtual bool IsRenderbuffer() const { return false; }
+   virtual bool IsTexture() const { return false; }
+ 
+@@ -123,6 +128,9 @@
+ 
+   GLuint object_ = 0;
+ 
++  // Canvas bridge object id (see BridgeId()); 0 until the bridge assigns one.
++  uint32_t bridge_id_ = 0;
++
+   // The context generation number of the associated WebGLContext when the
+   // object was created, to prevent reuse in later generations.
+   uint64_t context_generation_at_creation_;
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc	2026-07-21 14:04:53.459101147 +0000
+@@ -32,6 +32,7 @@
+ 
+ #include "base/bit_cast.h"
+ #include "base/byte_size.h"
++#include "base/command_line.h"
+ #include "base/compiler_specific.h"
+ #include "base/feature_list.h"
+ #include "base/memory/scoped_refptr.h"
+@@ -45,6 +46,11 @@
+ #include "base/trace_event/memory_dump_manager.h"
+ #include "base/trace_event/trace_event.h"
+ #include "build/build_config.h"
++#include "components/ungoogled/farble_seed.h"
++#include "components/ungoogled/ungoogled_switches.h"
++#include "third_party/blink/renderer/platform/canvas_bridge/canvas_bridge_client.h"
++#include "third_party/blink/renderer/platform/canvas_bridge/canvas_bridge_codec.h"
++#include "components/ungoogled/persona_profile.h"
+ #include "components/viz/common/gpu/raster_context_provider.h"
+ #include "components/viz/common/resources/shared_image_format_utils.h"
+ #include "device/vr/buildflags/buildflags.h"
+@@ -105,6 +111,7 @@
+ #include "third_party/blink/renderer/modules/webgl/ext_shader_texture_lod.h"
+ #include "third_party/blink/renderer/modules/webgl/ext_texture_filter_anisotropic.h"
+ #include "third_party/blink/renderer/modules/webgl/gl_string_query.h"
++#include "third_party/blink/renderer/modules/webgl/gpu_fingerprint.h"
+ #include "third_party/blink/renderer/modules/webgl/oes_element_index_uint.h"
+ #include "third_party/blink/renderer/modules/webgl/oes_standard_derivatives.h"
+ #include "third_party/blink/renderer/modules/webgl/oes_texture_float.h"
+@@ -158,6 +165,7 @@
+ #include "third_party/blink/renderer/platform/heap/member.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
++#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+ #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+ #include "third_party/blink/renderer/platform/wtf/functional.h"
+ #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+@@ -207,6 +215,119 @@
+ 
+ namespace {
+ 
++namespace {
++
++uint32_t EnsureBridgeWebGL(blink::canvas_bridge::CanvasBridgeClient* bridge,
++                           uint32_t& id, int width, int height) {
++  if (id == 0) {
++    id = bridge->AllocateCanvasId();
++    blink::canvas_bridge::CreateWebGLMessage create;
++    create.canvas_id = id;
++    create.width = static_cast<uint32_t>(width < 0 ? 0 : width);
++    create.height = static_cast<uint32_t>(height < 0 ? 0 : height);
++    create.context_type = 1;
++    bridge->Send(blink::canvas_bridge::Encode(create));
++  }
++  return id;
++}
++
++void RecordWebGLOp(uint32_t op, std::vector<int32_t> ints,
++                   std::vector<double> floats, uint32_t& id, int width,
++                   int height, std::string str = std::string(),
++                   std::vector<uint8_t> data = std::vector<uint8_t>()) {
++  auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++  if (!cb || !cb->Connected())
++    return;
++  blink::canvas_bridge::WebGLOpMessage m;
++  m.canvas_id = EnsureBridgeWebGL(cb, id, width, height);
++  m.op = op;
++  m.ints = std::move(ints);
++  m.floats = std::move(floats);
++  m.str = std::move(str);
++  m.data = std::move(data);
++  cb->Send(blink::canvas_bridge::Encode(m));
++  // Tier 1: draw ops change the rendered surface -> bump version + prefetch.
++  using GLOp = blink::canvas_bridge::WebGLOp;
++  switch (static_cast<GLOp>(op)) {
++    case GLOp::kDrawArrays:
++    case GLOp::kDrawElements:
++    case GLOp::kClear:
++      cb->BumpVersion(m.canvas_id);
++      cb->MaybePrefetch(m.canvas_id,
++                        static_cast<uint32_t>(width < 0 ? 0 : width),
++                        static_cast<uint32_t>(height < 0 ? 0 : height));
++      break;
++    default:
++      break;
++  }
++}
++
++// Assigns a fresh bridge object id to a just-created WebGL object and records
++// the matching create op so the server builds the same object server-side.
++void RecordWebGLCreate(uint32_t op, WebGLObject* obj, uint32_t& counter,
++                       uint32_t& id, int width, int height) {
++  auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++  if (!cb || !cb->Connected())
++    return;
++  obj->SetBridgeId(++counter);
++  blink::canvas_bridge::WebGLOpMessage m;
++  m.canvas_id = EnsureBridgeWebGL(cb, id, width, height);
++  m.op = op;
++  m.ints = {static_cast<int32_t>(obj->BridgeId())};
++  cb->Send(blink::canvas_bridge::Encode(m));
++}
++
++// clearcote: NEVER report a limit higher than the driver can really do -- an
++// upward spoof is falsifiable (the page allocates the resource and watches it
++// fail). Clamp the persona value to the live GL cap at read time; equivalent to
++// clamping the persona at init, but robust across multiple contexts and
++// GPU-process restarts, and it costs exactly the one GetIntegerv that stock
++// Chrome already performs for this pname.
++GLint ClampPersonaLimit(gpu::gles2::GLES2Interface* gl,
++                        GLenum pname,
++                        int persona_value) {
++  GLint real = 0;
++  gl->GetIntegerv(pname, &real);
++  GLint v = static_cast<GLint>(persona_value);
++  return (real > 0 && v > real) ? real : v;
++}
++
++GLfloat ClampPersonaLimitF(gpu::gles2::GLES2Interface* gl,
++                           GLenum pname,
++                           float persona_value) {
++  GLfloat real = 0.f;
++  gl->GetFloatv(pname, &real);
++  GLfloat v = static_cast<GLfloat>(persona_value);
++  return (real > 0.f && v > real) ? real : v;
++}
++
++// GL_MAX_VIEWPORT_DIMS is a 2-element query -- GetIntegerv writes two ints, so
++// it needs its own reader (passing a single GLint* would smash the stack).
++GLint ClampPersonaViewportDim(gpu::gles2::GLES2Interface* gl,
++                              int persona_value) {
++  GLint real[2] = {0, 0};
++  gl->GetIntegerv(GL_MAX_VIEWPORT_DIMS, real);
++  const GLint cap = real[0] < real[1] ? real[0] : real[1];
++  GLint v = static_cast<GLint>(persona_value);
++  return (cap > 0 && v > cap) ? cap : v;
++}
++
++// clearcote (algebraic coherence): MAX_VARYING_VECTORS is the ONE independent
++// varying limit. ANGLE derives MAX_VARYING_COMPONENTS,
++// MAX_VERTEX_OUTPUT_COMPONENTS and MAX_FRAGMENT_INPUT_COMPONENTS from it as
++// exactly 4x (renderer11_utils.cpp GetMaxVaryingVectors), so a page that reads
++// all four and divides catches any drift between a spoofed vectors value and an
++// unspoofed components value. Only the vectors value lives on the persona;
++// every components limit is computed as 4x THIS, so they cannot disagree.
++GLint PersonaMaxVaryingVectors(gpu::gles2::GLES2Interface* gl) {
++  return ClampPersonaLimit(
++      gl, GL_MAX_VARYING_VECTORS,
++      ungoogled::CurrentPersona().webgl_max_varying_vectors);
++}
++
++}  // namespace
++
++
+ enum class WebGLANGLEImplementation {
+   // These values are persisted to logs. Entries should not be renumbered and
+   // numeric values should never be reused.
+@@ -2547,6 +2668,10 @@
+     return;
+   }
+   active_texture_unit_ = texture - GL_TEXTURE0;
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kActiveTexture),
++      {static_cast<int32_t>(texture)}, {}, bridge_canvas_id_,
++      drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->ActiveTexture(texture);
+ }
+ 
+@@ -2560,6 +2685,11 @@
+                       "shader attachment already has shader");
+     return;
+   }
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kAttachShader),
++      {static_cast<int32_t>(program->BridgeId()),
++       static_cast<int32_t>(shader->BridgeId())},
++      {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->AttachShader(ObjectOrZero(program), ObjectOrZero(shader));
+   shader->OnAttached();
+ }
+@@ -2576,6 +2706,11 @@
+                       "reserved prefix");
+     return;
+   }
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kBindAttribLocation),
++      {static_cast<int32_t>(program->BridgeId()), static_cast<int32_t>(index)},
++      {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight(),
++      name.Utf8());
+   ContextGL()->BindAttribLocation(ObjectOrZero(program), index,
+                                   name.Utf8().c_str());
+ }
+@@ -2615,6 +2750,11 @@
+     return;
+   if (!ValidateAndUpdateBufferBindTarget("bindBuffer", target, buffer))
+     return;
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kBindBuffer),
++      {static_cast<int32_t>(target),
++       static_cast<int32_t>(buffer ? buffer->BridgeId() : 0)},
++      {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->BindBuffer(target, ObjectOrZero(buffer));
+ }
+ 
+@@ -2656,6 +2796,14 @@
+     return;
+   }
+ 
++  // canvas-bridge: forward the texture binding (pixel uploads are forwarded
++  // separately by the texImage path; unsupported sources still fall back).
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kBindTexture),
++      {static_cast<int32_t>(target),
++       static_cast<int32_t>(texture ? texture->BridgeId() : 0)},
++      {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
++
+   if (target == GL_TEXTURE_2D) {
+     texture_units_[active_texture_unit_].texture2d_binding_ = texture;
+   } else if (target == GL_TEXTURE_CUBE_MAP) {
+@@ -2782,6 +2930,20 @@
+ 
+   buffer->SetSize(size);
+ 
++  if (data && size > 0) {
++    const uint8_t* p = static_cast<const uint8_t*>(data);
++    RecordWebGLOp(
++        static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kBufferData),
++        {static_cast<int32_t>(target), static_cast<int32_t>(usage)}, {},
++        bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight(),
++        std::string(), std::vector<uint8_t>(p, p + size));
++  } else {
++    RecordWebGLOp(
++        static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kBufferDataSize),
++        {static_cast<int32_t>(target), static_cast<int32_t>(size),
++         static_cast<int32_t>(usage)},
++        {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
++  }
+   ContextGL()->BufferData(target, static_cast<GLsizeiptr>(size), data, usage);
+ }
+ 
+@@ -2888,6 +3050,9 @@
+ void WebGLRenderingContextBase::clear(GLbitfield mask) {
+   if (isContextLost())
+     return;
++  RecordWebGLOp(static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kClear),
++                {static_cast<int32_t>(mask)}, {}, bridge_canvas_id_,
++                drawingBufferWidth(), drawingBufferHeight());
+   if (mask &
+       ~(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) {
+     SynthesizeGLError(GL_INVALID_VALUE, "clear", "invalid mask");
+@@ -2947,9 +3112,51 @@
+   clear_color_[1] = g;
+   clear_color_[2] = b;
+   clear_color_[3] = a;
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kClearColor), {},
++      {r, g, b, a}, bridge_canvas_id_, drawingBufferWidth(),
++      drawingBufferHeight());
+   ContextGL()->ClearColor(r, g, b, a);
+ }
+ 
++bool WebGLRenderingContextBase::BridgeAllowedForThisContext() {
++  if (!bridge_policy_checked_) {
++    bridge_policy_checked_ = true;
++    bridge_policy_allowed_ = false;
++    if (auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get()) {
++      std::string etld1;
++      if (auto* ec = GetExecutionContext(); ec && ec->GetSecurityOrigin()) {
++        etld1 = ec->GetSecurityOrigin()->RegistrableDomain().Utf8();
++      }
++      bridge_policy_allowed_ = cb->BridgeEnabledForOrigin(etld1);
++    }
++  }
++  return bridge_policy_allowed_;
++}
++
++bool WebGLRenderingContextBase::ReadBridgePixels(std::vector<uint8_t>* out,
++                                                 int width, int height) {
++  if (bridge_canvas_id_ == 0 || bridge_webgl_unsupported_ || width <= 0 ||
++      height <= 0 || !BridgeAllowedForThisContext())
++    return false;
++  auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++  if (!cb || !cb->Connected())
++    return false;
++  std::optional<std::vector<uint8_t>> px =
++      cb->GetImageDataCacheFirst(bridge_canvas_id_, 0, 0, width, height);
++  if (!px || px->size() != static_cast<size_t>(width) * height * 4)
++    return false;
++  // gl.readPixels is bottom-left origin; toDataURL/Skia want top-left -> flip.
++  out->resize(px->size());
++  const size_t row = static_cast<size_t>(width) * 4;
++  for (int y = 0; y < height; ++y) {
++    __builtin_memcpy(out->data() + static_cast<size_t>(y) * row,
++                     px->data() + static_cast<size_t>(height - 1 - y) * row,
++                     row);
++  }
++  return true;
++}
++
+ void WebGLRenderingContextBase::clearDepth(GLfloat depth) {
+   if (isContextLost())
+     return;
+@@ -2980,6 +3187,10 @@
+ void WebGLRenderingContextBase::compileShader(WebGLShader* shader) {
+   if (!ValidateWebGLProgramOrShader("compileShader", shader))
+     return;
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kCompileShader),
++      {static_cast<int32_t>(shader->BridgeId())}, {}, bridge_canvas_id_,
++      drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->CompileShader(ObjectOrZero(shader));
+ }
+ 
+@@ -3139,6 +3350,10 @@
+ WebGLBuffer* WebGLRenderingContextBase::createBuffer() {
+   auto* buffer = MakeGarbageCollected<WebGLBuffer>(this);
+   buffers_.insert(buffer);
++  RecordWebGLCreate(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kCreateBuffer), buffer,
++      bridge_webgl_obj_counter_, bridge_canvas_id_, drawingBufferWidth(),
++      drawingBufferHeight());
+   return buffer;
+ }
+ 
+@@ -3147,11 +3362,21 @@
+ }
+ 
+ WebGLTexture* WebGLRenderingContextBase::createTexture() {
+-  return MakeGarbageCollected<WebGLTexture>(this);
++  auto* o = MakeGarbageCollected<WebGLTexture>(this);
++  RecordWebGLCreate(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kCreateTexture), o,
++      bridge_webgl_obj_counter_, bridge_canvas_id_, drawingBufferWidth(),
++      drawingBufferHeight());
++  return o;
+ }
+ 
+ WebGLProgram* WebGLRenderingContextBase::createProgram() {
+-  return MakeGarbageCollected<WebGLProgram>(this);
++  auto* o = MakeGarbageCollected<WebGLProgram>(this);
++  RecordWebGLCreate(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kCreateProgram), o,
++      bridge_webgl_obj_counter_, bridge_canvas_id_, drawingBufferWidth(),
++      drawingBufferHeight());
++  return o;
+ }
+ 
+ WebGLRenderbuffer* WebGLRenderingContextBase::createRenderbuffer() {
+@@ -3171,7 +3396,16 @@
+     return nullptr;
+   }
+ 
+-  return MakeGarbageCollected<WebGLShader>(this, type);
++  auto* o = MakeGarbageCollected<WebGLShader>(this, type);
++  if (auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++      cb && cb->Connected()) {
++    o->SetBridgeId(++bridge_webgl_obj_counter_);
++    RecordWebGLOp(
++        static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kCreateShader),
++        {static_cast<int32_t>(o->BridgeId()), static_cast<int32_t>(type)}, {},
++        bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
++  }
++  return o;
+ }
+ 
+ void WebGLRenderingContextBase::cullFace(GLenum mode) {
+@@ -3447,6 +3681,10 @@
+   if (!ValidateDrawArrays("drawArrays"))
+     return;
+ 
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kDrawArrays),
++      {static_cast<int32_t>(mode), first, count}, {}, bridge_canvas_id_,
++      drawingBufferWidth(), drawingBufferHeight());
+   DrawWrapper("drawArrays", CanvasPerformanceMonitor::DrawType::kDrawArrays,
+               [&]() { ContextGL()->DrawArrays(mode, first, count); });
+ }
+@@ -3458,6 +3696,11 @@
+   if (!ValidateDrawElements("drawElements", type, offset))
+     return;
+ 
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kDrawElements),
++      {static_cast<int32_t>(mode), count, static_cast<int32_t>(type),
++       static_cast<int32_t>(offset)},
++      {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   DrawWrapper("drawElements", CanvasPerformanceMonitor::DrawType::kDrawElements,
+               [&]() {
+                 ContextGL()->DrawElements(
+@@ -3527,6 +3770,10 @@
+   }
+ 
+   bound_vertex_array_object_->SetAttribEnabled(index, true);
++  RecordWebGLOp(static_cast<uint32_t>(
++                    blink::canvas_bridge::WebGLOp::kEnableVertexAttribArray),
++                {static_cast<int32_t>(index)}, {}, bridge_canvas_id_,
++                drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->EnableVertexAttribArray(index);
+ }
+ 
+@@ -3625,6 +3872,10 @@
+     return;
+   if (!ValidateTextureBinding("generateMipmap", target))
+     return;
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kGenerateMipmap),
++      {static_cast<int32_t>(target)}, {}, bridge_canvas_id_,
++      drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->GenerateMipmap(target);
+ }
+ 
+@@ -3977,17 +4228,60 @@
+   if (isContextLost())
+     return ScriptValue::CreateNull(script_state->GetIsolate());
+   const int kIntZero = 0;
++  // clearcote: --disable-gpu-fingerprint (persona.webgl_real) reports the REAL backend -- route
++  // the spoofed GPU pnames to the stock getters so the param table matches the real renderer.
++  if (ungoogled::CurrentPersona().webgl_real) {
++    switch (pname) {
++      case GL_ALIASED_LINE_WIDTH_RANGE:
++      case GL_ALIASED_POINT_SIZE_RANGE:
++        return GetWebGLFloatArrayParameter(script_state, pname);
++      // clearcote: MAX_VIEWPORT_DIMS is spoofed below, so the honest-mode
++      // bypass has to revert it too -- otherwise --disable-gpu-fingerprint
++      // reports the real backend for every other limit while viewport dims
++      // keeps handing out the persona value.
++      case GL_MAX_VIEWPORT_DIMS:
++        return GetWebGLIntArrayParameter(script_state, pname);
++      case GL_ALPHA_BITS:
++      case GL_BLUE_BITS:
++      case GL_DEPTH_BITS:
++      case GL_GREEN_BITS:
++      case GL_RED_BITS:
++      case GL_STENCIL_BITS:
++      case GL_SUBPIXEL_BITS:
++      case GL_SAMPLES:
++      case GL_SAMPLE_BUFFERS:
++      case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
++      case GL_MAX_CUBE_MAP_TEXTURE_SIZE:
++      case GL_MAX_FRAGMENT_UNIFORM_VECTORS:
++      case GL_MAX_RENDERBUFFER_SIZE:
++      case GL_MAX_TEXTURE_SIZE:
++      case GL_MAX_VARYING_VECTORS:
++      case GL_MAX_VERTEX_UNIFORM_VECTORS:
++        return GetIntParameter(script_state, pname);
++      default:
++        break;
++    }
++  }
+   switch (pname) {
+     case GL_ACTIVE_TEXTURE:
+       return GetUnsignedIntParameter(script_state, pname);
+-    case GL_ALIASED_LINE_WIDTH_RANGE:
+-      return GetWebGLFloatArrayParameter(script_state, pname);
+-    case GL_ALIASED_POINT_SIZE_RANGE:
+-      return GetWebGLFloatArrayParameter(script_state, pname);
++    case GL_ALIASED_LINE_WIDTH_RANGE: {
++      const float vals[2] = {
++          static_cast<float>(ungoogled::CurrentPersona().webgl_aliased_line_width_range_min),
++          static_cast<float>(ungoogled::CurrentPersona().webgl_aliased_line_width_range_max)};
++      return WebGLAny(script_state, DOMFloat32Array::Create(base::span(vals)));
++    }
++    case GL_ALIASED_POINT_SIZE_RANGE: {
++      const float vals[2] = {
++          static_cast<float>(ungoogled::CurrentPersona().webgl_aliased_point_size_range_min),
++          static_cast<float>(ungoogled::CurrentPersona().webgl_aliased_point_size_range_max)};
++      return WebGLAny(script_state, DOMFloat32Array::Create(base::span(vals)));
++    }
+     case GL_ALPHA_BITS:
+       if (drawing_buffer_->RequiresAlphaChannelToBePreserved())
+         return WebGLAny(script_state, 0);
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_alpha_bits));
+     case GL_ARRAY_BUFFER_BINDING:
+       return WebGLAny(script_state, bound_array_buffer_.Get());
+     case GL_BLEND:
+@@ -4007,7 +4301,8 @@
+     case GL_BLEND_SRC_RGB:
+       return GetUnsignedIntParameter(script_state, pname);
+     case GL_BLUE_BITS:
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_blue_bits));
+     case GL_COLOR_CLEAR_VALUE:
+       return GetWebGLFloatArrayParameter(script_state, pname);
+     case GL_COLOR_WRITEMASK:
+@@ -4024,7 +4319,8 @@
+     case GL_DEPTH_BITS:
+       if (!framebuffer_binding_ && !CreationAttributes().depth)
+         return WebGLAny(script_state, kIntZero);
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_depth_bits));
+     case GL_DEPTH_CLEAR_VALUE:
+       return GetFloatParameter(script_state, pname);
+     case GL_DEPTH_FUNC:
+@@ -4047,7 +4343,8 @@
+     case GL_GENERATE_MIPMAP_HINT:
+       return GetUnsignedIntParameter(script_state, pname);
+     case GL_GREEN_BITS:
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_green_bits));
+     case GL_IMPLEMENTATION_COLOR_READ_FORMAT:
+       return GetIntParameter(script_state, pname);
+     case GL_IMPLEMENTATION_COLOR_READ_TYPE:
+@@ -4055,27 +4352,89 @@
+     case GL_LINE_WIDTH:
+       return GetFloatParameter(script_state, pname);
+     case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      [&]() -> GLint {
++                        // clearcote (algebraic coherence): DERIVED from the two per-stage
++                        // texture-unit limits as reported, never an independent constant. A page
++                        // reads vertex, fragment and combined and checks
++                        // combined >= vertex + fragment -- an identity every real driver holds.
++                        // The stored persona value satisfied it only when the host's parts
++                        // happened to sum to it: 32 held on ANGLE/D3D11 (parts 16/16) and FAILED
++                        // on Mesa (parts 32/32 -> 64), which alone kept the whole Render & GPU
++                        // subsystem discarded as untrustworthy.
++                        GLint cc_vtex = 0, cc_ftex = 0, cc_combined_tex = 0;
++                        ContextGL()->GetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &cc_vtex);
++                        ContextGL()->GetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &cc_ftex);
++                        ContextGL()->GetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS,
++                                                 &cc_combined_tex);
++                        GLint cc_out =
++                            ungoogled::CurrentPersona().webgl_max_combined_texture_image_units;
++                        if (cc_vtex + cc_ftex > cc_out) {
++                          cc_out = cc_vtex + cc_ftex;  // never below what the stages can address
++                        }
++                        if (cc_combined_tex > 0 && cc_out > cc_combined_tex) {
++                          cc_out = cc_combined_tex;  // never above what the driver actually has
++                        }
++                        return cc_out;
++                      }());
+     case GL_MAX_CUBE_MAP_TEXTURE_SIZE:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_CUBE_MAP_TEXTURE_SIZE,
++                                        ungoogled::CurrentPersona().webgl_max_cube_map_texture_size));
+     case GL_MAX_FRAGMENT_UNIFORM_VECTORS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_FRAGMENT_UNIFORM_VECTORS,
++                                        ungoogled::CurrentPersona().webgl_max_fragment_uniform_vectors));
+     case GL_MAX_RENDERBUFFER_SIZE:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_RENDERBUFFER_SIZE,
++                                        ungoogled::CurrentPersona().webgl_max_renderbuffer_size));
+     case GL_MAX_TEXTURE_IMAGE_UNITS:
+       return GetIntParameter(script_state, pname);
+     case GL_MAX_TEXTURE_SIZE:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: report coherent GPU limit, not the real (SwiftShader)
++      // cap -- clamped down to what the driver can actually do.
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(), GL_MAX_TEXTURE_SIZE,
++                                        ungoogled::CurrentPersona().webgl_max_texture_size));
+     case GL_MAX_VARYING_VECTORS:
+-      return GetIntParameter(script_state, pname);
++      // clearcote persona: the single independent varying limit (clamped to the
++      // real cap). The WebGL2 MAX_VARYING_COMPONENTS / MAX_VERTEX_OUTPUT_COMPONENTS
++      // / MAX_FRAGMENT_INPUT_COMPONENTS limits are computed as 4x THIS value, so
++      // the four can never contradict each other.
++      return WebGLAny(script_state, PersonaMaxVaryingVectors(ContextGL()));
+     case GL_MAX_VERTEX_ATTRIBS:
+       return GetIntParameter(script_state, pname);
+     case GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS:
+       return GetIntParameter(script_state, pname);
+-    case GL_MAX_VERTEX_UNIFORM_VECTORS:
+-      return GetIntParameter(script_state, pname);
+-    case GL_MAX_VIEWPORT_DIMS:
+-      return GetWebGLIntArrayParameter(script_state, pname);
++    case GL_MAX_VERTEX_UNIFORM_VECTORS: {
++      // clearcote persona: coherent GPU limit. ANGLE's skipVSConstantRegisterZero
++      // workaround makes NVIDIA drivers report one fewer (4095), so match per-renderer.
++      int vuv = ungoogled::CurrentPersona().webgl_max_vertex_uniform_vectors;
++      if (ungoogled::CurrentPersona().webgl_vendor.find("NVIDIA") != std::string::npos)
++        vuv -= 1;
++      return WebGLAny(script_state,
++                      ClampPersonaLimit(ContextGL(),
++                                        GL_MAX_VERTEX_UNIFORM_VECTORS, vuv));
++    }
++    case GL_MAX_VIEWPORT_DIMS: {
++      // clearcote: MAX_VIEWPORT_DIMS is an ANGLE-backend constant (32767 on D3D11),
++      // independent of the physical GPU. Report the persona value instead of the real
++      // host GL so a SwiftShader/Mesa [8192,8192] never contradicts a claimed
++      // hardware/D3D11 renderer string (a getParameter-level render-vs-string tell).
++      const GLint dim = ClampPersonaViewportDim(
++          ContextGL(), ungoogled::CurrentPersona().webgl_max_viewport_dim);
++      const std::array<GLint, 2> vp_vals = {dim, dim};
++      return WebGLAny(script_state, DOMInt32Array::Create(base::span(vp_vals)));
++    }
+     case GL_PACK_ALIGNMENT:
+       return GetIntParameter(script_state, pname);
+     case GL_POLYGON_OFFSET_FACTOR:
+@@ -4085,7 +4444,8 @@
+     case GL_POLYGON_OFFSET_UNITS:
+       return GetFloatParameter(script_state, pname);
+     case GL_RED_BITS:
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_red_bits));
+     case GL_RENDERBUFFER_BINDING:
+       return WebGLAny(script_state, renderbuffer_binding_.Get());
+     case GL_RENDERER:
+@@ -4093,7 +4453,8 @@
+     case GL_SAMPLE_ALPHA_TO_COVERAGE:
+       return GetBooleanParameter(script_state, pname);
+     case GL_SAMPLE_BUFFERS:
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_sample_buffers));
+     case GL_SAMPLE_COVERAGE:
+       return GetBooleanParameter(script_state, pname);
+     case GL_SAMPLE_COVERAGE_INVERT:
+@@ -4101,7 +4462,8 @@
+     case GL_SAMPLE_COVERAGE_VALUE:
+       return GetFloatParameter(script_state, pname);
+     case GL_SAMPLES:
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_samples));
+     case GL_SCISSOR_BOX:
+       return GetWebGLIntArrayParameter(script_state, pname);
+     case GL_SCISSOR_TEST:
+@@ -4129,7 +4491,8 @@
+     case GL_STENCIL_BITS:
+       if (!framebuffer_binding_ && !CreationAttributes().stencil)
+         return WebGLAny(script_state, kIntZero);
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_stencil_bits));
+     case GL_STENCIL_CLEAR_VALUE:
+       return GetIntParameter(script_state, pname);
+     case GL_STENCIL_FAIL:
+@@ -4149,7 +4512,8 @@
+     case GL_STENCIL_WRITEMASK:
+       return GetUnsignedIntParameter(script_state, pname);
+     case GL_SUBPIXEL_BITS:
+-      return GetIntParameter(script_state, pname);
++      return WebGLAny(script_state,
++                      static_cast<GLint>(ungoogled::CurrentPersona().webgl_subpixel_bits));
+     case GL_TEXTURE_BINDING_2D:
+       return WebGLAny(
+           script_state,
+@@ -4185,6 +4549,30 @@
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:
+       if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
++        // clearcote: session-constant persona GPU so the SAME coherent GPU is
++        // reported on EVERY origin (a real user has one GPU) and it matches the
++        // WebGL limits. The per-origin farble path below otherwise hands a
++        // different GPU model to each site -- a glaring spoofing tell.
++        {
++          const std::string& persona_renderer =
++              ungoogled::CurrentPersona().webgl_renderer;
++          // clearcote: webgl_real_strings = --disable-gpu-fingerprint OR
++          // --disable-gpu-string-spoof. Only the STRING follows it.
++          if (!ungoogled::CurrentPersona().webgl_real_strings &&
++              !persona_renderer.empty())
++            return WebGLAny(script_state, String(persona_renderer));
++        }
++        const SecurityOrigin* gpu_origin =
++            GetExecutionContext() ? GetExecutionContext()->GetSecurityOrigin()
++                                  : nullptr;
++        uint64_t gpu_seed = ungoogled::GetFarbleSeed64(
++            gpu_origin ? gpu_origin->RegistrableDomain().Utf8()
++                       : std::string());
++        std::string fingerprint_renderer =
++            GetGLRendererStringForFingerprint(gpu_seed);
++        if (!fingerprint_renderer.empty()) {
++          return WebGLAny(script_state, String(fingerprint_renderer));
++        }
+         if (base::FeatureList::IsEnabled(blink::features::kSpoofWebGLInfo))
+           return WebGLAny(script_state, String(blink::features::kSpoofWebGLRendererParam.Get()));
+         return WebGLAny(script_state,
+@@ -4196,6 +4584,19 @@
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:
+       if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
++        // clearcote: session-constant persona GPU vendor (see renderer case).
++        {
++          const std::string& persona_vendor =
++              ungoogled::CurrentPersona().webgl_vendor;
++          // clearcote: string-only honest mode -- see the renderer case above.
++          if (!ungoogled::CurrentPersona().webgl_real_strings &&
++              !persona_vendor.empty())
++            return WebGLAny(script_state, String(persona_vendor));
++        }
++        std::string fingerprint_vendor = GetGLVendorStringForFingerprint();
++        if (!fingerprint_vendor.empty()) {
++          return WebGLAny(script_state, String(fingerprint_vendor));
++        }
+         if (base::FeatureList::IsEnabled(blink::features::kSpoofWebGLInfo))
+           return WebGLAny(script_state, String(blink::features::kSpoofWebGLVendorParam.Get()));
+         return WebGLAny(script_state,
+@@ -4217,8 +4618,17 @@
+       return ScriptValue::CreateNull(script_state->GetIsolate());
+     case GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT:  // EXT_texture_filter_anisotropic
+       if (ExtensionEnabled(kEXTTextureFilterAnisotropicName)) {
+-        return GetFloatParameter(script_state,
+-                                 GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT);
++        // clearcote: honest mode reverts to the real driver value; otherwise the
++        // persona value, clamped to the real anisotropy cap.
++        if (ungoogled::CurrentPersona().webgl_real) {
++          return GetFloatParameter(script_state,
++                                   GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT);
++        }
++        return WebGLAny(
++            script_state,
++            ClampPersonaLimitF(
++                ContextGL(), GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT,
++                ungoogled::CurrentPersona().webgl_max_texture_max_anisotropy));
+       }
+       SynthesizeGLError(
+           GL_INVALID_ENUM, "getParameter",
+@@ -4495,6 +4905,32 @@
+       return nullptr;
+   }
+ 
++  // clearcote: an Android (Mali/Adreno GLES) persona reports the mobile shader
++  // precision profile instead of the real desktop GPU's. Mediump/lowp float are
++  // true fp16 on mobile ([15,15] precision 10) vs the desktop's promoted highp
++  // ([127,127],23) -- a probed mediump-float precision of 10 is a mobile signal.
++  // Ints: highp [31,30]/0, mediump/lowp [15,14]/0. NOTE: string/limit-level only
++  // (rasterized pixels stay desktop); verify per-driver captures before ship.
++  if (ungoogled::CurrentPersona().mobile &&
++      !ungoogled::CurrentPersona().webgl_real) {
++    GLint r0 = 127, r1 = 127, p = 23;
++    switch (precision_type) {
++      case GL_HIGH_FLOAT:
++        r0 = 127; r1 = 127; p = 23; break;
++      case GL_MEDIUM_FLOAT:
++      case GL_LOW_FLOAT:
++        r0 = 15; r1 = 15; p = 10; break;
++      case GL_HIGH_INT:
++        r0 = 31; r1 = 30; p = 0; break;
++      case GL_MEDIUM_INT:
++      case GL_LOW_INT:
++        r0 = 15; r1 = 14; p = 0; break;
++      default:
++        break;
++    }
++    return MakeGarbageCollected<WebGLShaderPrecisionFormat>(r0, r1, p);
++  }
++
+   GLint range[2] = {0, 0};
+   GLint precision = 0;
+   ContextGL()->GetShaderPrecisionFormat(shader_type, precision_type, range,
+@@ -4522,6 +4958,15 @@
+     }
+   }
+ 
++  // clearcote persona: present the imported GPU's extension list when available.
++  if (!ungoogled::CurrentPersona().webgl_real &&
++      !ungoogled::CurrentPersona().webgl_extensions.empty()) {
++    Vector<String> persona;
++    for (const std::string& e : ungoogled::CurrentPersona().webgl_extensions)
++      persona.push_back(String::FromUtf8(e));
++    return persona;
++  }
++
+   return result;
+ }
+ 
+@@ -4835,7 +5280,19 @@
+       ObjectOrZero(program), name.Utf8().c_str());
+   if (uniform_location == -1)
+     return nullptr;
+-  return MakeGarbageCollected<WebGLUniformLocation>(program, uniform_location);
++  auto* loc =
++      MakeGarbageCollected<WebGLUniformLocation>(program, uniform_location);
++  if (auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++      cb && cb->Connected()) {
++    loc->SetBridgeId(++bridge_webgl_obj_counter_);
++    RecordWebGLOp(static_cast<uint32_t>(
++                      blink::canvas_bridge::WebGLOp::kGetUniformLocation),
++                  {static_cast<int32_t>(program->BridgeId()),
++                   static_cast<int32_t>(loc->BridgeId())},
++                  {}, bridge_canvas_id_, drawingBufferWidth(),
++                  drawingBufferHeight(), name.Utf8());
++  }
++  return loc;
+ }
+ 
+ ScriptValue WebGLRenderingContextBase::getVertexAttrib(
+@@ -5055,6 +5512,10 @@
+     return;
+   }
+ 
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kLinkProgram),
++      {static_cast<int32_t>(program->BridgeId())}, {}, bridge_canvas_id_,
++      drawingBufferWidth(), drawingBufferHeight());
+   GLuint query = 0u;
+   if (ExtensionEnabled(kKHRParallelShaderCompileName)) {
+     ContextGL()->GenQueriesEXT(1, &query);
+@@ -5344,6 +5805,65 @@
+       return;
+     }
+     ContextGL()->ReadPixels(x, y, width, height, format, type, data);
++
++    // canvas-bridge: substitute the remote render's pixels (RGBA8 only).
++    bool cb_substituted = false;
++    if (format == GL_RGBA && type == GL_UNSIGNED_BYTE &&
++        bridge_canvas_id_ != 0 && !bridge_webgl_unsupported_ &&
++        BridgeAllowedForThisContext()) {
++      if (auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++          cb && cb->Connected()) {
++        std::optional<std::vector<uint8_t>> cbpx =
++            cb->GetImageDataCacheFirst(bridge_canvas_id_, x, y, width, height);
++        if (cbpx &&
++            cbpx->size() == static_cast<size_t>(width) * height * 4) {
++          __builtin_memcpy(data, cbpx->data(), cbpx->size());
++          cb_substituted = true;
++        }
++      }
++    }
++
++    // Fingerprint protection: perturb the pixels just read back.
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!cb_substituted && command_line->HasSwitch(switches::kFingerprint)) {
++      // Build an SkImageInfo describing the pixel layout.
++      SkColorType color_type;
++      SkAlphaType alpha_type = kUnpremul_SkAlphaType;
++
++      // Map the WebGL format/type pair to a Skia color type.
++      if (format == GL_RGBA && type == GL_UNSIGNED_BYTE) {
++        color_type = kRGBA_8888_SkColorType;
++      } else if (format == GL_RGB && type == GL_UNSIGNED_BYTE) {
++        color_type = kRGB_888x_SkColorType;
++      } else if (format == GL_ALPHA && type == GL_UNSIGNED_BYTE) {
++        color_type = kAlpha_8_SkColorType;
++      } else {
++        // For any other format, assume RGBA.
++        color_type = kRGBA_8888_SkColorType;
++      }
++
++      SkImageInfo image_info =
++          SkImageInfo::Make(width, height, color_type, alpha_type, /*color_space=*/nullptr);
++
++      // Apply the fingerprint noise to the pixels that were read back, keyed
++      // by a per-eTLD+1 farbling seed so the noise is stable per site but
++      // decorrelated across sites.
++      const SecurityOrigin* read_pixels_origin =
++          GetExecutionContext() ? GetExecutionContext()->GetSecurityOrigin()
++                                : nullptr;
++      uint64_t read_pixels_seed = ungoogled::GetFarbleSeed64(
++          read_pixels_origin ? read_pixels_origin->RegistrableDomain().Utf8()
++                             : std::string());
++      if (ungoogled::FingerprintNoiseEnabled() &&
++          !ungoogled::CurrentPersona().webgl_real)
++        // bottom_up: readPixels returns the drawing buffer with row 0 at the BOTTOM, while
++        // toDataURL encodes a top-down snapshot of the same buffer. Keying both on the same
++        // absolute canvas y is what makes the two exits agree.
++        StaticBitmapImage::ShuffleSubchannelColorData(data, image_info, 0, 0,
++                                                      read_pixels_seed,
++                                                      /*bottom_up=*/true);
++    }
+   }
+ }
+ 
+@@ -5455,6 +5975,10 @@
+     return;
+   String ascii_string = ReplaceNonASCII(string).Result();
+   shader->SetSource(string);
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kShaderSource),
++      {static_cast<int32_t>(shader->BridgeId())}, {}, bridge_canvas_id_,
++      drawingBufferWidth(), drawingBufferHeight(), ascii_string.Utf8());
+   DCHECK(ascii_string.Is8Bit() && ascii_string.ContainsOnlyAsciiOrEmpty());
+   const GLchar* shader_data = base::as_chars(ascii_string.Span8()).data();
+   const GLint shader_length = ascii_string.length();
+@@ -5757,6 +6281,11 @@
+                                  params.type, pixels);
+       break;
+   }
++  // canvas-bridge: any texture upload we did NOT forward (non-ArrayBufferView
++  // sources, 3D) leaves the server texture incomplete -> fall back to local.
++  if (bridge_canvas_id_ != 0 && !bridge_tex_handled_)
++    bridge_webgl_unsupported_ = true;
++  bridge_tex_handled_ = false;
+ }
+ 
+ void WebGLRenderingContextBase::TexImageStaticBitmapImage(
+@@ -6037,6 +6566,33 @@
+     return;
+   }
+ 
++  // canvas-bridge: forward the 2D texture pixel upload (procedural data path).
++  if (bridge_canvas_id_ != 0 &&
++      (params.function_id == kTexImage2D ||
++       params.function_id == kTexSubImage2D)) {
++    std::vector<uint8_t> tex(data.begin(), data.end());
++    if (params.function_id == kTexImage2D) {
++      RecordWebGLOp(
++          static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kTexImage2D),
++          {static_cast<int32_t>(params.target), params.level,
++           params.internalformat, params.width.value_or(0),
++           params.height.value_or(0), params.border,
++           static_cast<int32_t>(params.format),
++           static_cast<int32_t>(params.type)},
++          {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight(),
++          std::string(), std::move(tex));
++    } else {
++      RecordWebGLOp(
++          static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kTexSubImage2D),
++          {static_cast<int32_t>(params.target), params.level, params.xoffset,
++           params.yoffset, params.width.value_or(0),
++           params.height.value_or(0), static_cast<int32_t>(params.format),
++           static_cast<int32_t>(params.type)},
++          {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight(),
++          std::string(), std::move(tex));
++    }
++    bridge_tex_handled_ = true;
++  }
+   ScopedUnpackParametersResetRestore temporary_reset_unpack(
+       this, change_unpack_params);
+   TexImageBase(params, data.data());
+@@ -6925,12 +7481,21 @@
+ void WebGLRenderingContextBase::texParameterf(GLenum target,
+                                               GLenum pname,
+                                               GLfloat param) {
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kTexParameterf),
++      {static_cast<int32_t>(target), static_cast<int32_t>(pname)}, {param},
++      bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   TexParameter(target, pname, param, 0, true);
+ }
+ 
+ void WebGLRenderingContextBase::texParameteri(GLenum target,
+                                               GLenum pname,
+                                               GLint param) {
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kTexParameteri),
++      {static_cast<int32_t>(target), static_cast<int32_t>(pname),
++       static_cast<int32_t>(param)},
++      {}, bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   TexParameter(target, pname, 0, param, false);
+ }
+ 
+@@ -7178,6 +7743,9 @@
+     return;
+   }
+ 
++  RecordWebGLOp(static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kUniform1f),
++                {static_cast<int32_t>(location->BridgeId())}, {x},
++                bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->Uniform1f(location->Location(), x);
+ }
+ 
+@@ -7203,6 +7771,11 @@
+     return;
+   }
+ 
++  RecordWebGLOp(static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kUniform1i),
++                {static_cast<int32_t>(location->BridgeId()),
++                 static_cast<int32_t>(x)},
++                {}, bridge_canvas_id_, drawingBufferWidth(),
++                drawingBufferHeight());
+   ContextGL()->Uniform1i(location->Location(), x);
+ }
+ 
+@@ -7229,6 +7802,9 @@
+     return;
+   }
+ 
++  RecordWebGLOp(static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kUniform2f),
++                {static_cast<int32_t>(location->BridgeId())}, {x, y},
++                bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->Uniform2f(location->Location(), x, y);
+ }
+ 
+@@ -7282,6 +7858,9 @@
+     return;
+   }
+ 
++  RecordWebGLOp(static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kUniform3f),
++                {static_cast<int32_t>(location->BridgeId())}, {x, y, z},
++                bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->Uniform3f(location->Location(), x, y, z);
+ }
+ 
+@@ -7337,6 +7916,9 @@
+     return;
+   }
+ 
++  RecordWebGLOp(static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kUniform4f),
++                {static_cast<int32_t>(location->BridgeId())}, {x, y, z, w},
++                bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->Uniform4f(location->Location(), x, y, z, w);
+ }
+ 
+@@ -7420,6 +8002,18 @@
+                                        v, 16, 0, v.size(), &data, &length)) {
+     return;
+   }
++  {
++    std::vector<double> mv;
++    mv.reserve(static_cast<size_t>(length) * 16);
++    for (GLuint i = 0; i < length * 16; ++i)
++      mv.push_back(data[i]);
++    RecordWebGLOp(static_cast<uint32_t>(
++                      blink::canvas_bridge::WebGLOp::kUniformMatrix4fv),
++                  {static_cast<int32_t>(location->BridgeId()),
++                   transpose ? 1 : 0},
++                  std::move(mv), bridge_canvas_id_, drawingBufferWidth(),
++                  drawingBufferHeight());
++  }
+   ContextGL()->UniformMatrix4fv(location->Location(), length, transpose, data);
+ }
+ 
+@@ -7431,6 +8025,10 @@
+     return;
+   }
+ 
++  RecordWebGLOp(
++      static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kUseProgram),
++      {static_cast<int32_t>(program ? program->BridgeId() : 0)}, {},
++      bridge_canvas_id_, drawingBufferWidth(), drawingBufferHeight());
+   if (current_program_ != program) {
+     if (current_program_)
+       current_program_->OnDetached(ContextGL());
+@@ -7560,6 +8158,12 @@
+     return;
+   }
+ 
++  RecordWebGLOp(static_cast<uint32_t>(
++                    blink::canvas_bridge::WebGLOp::kVertexAttribPointer),
++                {static_cast<int32_t>(index), size, static_cast<int32_t>(type),
++                 normalized ? 1 : 0, stride, static_cast<int32_t>(offset)},
++                {}, bridge_canvas_id_, drawingBufferWidth(),
++                drawingBufferHeight());
+   bound_vertex_array_object_->SetArrayBufferForAttrib(
+       index, bound_array_buffer_.Get());
+   ContextGL()->VertexAttribPointer(
+@@ -7587,6 +8191,9 @@
+                                          GLsizei height) {
+   if (isContextLost())
+     return;
++  RecordWebGLOp(static_cast<uint32_t>(blink::canvas_bridge::WebGLOp::kViewport),
++                {x, y, width, height}, {}, bridge_canvas_id_,
++                drawingBufferWidth(), drawingBufferHeight());
+   ContextGL()->Viewport(x, y, width, height);
+ }
+ 
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h	2026-07-21 14:04:53.455101129 +0000
+@@ -1942,6 +1942,25 @@
+   SkAlphaType GetAlphaType() const;
+ 
+  private:
++  // canvas-bridge: stable server-side WebGL surface id (0 = none yet).
++  uint32_t bridge_canvas_id_ = 0;
++  // WS-Policy: per-context cache of the origin gate (lazy).
++  bool bridge_policy_checked_ = false;
++  bool bridge_policy_allowed_ = false;
++  bool BridgeAllowedForThisContext();
++  // canvas-bridge: monotonic counter handing each WebGL object a stable id.
++  uint32_t bridge_webgl_obj_counter_ = 0;
++  // canvas-bridge: set when the canvas uses a feature the bridge can't forward
++  // yet -> fall back to the local readback instead of garbage.
++  bool bridge_webgl_unsupported_ = false;
++  // canvas-bridge: set by the ArrayBufferView texImage path when it forwards an
++  // upload, so the TexImageBase backstop knows not to flag it unsupported.
++  bool bridge_tex_handled_ = false;
++  // canvas-bridge: serve toDataURL() from the remote render (Y-flipped to
++  // top-left for Skia); see html_canvas_element.cc::ToDataURLInternal.
++  bool ReadBridgePixels(std::vector<uint8_t>* out, int width,
++                        int height) override;
++
+   WebGLRenderingContextBase(CanvasRenderingContextHost*,
+                             scoped_refptr<base::SingleThreadTaskRunner>,
+                             std::unique_ptr<WebGraphicsContext3DProvider>,
+diff -u --recursive a/third_party/blink/renderer/modules/webgl/webgl_uniform_location.h b/third_party/blink/renderer/modules/webgl/webgl_uniform_location.h
+--- a/third_party/blink/renderer/modules/webgl/webgl_uniform_location.h	2026-07-21 14:04:53.447101095 +0000
++++ b/third_party/blink/renderer/modules/webgl/webgl_uniform_location.h	2026-07-21 14:04:53.455101129 +0000
+@@ -42,12 +42,18 @@
+ 
+   GLint Location() const;
+ 
++  // Canvas bridge: stable id so the server can map this uniform location back
++  // to gl.getUniformLocation() on its own program (0 = unset).
++  uint32_t BridgeId() const { return bridge_id_; }
++  void SetBridgeId(uint32_t id) { bridge_id_ = id; }
++
+   void Trace(Visitor*) const override;
+ 
+  private:
+   Member<WebGLProgram> program_;
+   GLint location_;
+   unsigned link_count_;
++  uint32_t bridge_id_ = 0;
+ };
+ 
+ }  // namespace blink

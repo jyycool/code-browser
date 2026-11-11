@@ -1,0 +1,11 @@
+--- a/chrome/app/chrome_command_ids.h
++++ b/chrome/app/chrome_command_ids.h
+@@ -78,7 +78,7 @@
+ #define IDC_TOGGLE_MULTITASK_MENU       34050
+ #endif
+ 
+-#if (0)
++#if (1)
+ #define IDC_USE_SYSTEM_TITLE_BAR        34051
+ #endif
+ 

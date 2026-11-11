@@ -1,0 +1,645 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import {
+  SCHEMA4_ENGINE_MARKER,
+  PERSONA_SERVICE_MARKER,
+  extensionArgs,
+  resolveProxy,
+  engineSupportsSwitch,
+  warnUnsupportedEngineOptions,
+  mergeFeatureFlags,
+  webBluetoothArgs,
+  privacySandboxArgs,
+  quicArgs,
+  relayProxyByIp,
+  socks5UdpRefused,
+  udpRelayOrFallback,
+  socks5UdpArgs,
+  webrtcDefaultDenyArgs,
+} from "../src/launchopts.js";
+
+describe("mergeFeatureFlags", () => {
+  it("collapses multiple --enable/--disable-features into one each", () => {
+    const out = mergeFeatureFlags([
+      "--enable-features=A", "--mute-audio", "--enable-features=B,C",
+      "--disable-features=D", "--disable-features=D,E",
+    ]);
+    expect(out.filter((a) => a.startsWith("--enable-features="))).toEqual(["--enable-features=A,B,C"]);
+    expect(out.filter((a) => a.startsWith("--disable-features="))).toEqual(["--disable-features=D,E"]);
+    expect(out).toContain("--mute-audio");
+  });
+});
+
+describe("privacySandboxArgs", () => {
+  it("disables the Privacy Sandbox + intrusive APIs", () => {
+    expect(privacySandboxArgs()).toEqual([
+      "--disable-features=BrowsingTopics,BrowsingTopicsDocumentAPI,Fledge,InterestGroupStorage,PrivateAggregationApi,SharedStorageAPI,FencedFrames",
+    ]);
+  });
+});
+
+describe("webrtcDefaultDenyArgs", () => {
+  it("defaults to disable_non_proxied_udp when no webrtcIp", () => {
+    expect(webrtcDefaultDenyArgs([], undefined)).toEqual(["--webrtc-ip-handling-policy=disable_non_proxied_udp"]);
+  });
+  // Regression: this used to return [] when a webrtcIp was set, on the theory that the engine's
+  // srflx fabrication covered WebRTC. It does not. A page using iceTransportPolicy:"relay" forces
+  // TURN; TURN prefers UDP; an HTTP/SOCKS proxy carries only TCP — so the UDP left on the host's
+  // own path and the TURN server read the real public IP off the packet, with no candidate
+  // involved for the fabrication to rewrite. geoip:true sets webrtcIp for you, so the coherent
+  // configurations were the exposed ones.
+  it("still denies non-proxied UDP when a webrtcIp is set", () => {
+    expect(webrtcDefaultDenyArgs([], "1.2.3.4")).toEqual(["--webrtc-ip-handling-policy=disable_non_proxied_udp"]);
+  });
+  it("is skipped when the caller already set a policy", () => {
+    expect(webrtcDefaultDenyArgs(["--webrtc-ip-handling-policy=default"], undefined)).toEqual([]);
+  });
+  it("is skipped when the caller set a forced policy, even with a webrtcIp", () => {
+    expect(webrtcDefaultDenyArgs(["--force-webrtc-ip-handling-policy=default"], "1.2.3.4")).toEqual([]);
+  });
+});
+
+describe("quicArgs", () => {
+  it("disables QUIC behind any proxy (SOCKS or HTTP)", () => {
+    expect(quicArgs({ server: "socks5://host:1080" })).toEqual(["--disable-quic"]);
+    expect(quicArgs({ server: "http://host:8080" })).toEqual(["--disable-quic"]);
+  });
+  it("leaves QUIC on when no proxy is set", () => {
+    expect(quicArgs(undefined)).toEqual([]);
+    expect(quicArgs({})).toEqual([]);
+  });
+});
+
+describe("extensionArgs", () => {
+  it("returns [] for empty input", () => {
+    expect(extensionArgs()).toEqual([]);
+    expect(extensionArgs([])).toEqual([]);
+  });
+
+  it("emits both --load-extension and --disable-extensions-except", () => {
+    expect(extensionArgs(["/a", "/b"])).toEqual([
+      "--load-extension=/a,/b",
+      "--disable-extensions-except=/a,/b",
+    ]);
+  });
+});
+
+describe("resolveProxy", () => {
+  it("passes through when no proxy", () => {
+    expect(resolveProxy(undefined)).toEqual({ args: [], proxy: undefined });
+  });
+
+  it("routes a credentialed SOCKS5 proxy to --proxy-server and forwards the credentials", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = resolveProxy({ server: "socks5://h:1080", username: "u", password: "p" });
+    expect(r.args).toEqual([
+      "--proxy-server=socks5://h:1080",
+      "--socks5-credentials=u:p",
+    ]);
+    expect(r.proxy).toBeUndefined();
+    // The engine implements RFC 1929 now, so there is nothing to warn about.
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("strips userinfo already present in the SOCKS5 URL", () => {
+    const r = resolveProxy({ server: "socks5://old:secret@h:1080", username: "u", password: "p" });
+    expect(r.args).toEqual([
+      "--proxy-server=socks5://h:1080",
+      "--socks5-credentials=u:p",
+    ]);
+  });
+
+  it("routes a credentialed http proxy to --proxy-server + --proxy-auth (engine answers the 407)", () => {
+    const r = resolveProxy({ server: "http://old:secret@h:3128", username: "u", password: "p" }, true);
+    expect(r.args).toEqual(["--proxy-server=http://h:3128", "--proxy-auth=u:p"]);
+    expect(r.proxy).toBeUndefined();
+  });
+
+  it("keeps the bypass list when it owns an https proxy", () => {
+    const r = resolveProxy({ server: "https://h:443", username: "u", password: "p", bypass: "*.internal" }, true);
+    expect(r.args).toEqual(["--proxy-server=https://h:443", "--proxy-auth=u:p", "--proxy-bypass-list=*.internal"]);
+  });
+
+  it("leaves credentialed http proxies to Playwright on engines without --proxy-auth (r18 and earlier, free)", () => {
+    // Routing them anyway would strip the credentials from Playwright and every request would 407.
+    const proxy = { server: "http://h:3128", username: "u", password: "p" };
+    expect(resolveProxy(proxy)).toEqual({ args: [], proxy });
+    expect(resolveProxy(proxy, false)).toEqual({ args: [], proxy });
+  });
+
+  // Regression (found 2026-09-24, proven at runtime on r27): credentials written INTO the URL were
+  // ignored, because only the fields were read. The proxy went to Playwright, which rebuilds the
+  // server as scheme://host:port, and the browser's SOCKS5 greeting offered only "no auth".
+  it("routes credentials written in a SOCKS5 URL to the engine, like the fields", () => {
+    const r = resolveProxy({ server: "socks5://user:pass@h:1080" });
+    expect(r.args).toEqual(["--proxy-server=socks5://h:1080", "--socks5-credentials=user:pass"]);
+    expect(r.proxy).toBeUndefined();
+  });
+
+  it("percent-decodes URL credentials and splits at the last '@'", () => {
+    expect(resolveProxy({ server: "socks5://us%40er:p%3Ass%2Fw@h:1080" }).args)
+      .toEqual(["--proxy-server=socks5://h:1080", "--socks5-credentials=us@er:p:ss/w"]);
+    // an unescaped '@' in the password (URL parsers split userinfo at the LAST '@')
+    expect(resolveProxy({ server: "socks5://user:p@ss@h:1080" }).args)
+      .toEqual(["--proxy-server=socks5://h:1080", "--socks5-credentials=user:p@ss"]);
+    // a malformed escape is taken literally rather than throwing
+    expect(resolveProxy({ server: "socks5://user:100%@h:1080" }).args)
+      .toEqual(["--proxy-server=socks5://h:1080", "--socks5-credentials=user:100%"]);
+  });
+
+  it("routes credentials written in an http URL to --proxy-auth on engines that have it", () => {
+    const r = resolveProxy({ server: "http://u:p@h:3128", bypass: "*.internal" }, true);
+    expect(r.args).toEqual(["--proxy-server=http://h:3128", "--proxy-auth=u:p", "--proxy-bypass-list=*.internal"]);
+    expect(r.proxy).toBeUndefined();
+  });
+
+  it("hands URL credentials to Playwright as fields when it keeps an http proxy", () => {
+    // Playwright drops userinfo from `server`: left there, every request would 407.
+    const r = resolveProxy({ server: "http://u:p%21@h:3128", bypass: "*.internal" }, false);
+    expect(r.args).toEqual([]);
+    expect(r.proxy).toEqual({ server: "http://h:3128", username: "u", password: "p!", bypass: "*.internal" });
+  });
+
+  it("lets the fields win over userinfo, per field", () => {
+    expect(resolveProxy({ server: "socks5://urluser:urlpass@h:1080", password: "field" }).args)
+      .toEqual(["--proxy-server=socks5://h:1080", "--socks5-credentials=urluser:field"]);
+  });
+
+  it("warns about an engine without SOCKS5 auth when the credentials are in the URL", async () => {
+    const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-warn-"));
+    try {
+      const noSocksAuth = path.join(dir, "r16"); fs.writeFileSync(noSocksAuth, Buffer.from("\0proxy-server\0", "latin1"));
+      const msgs = warnUnsupportedEngineOptions(noSocksAuth, {}, { server: "socks5://u:p@h:1080" }, true);
+      expect(msgs.some((m) => m.includes("cannot authenticate to a SOCKS5 proxy"))).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("socks5 routing does not depend on the --proxy-auth capability", () => {
+    const proxy = { server: "socks5://h:1080", username: "u", password: "p" };
+    expect(resolveProxy(proxy).args).toEqual(resolveProxy(proxy, true).args);
+    expect(resolveProxy(proxy).args.some((a) => a.startsWith("--socks5-credentials="))).toBe(true);
+  });
+
+  it("warnUnsupportedEngineOptions warns only for switches the engine lacks", async () => {
+    const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-warn-"));
+    const oldExe = path.join(dir, "old"); fs.writeFileSync(oldExe, Buffer.from("\0socks5-credentials\0", "latin1"));
+    const newExe = path.join(dir, "new"); fs.writeFileSync(newExe, Buffer.from("\0socks5-credentials\0\0fingerprint-schema\0\0fingerprint-gpu-backend-real\0\0proxy-auth\0", "latin1"));
+    const fp = { personaSchema: 2, realGpuHost: true };
+    const socks = { server: "socks5://h:1080", username: "u", password: "p" };
+    const oldMsgs = warnUnsupportedEngineOptions(oldExe, fp, socks, true);
+    expect(oldMsgs.some((m) => m.includes("personaSchema: 2"))).toBe(true);
+    expect(oldMsgs.some((m) => m.includes("realGpuHost"))).toBe(true);
+    expect(oldMsgs.some((m) => m.includes("SOCKS5"))).toBe(false);
+    expect(warnUnsupportedEngineOptions(newExe, fp, socks, true)).toEqual([]);
+    expect(warnUnsupportedEngineOptions(oldExe, { personaSchema: 1 }, undefined, true)).toEqual([]);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("warnUnsupportedEngineOptions knows which engine each persona schema needs", async () => {
+    // Schema 2 came with 151 r19 (the switch itself), 3 with 154 r36 (--block-third-party-cookies too), 4 with 154 r37,
+    // whose schema-4 GPU pool is the first to carry the Intel Arc row; r36's table names that chip "Arc(TM) Pro".
+    const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-warn-"));
+    const bin = (name: string, ...literals: string[]) => {
+      const p = path.join(dir, name);
+      fs.writeFileSync(p, Buffer.from(literals.map((l) => `\0${l}\0`).join(""), "latin1"));
+      return p;
+    };
+    const r35 = bin("r35", "fingerprint-schema");
+    const r36 = bin("r36", "fingerprint-schema", "block-third-party-cookies", "ANGLE (Intel, Intel(R) Arc(TM) Pro Graphics (0x00007D55) Direct3D11 vs_5_0 ps_5_0, D3D11)");
+    const r37 = bin("r37", "fingerprint-schema", "block-third-party-cookies", SCHEMA4_ENGINE_MARKER);
+    const warns = (exe: string, personaSchema: number) => warnUnsupportedEngineOptions(exe, { personaSchema }, undefined, true);
+    expect(warns(r35, 3).some((m) => m.includes("personaSchema: 3 (engine 154 r36+)"))).toBe(true);
+    expect(warns(r35, 4).some((m) => m.includes("personaSchema: 4 (engine 154 r37+)"))).toBe(true);
+    expect(warns(r36, 3)).toEqual([]);
+    expect(warns(r36, 4).some((m) => m.includes("personaSchema: 4"))).toBe(true);
+    expect(warns(r37, 3)).toEqual([]);
+    expect(warns(r37, 4)).toEqual([]);
+    expect(warns(r35, 2)).toEqual([]);
+    const r51 = bin("r51", "fingerprint-schema", "block-third-party-cookies", SCHEMA4_ENGINE_MARKER, PERSONA_SERVICE_MARKER);
+    expect(warns(r35, 5).some((m) => m.includes("personaSchema: 5 (engine 155 r45+)"))).toBe(true);
+    expect(warns(r37, 5)).toEqual([]);
+    expect(warns(r37, 7).some((m) => m.includes("personaSchema: 7 (engine 156 r51+)"))).toBe(true);
+    expect(warns(r51, 5)).toEqual([]);
+    expect(warns(r51, 7)).toEqual([]);
+    expect(SCHEMA4_ENGINE_MARKER).toContain("Arc(TM) Graphics (0x00007D55)");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("engineSupportsSwitch probes the NUL-delimited switch literal, not header names", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-switch-"));
+    const a = path.join(dir, "a.bin"); fs.writeFileSync(a, Buffer.from("xx\0proxy-authenticate\0yy", "latin1"));
+    const b = path.join(dir, "b.bin"); fs.writeFileSync(b, Buffer.from("xx\0proxy-auth\0yy", "latin1"));
+    expect(engineSupportsSwitch(a, "proxy-auth")).toBe(false);
+    expect(engineSupportsSwitch(b, "proxy-auth")).toBe(true);
+    expect(engineSupportsSwitch(path.join(dir, "missing"), "proxy-auth")).toBe(false);
+    expect(engineSupportsSwitch(undefined, "proxy-auth")).toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("leaves an http proxy without creds to Playwright", () => {
+    const proxy = { server: "http://h:3128" };
+    expect(resolveProxy(proxy)).toEqual({ args: [], proxy });
+  });
+
+  it("leaves a SOCKS5 proxy without creds to Playwright", () => {
+    const p = { server: "socks5://h:1080" };
+    expect(resolveProxy(p)).toEqual({ args: [], proxy: p });
+  });
+
+  it("no longer leaves an authed HTTP proxy to Playwright when the engine implements --proxy-auth", () => {
+    const p = { server: "http://h:8080", username: "u", password: "p" };
+    const r = resolveProxy(p, true);
+    expect(r.proxy).toBeUndefined();
+    expect(r.args).toContain("--proxy-auth=u:p");
+  });
+});
+
+
+// --------------------------------------------------------------------------- web bluetooth
+// Web Bluetooth is compiled in but its DEFAULT follows the build platform, so the same persona is
+// a tell in opposite directions depending on which build is running: a Linux build serving a
+// Windows persona exposed navigator.usb/serial/hid but not navigator.bluetooth (a combination no
+// real Windows Chrome produces), while a Windows build under a LINUX claim exposes
+// navigator.bluetooth, which genuine Chrome 154 on Linux does not have (measured 2026-10-04).
+// The switch is therefore derived from the CLAIM alone, on every host.
+describe("webBluetoothArgs", () => {
+  const realPlatform = process.platform;
+  const setPlatform = (p: string) =>
+    Object.defineProperty(process, "platform", { value: p, configurable: true });
+  afterEach(() => setPlatform(realPlatform));
+
+  it("enables for a desktop claim on every host", () => {
+    for (const p of ["linux", "win32", "darwin"]) {
+      setPlatform(p);
+      for (const claimed of ["windows", "macos", "android", "chromeos"]) {
+        expect(webBluetoothArgs(claimed)).toEqual(["--enable-features=WebBluetooth"]);
+      }
+    }
+  });
+
+  // Withholding the ENABLE switch is not enough off Linux: measured on the r30 Windows build,
+  // `'bluetooth' in navigator` was still true under a Linux claim until --disable-features landed,
+  // because that build ships the feature stable.
+  it("disables under a linux claim on every host", () => {
+    for (const p of ["linux", "win32", "darwin"]) {
+      setPlatform(p);
+      expect(webBluetoothArgs("linux")).toEqual(["--disable-features=WebBluetooth"]);
+    }
+  });
+
+  // A bare call means no persona switches, so the page sees the real host OS and the switch has to
+  // agree with THAT, not with the build's default.
+  it("follows the host on a bare call", () => {
+    setPlatform("linux");
+    expect(webBluetoothArgs()).toEqual(["--disable-features=WebBluetooth"]);
+    setPlatform("win32");
+    expect(webBluetoothArgs()).toEqual(["--enable-features=WebBluetooth"]);
+  });
+
+  it("folds into a single --enable-features", () => {
+    setPlatform("linux");
+    const merged = mergeFeatureFlags([
+      ...webBluetoothArgs("windows"),
+      "--enable-features=SomethingElse",
+    ]);
+    const enables = merged.filter((a) => a.startsWith("--enable-features="));
+    expect(enables).toHaveLength(1);
+    expect(enables[0]).toContain("WebBluetooth");
+    expect(enables[0]).toContain("SomethingElse");
+  });
+
+  // Same hazard on the other side: Chromium honours only the LAST --disable-features too.
+  it("folds into a single --disable-features", () => {
+    setPlatform("win32");
+    const merged = mergeFeatureFlags([
+      ...webBluetoothArgs("linux"),
+      "--disable-features=SomethingElse",
+    ]);
+    const disables = merged.filter((a) => a.startsWith("--disable-features="));
+    expect(disables).toHaveLength(1);
+    expect(disables[0]).toContain("WebBluetooth");
+    expect(disables[0]).toContain("SomethingElse");
+  });
+});
+
+describe("socks5UdpArgs", () => {
+  const socks5 = { server: "socks5://gw.example.com:1080", username: "u", password: "p" };
+
+  it("emits the switch for a socks5 proxy when opted in", () => {
+    expect(socks5UdpArgs(true, socks5)).toEqual(["--socks5-udp"]);
+  });
+
+  it("is off unless explicitly opted in", () => {
+    for (const v of [undefined, false]) expect(socks5UdpArgs(v, socks5)).toEqual([]);
+  });
+
+  // UDP ASSOCIATE is a SOCKS5 command. Emitting the switch for a transport that cannot carry a
+  // datagram would be accepted and silently do nothing -- the failure mode this guards against.
+  it("stays silent for schemes that cannot relay UDP", () => {
+    for (const server of ["http://p:8080", "https://p:8443", "socks4://p:1080"]) {
+      expect(socks5UdpArgs(true, { server })).toEqual([]);
+    }
+  });
+
+  it("stays silent with no proxy at all", () => {
+    expect(socks5UdpArgs(true, undefined)).toEqual([]);
+    expect(socks5UdpArgs(true, { server: "" })).toEqual([]);
+  });
+
+  it("accepts socks5h and is case-insensitive", () => {
+    expect(socks5UdpArgs(true, { server: "socks5h://p:1080" })).toEqual(["--socks5-udp"]);
+    expect(socks5UdpArgs(true, { server: "SOCKS5://p:1080" })).toEqual(["--socks5-udp"]);
+  });
+
+  // Verified against the proxy's own log: the association is established with the deny policy in
+  // force, so the two are additive and enabling UDP does not mean weakening the leak default.
+  it("composes with the webrtc deny default rather than replacing it", () => {
+    const args = [...socks5UdpArgs(true, socks5)];
+    const withDefault = [...args, ...webrtcDefaultDenyArgs(args, undefined)];
+    expect(withDefault).toContain("--socks5-udp");
+    expect(withDefault).toContain("--webrtc-ip-handling-policy=disable_non_proxied_udp");
+  });
+});
+
+describe("playwrightFeatureOverrideArgs (2026-10-06)", () => {
+  const PW157 = ["AcceptCHFrame", "AvoidUnnecessaryBeforeUnloadCheckSync", "HttpsUpgrades", "MediaRouter",
+    "PaintHolding", "ThirdPartyStoragePartitioning", "RenderDocument"];
+
+  it("re-enables only what a page or server can observe", async () => {
+    const { playwrightFeatureOverrideArgs } = await import("../src/launchopts.js");
+    expect(playwrightFeatureOverrideArgs(undefined, PW157, false))
+      .toEqual(["--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,PaintHolding,RenderDocument"]);
+    expect(playwrightFeatureOverrideArgs(undefined, ["LazyFrameLoading", "Translate"], false))
+      .toEqual(["--disable-features=Translate"]);
+  });
+
+  it("re-enables AvoidCorsURLLoaderRestartOnRedirect (2026-10-28)", async () => {
+    // Off, a same-origin request in a cross-site iframe sends Sec-Fetch-Storage-Access: active, which
+    // genuine Chrome omits (measured on Chrome 156 launched plainly vs by Playwright 1.64.1).
+    const { playwrightFeatureOverrideArgs } = await import("../src/launchopts.js");
+    expect(playwrightFeatureOverrideArgs(undefined, ["PaintHolding", "AvoidCorsURLLoaderRestartOnRedirect", "Translate"], false))
+      .toEqual(["--disable-features=PaintHolding,Translate"]);
+  });
+
+  it("re-enables OptimizationHints (2026-10-29)", async () => {
+    // Off, the built-in AI APIs answer availability() "unavailable", where genuine Chrome answers
+    // "downloadable" (measured on Chrome 156 launched plainly vs by Playwright).
+    const { playwrightFeatureOverrideArgs } = await import("../src/launchopts.js");
+    expect(playwrightFeatureOverrideArgs(undefined, ["PaintHolding", "OptimizationHints", "Translate"], false))
+      .toEqual(["--disable-features=PaintHolding,Translate"]);
+  });
+
+  it("re-enables MediaRouter (2026-11-01)", async () => {
+    // Off, PresentationRequest(["cast:"]).reconnect() rejects "Error joining route: No matching route"
+    // where genuine Chrome says "Route not found"; fingerprint.com reports bot "bad" (chromium_automation).
+    const { playwrightFeatureOverrideArgs } = await import("../src/launchopts.js");
+    expect(playwrightFeatureOverrideArgs(undefined, ["DialMediaRouteProvider", "MediaRouter", "Translate"], false))
+      .toEqual(["--disable-features=DialMediaRouteProvider,Translate"]);
+  });
+
+  it("is skipped only when Playwright's exact switch is dropped", async () => {
+    const { playwrightFeatureOverrideArgs } = await import("../src/launchopts.js");
+    const exact = `--disable-features=${PW157.join(",")}`;
+    expect(playwrightFeatureOverrideArgs(true, PW157, false)).toEqual([]);
+    expect(playwrightFeatureOverrideArgs([exact], PW157, false)).toEqual([]);
+    // Playwright drops only an EXACT match; anything else leaves its list on the line.
+    expect(playwrightFeatureOverrideArgs(["--disable-features=MediaRouter"], PW157, false)).not.toEqual([]);
+  });
+
+  it("re-emits the screenshot surface switch", async () => {
+    const { playwrightFeatureOverrideArgs } = await import("../src/launchopts.js");
+    expect(playwrightFeatureOverrideArgs(undefined, ["PaintHolding"], true))
+      .toEqual(["--disable-features=PaintHolding", "--enable-features=CDPScreenshotNewSurface"]);
+  });
+
+  it("parses every Playwright release shape", async () => {
+    const { parsePlaywrightDisabledFeatures: parse } = await import("../src/launchopts.js");
+    expect(parse(`const disabledFeatures = (assistantMode) => [
+  // See https://github.com/microsoft/playwright/pull/10380
+  "AcceptCHFrame",
+  "MediaRouter",
+  assistantMode ? "AutomationControlled" : ""
+].filter(Boolean);`)).toEqual(["AcceptCHFrame", "MediaRouter"]);
+    expect(parse(`    disabledFeatures = [
+      // See https://github.com/microsoft/playwright/issues/38568
+      "BoundaryEventDispatchTracksNodeRemoval",
+      "MediaRouter"
+    ].filter(Boolean);`)).toEqual(["BoundaryEventDispatchTracksNodeRemoval", "MediaRouter"]);
+    expect(parse("['--disable-features=LazyFrameLoading,MediaRouter', '--no-first-run']")).toEqual(["LazyFrameLoading", "MediaRouter"]);
+    expect(parse("")).toBeUndefined();
+  });
+
+  it("reads the installed playwright-core's list (drift guard)", async () => {
+    const { installedPlaywrightDisabledFeatures } = await import("../src/launchopts.js");
+    const feats = installedPlaywrightDisabledFeatures();
+    expect(feats?.length).toBeGreaterThan(0);
+    expect(feats).toContain("MediaRouter");
+  });
+});
+
+describe("playwrightFeatureOverrideArgs, second review (2026-10-06)", () => {
+  it("keeps Playwright's screenshot switch when only its disable switch is dropped", async () => {
+    const { playwrightFeatureOverrideArgs } = await import("../src/launchopts.js");
+    const pw = ["PaintHolding", "Translate"];
+    expect(playwrightFeatureOverrideArgs([`--disable-features=${pw.join(",")}`], pw, true))
+      .toEqual(["--enable-features=CDPScreenshotNewSurface"]);
+    expect(playwrightFeatureOverrideArgs(["--enable-features=CDPScreenshotNewSurface"], pw, true))
+      .toEqual(["--disable-features=PaintHolding,Translate"]);
+  });
+
+  it("is robust to a bracket in a comment and rejects an unrecognised list", async () => {
+    const { parsePlaywrightDisabledFeatures: parse } = await import("../src/launchopts.js");
+    expect(parse('const disabledFeatures = [\n // see ] here\n "MediaRouter",\n "Translate"\n];')).toEqual(["MediaRouter", "Translate"]);
+    expect(parse('disabledFeatures = ["SomethingElse"];')).toBeUndefined();
+    expect(parse('const disabledFeatures2 = ["MediaRouter"];')).toBeUndefined();
+  });
+});
+
+// Software WebGPU under a desktop claim (engine r47+, pro-r47-04).
+describe("engineRevision", () => {
+  it("reads the PRO tag from the engine's path", async () => {
+    const { engineRevision } = await import("../src/launchopts.js");
+    expect(engineRevision("/home/u/.clearcote/pro-155.0.8059.39-r47/chrome")).toBe(47);
+    expect(engineRevision("C:\\Users\\u\\.clearcote\\pro-155.0.8059.39-r46\\chrome.exe")).toBe(46);
+    expect(engineRevision("/Users/u/.clearcote/pro-155.0.8059.39-r48/Chromium.app/Contents/MacOS/Chromium")).toBe(48);
+    expect(engineRevision("/x/other-r3/pro-155.0.8059.39-r47/chrome")).toBe(47);  // the deepest component wins
+    expect(engineRevision("/opt/clearcote/chrome")).toBeUndefined();  // a binary the caller named: no revision there
+    expect(engineRevision("")).toBeUndefined();
+    expect(engineRevision(undefined)).toBeUndefined();
+  });
+});
+
+describe("softwareWebgpuArgs", () => {
+  const three = ["--use-webgpu-adapter=swiftshader", "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader"];
+  const r47 = "/x/pro-155.0.8059.39-r47/chrome";
+  const r46 = "/x/pro-155.0.8059.39-r46/chrome";
+
+  it("only for an engine that can dress the adapter, under a Windows or macOS claim, on Linux", async () => {
+    const { SOFTWARE_WEBGPU_ARGS, softwareWebgpuArgs } = await import("../src/launchopts.js");
+    expect([...SOFTWARE_WEBGPU_ARGS]).toEqual(three);
+    expect(softwareWebgpuArgs(r47, "windows", "linux")).toEqual(three);
+    expect(softwareWebgpuArgs(r47, "macos", "linux")).toEqual(three);
+    expect(softwareWebgpuArgs(r47, "Windows ", "linux")).toEqual(three);
+    expect(softwareWebgpuArgs(r46, "windows", "linux")).toEqual([]);  // r46: a raw SwiftShader adapter would show
+    expect(softwareWebgpuArgs("/opt/cc/chrome", "windows", "linux")).toEqual([]);  // no revision, no marker switch
+    expect(softwareWebgpuArgs(r47, "linux", "linux")).toEqual([]);  // a Linux claim renders through Mesa
+    expect(softwareWebgpuArgs(r47, undefined, "linux")).toEqual([]);  // pass-through: no persona
+    expect(softwareWebgpuArgs(r47, "windows", "win32")).toEqual([]);
+    expect(softwareWebgpuArgs(r47, "windows", "darwin")).toEqual([]);
+  });
+
+  it("the r48 marker switch stands in for the revision", async () => {
+    const { softwareWebgpuArgs } = await import("../src/launchopts.js");
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const dir = mkdtempSync(path.join(tmpdir(), "cc-webgpu-"));
+    try {
+      const exe = path.join(dir, "chrome");
+      writeFileSync(exe, Buffer.from("xx\0fingerprint-platform\0yy", "latin1"));
+      expect(softwareWebgpuArgs(exe, "windows", "linux")).toEqual([]);
+      const marked = path.join(dir, "chrome2");
+      writeFileSync(marked, Buffer.from("xx\0fingerprint-software-webgpu\0yy", "latin1"));
+      expect(softwareWebgpuArgs(marked, "windows", "linux")).toEqual(three);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });  // CI fails a run that leaves its temp directory dirty
+    }
+  });
+
+  it("never adds a switch twice", async () => {
+    const { playwrightKeepsUnsafeSwiftshader, softwareWebgpuArgs } = await import("../src/launchopts.js");
+    expect(softwareWebgpuArgs(r47, "windows", "linux", ["--enable-unsafe-swiftshader"])).toEqual(three.slice(0, 2));
+    expect(softwareWebgpuArgs(r47, "windows", "linux", three)).toEqual([]);
+    // Playwright's own --enable-unsafe-swiftshader reaches the line only when the launch keeps it
+    expect(playwrightKeepsUnsafeSwiftshader(null)).toBe(false);  // the SDK's default strip
+    expect(playwrightKeepsUnsafeSwiftshader(undefined)).toBe(false);
+    expect(playwrightKeepsUnsafeSwiftshader(true)).toBe(false);  // every default dropped
+    expect(playwrightKeepsUnsafeSwiftshader(["--enable-automation"])).toBe(true);
+    expect(playwrightKeepsUnsafeSwiftshader(["--enable-automation", "--enable-unsafe-swiftshader"])).toBe(false);
+  });
+});
+
+describe("quicArgs through the SOCKS5 UDP relay (r54)", () => {
+  it("keeps QUIC on only for Relay UDP + socks5 + an engine with --disable-socks5-udp-quic", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-quic-"));
+    const r54 = path.join(dir, "r54-chrome");
+    const r53 = path.join(dir, "r53-chrome");
+    fs.writeFileSync(r54, Buffer.from(" socks5-udp disable-socks5-udp-quic ", "latin1"));
+    fs.writeFileSync(r53, Buffer.from(" socks5-udp ", "latin1"));
+    const socks = { server: "socks5://203.0.113.9:1080" };
+    try {
+      expect(quicArgs(socks, true, r54)).toEqual([]);
+      expect(quicArgs(socks, true, r53)).toEqual(["--disable-quic"]);
+      expect(quicArgs(socks, false, r54)).toEqual(["--disable-quic"]);
+      expect(quicArgs({ server: "http://203.0.113.9:8080" }, true, r54)).toEqual(["--disable-quic"]);
+      expect(quicArgs(socks, true, undefined)).toEqual(["--disable-quic"]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("relayProxyByIp", () => {
+  const lookup = vi.fn(async (host: string) => (host === "gw.example.com" ? "203.0.113.9" : Promise.reject(new Error("ENOTFOUND"))));
+  it("looks up a socks5 host name to an IP when Relay UDP is on, keeping userinfo, port and other keys", async () => {
+    expect(await relayProxyByIp({ server: "socks5://u:p@ss@gw.example.com:1080", bypass: "x" }, true, true, lookup))
+      .toEqual({ server: "socks5://u:p@ss@203.0.113.9:1080", bypass: "x" });
+    expect(await relayProxyByIp({ server: "socks5://gw.example.com", username: "u" }, true, true, lookup))
+      .toEqual({ server: "socks5://203.0.113.9", username: "u" });
+  });
+  it("leaves everything else unchanged", async () => {
+    lookup.mockClear();
+    const ip = { server: "socks5://198.51.100.4:1080" };
+    expect(await relayProxyByIp(ip, true, true, lookup)).toBe(ip);
+    const v6 = { server: "socks5://[2001:db8::1]:1080" };
+    expect(await relayProxyByIp(v6, true, true, lookup)).toBe(v6);
+    const off = { server: "socks5://gw.example.com:1080" };
+    expect(await relayProxyByIp(off, false, true, lookup)).toBe(off);
+    const http = { server: "http://gw.example.com:8080" };
+    expect(await relayProxyByIp(http, true, true, lookup)).toBe(http);
+    expect(await relayProxyByIp(undefined, true, true, lookup)).toBeUndefined();
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it("keeps the name when it does not resolve", async () => {
+    const bad = { server: "socks5://nope.invalid:1080" };
+    expect(await relayProxyByIp(bad, true, true, lookup)).toBe(bad);
+  });
+});
+
+// A local SOCKS5 server that answers the greeting, an optional login, and UDP ASSOCIATE with `rep`.
+async function fakeSocks5(rep: number, login = false): Promise<{ server: string; seen: string[]; close: () => void }> {
+  const { createServer } = await import("node:net");
+  const seen: string[] = [];
+  const srv = createServer((c) => {
+    let step = 0;
+    c.on("data", (d) => {
+      if (step === 0) { step = login ? 1 : 2; c.write(Buffer.from([5, login ? 2 : 0])); return; }
+      if (step === 1) {
+        const u = d.subarray(2, 2 + d[1]).toString(); const p = d.subarray(3 + d[1], 3 + d[1] + d[2 + d[1]]).toString();
+        seen.push(`login ${u}:${p}`); step = 2; c.write(Buffer.from([1, 0])); return;
+      }
+      seen.push(`cmd ${d[1]}`);
+      c.write(Buffer.from([5, rep, 0, 1, 127, 0, 0, 1, 0x30, 0x39]));
+    });
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+  const port = (srv.address() as { port: number }).port;
+  return { server: `socks5://127.0.0.1:${port}`, seen, close: () => srv.close() };
+}
+
+describe("socks5UdpRefused", () => {
+  it("names the refusal when the proxy answers UDP ASSOCIATE with an error", async () => {
+    const f = await fakeSocks5(2);
+    try {
+      expect(await socks5UdpRefused({ server: f.server })).toBe("reply 2, not allowed by the proxy's rules");
+      expect(f.seen).toEqual(["cmd 3"]);
+    } finally { f.close(); }
+  });
+
+  it("is null when the proxy grants the association, logging in with the proxy's credentials", async () => {
+    const f = await fakeSocks5(0, true);
+    try {
+      expect(await socks5UdpRefused({ server: f.server, username: "u-1", password: "p:2" })).toBeNull();
+      expect(f.seen).toEqual(["login u-1:p:2", "cmd 3"]);
+    } finally { f.close(); }
+  });
+
+  it("is null when nothing answers (not a refusal)", async () => {
+    expect(await socks5UdpRefused({ server: "socks5://127.0.0.1:9" }, 2000)).toBeNull();
+  });
+});
+
+describe("udpRelayOrFallback", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const px = { server: "socks5://203.0.113.5:1080" };
+
+  it("keeps the relay when the proxy does not refuse", async () => {
+    expect(await udpRelayOrFallback(px, true, true, async () => null)).toBe(true);
+  });
+
+  it("drops the relay, with one warning, when the proxy refuses", async () => {
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    expect(await udpRelayOrFallback(px, true, false, async () => "reply 2, not allowed")).toBe(false);
+    const said = warn.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(said).toContain("refused a UDP association (reply 2, not allowed)");
+  });
+
+  it("asks nothing without socks5Udp or without a socks5 proxy", async () => {
+    const probe = vi.fn(async () => "refused");
+    expect(await udpRelayOrFallback(px, false, true, probe)).toBe(false);
+    expect(await udpRelayOrFallback(px, undefined, true, probe)).toBeUndefined();
+    expect(await udpRelayOrFallback({ server: "http://203.0.113.5:8080" }, true, true, probe)).toBe(true);
+    expect(probe).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,40 @@
+# Build trees and outputs
+build/
+out/
+*.zip
+*.tar.xz
+*.7z
+*.exe
+*.dll
+
+# Download / toolchain caches
+download_cache/
+winsdk/
+wintoolchain/
+*.sha1.tmp
+
+# Checksums generated locally (published checksums live with releases)
+*.sha256
+
+# Editor / OS cruft
+__pycache__/
+*.pyc
+.DS_Store
+.idea/
+.vscode/
+
+# Local-only working directories (never published)
+patches-private/
+
+# PRO-tier held patches (never publish)
+pro-patches/
+
+# Secrets - never commit. Nothing has leaked (history is clean), but there was no rule
+# stopping the next one: the SDKs and tools read credentials from the environment only.
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+id_rsa*
+*credentials*.json

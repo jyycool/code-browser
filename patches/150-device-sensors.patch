@@ -1,0 +1,432 @@
+diff -u --recursive a/third_party/blink/renderer/core/events/navigator_events.cc b/third_party/blink/renderer/core/events/navigator_events.cc
+--- a/third_party/blink/renderer/core/events/navigator_events.cc	2026-07-20 14:58:26.862031504 +0000
++++ b/third_party/blink/renderer/core/events/navigator_events.cc	2026-07-20 14:58:26.914031728 +0000
+@@ -30,6 +30,11 @@
+ 
+ #include "third_party/blink/renderer/core/events/navigator_events.h"
+ 
++#include "base/command_line.h"
++#include "base/strings/string_number_conversions.h"  // clearcote-light-stealth
++#include "components/ungoogled/persona_profile.h"
++#include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink-forward.h"
++#include "components/ungoogled/ungoogled_switches.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/core/frame/navigator.h"
+@@ -38,8 +43,66 @@
+ namespace blink {
+ 
+ int32_t NavigatorEvents::maxTouchPoints(Navigator& navigator) {
++  // clearcote: the Windows desktop persona is mouse-only (coherent with CSS
++  // pointer:fine / hover:hover); report 0 touch points instead of the host's real
++  // value (e.g. 2 from a pen/precision-touchpad), which would contradict it.
++  // clearcote: return the persona's touch-point count -- 0 for the mouse-only
++  // desktop personas (unchanged), 5 for the Android persona. This keeps
++  // maxTouchPoints coherent with CSS pointer:coarse and userAgentData.mobile.
++  // clearcote-light-stealth: direct override (flag > persona > real).
++  // clearcote-timing-fix: resolve ONCE into function-local statics. Both
++  // lookups ran on EVERY maxTouchPoints read; HasSwitch() is a map lookup plus,
++  // on Windows, a lowercasing allocation, which V8 cannot inline -- measured
++  // 2.3x (+746ns) versus genuine Chrome and timeable from JS. Lazily
++  // initialised on first use, long after the command line is final.
++  // NOTE: this override accepts ls_mt >= 0, so 0 is a VALID override value and
++  // cannot be the sentinel; -1 marks "no override" instead. Absent / empty /
++  // unparseable / negative values all yield -1 and fall through exactly as
++  // they did before.
++  static const int kLsMaxTouch = [] {
++    const base::CommandLine* ls_cmd = base::CommandLine::ForCurrentProcess();
++    int ls_mt = 0;
++    if (ls_cmd->HasSwitch(::switches::kFingerprintMaxTouchPoints) &&
++        base::StringToInt(
++            ls_cmd->GetSwitchValueASCII(::switches::kFingerprintMaxTouchPoints),
++            &ls_mt) &&
++        ls_mt >= 0) {
++      return ls_mt;
++    }
++    return -1;
++  }();
++  if (kLsMaxTouch >= 0) {
++    return kLsMaxTouch;
++  }
++  static const bool kPersonaActive = [] {
++    return base::CommandLine::ForCurrentProcess()->HasSwitch(
++        ::switches::kFingerprint);
++  }();
++  if (kPersonaActive)
++    return ungoogled::CurrentPersona().max_touch_points;
+   LocalDOMWindow* window = navigator.DomWindow();
+-  return window ? window->GetFrame()->GetSettings()->GetMaxTouchPoints() : 0;
++  // clearcote-input-class-coherence: media_values.cc serves the desktop default (fine pointer /
++  // hover) whenever the host exposes no real pointing devices -- a HEADLESS host reports
++  // kPointerNone, the classic headless tell, which we must not surface. Report 0 touch points in
++  // exactly that case so the two sides cannot disagree (headless still reads the OS digitizer, so
++  // the host's real value would otherwise contradict the fine-only pointer we report). When the
++  // host does have real pointers (headful) both sides report the host's real values and cohere.
++  if (!window || !window->GetFrame() || !window->GetFrame()->GetSettings())
++    return 0;
++  Settings* ls_settings = window->GetFrame()->GetSettings();
++  const int ls_mask = ls_settings->GetAvailablePointerTypes();
++  // clearcote-coarse-gated-touch: report touch points ONLY when the pointer class we actually
++  // report includes a COARSE pointer. Real headless Chrome fails this test itself -- it still
++  // reads the OS digitizer (e.g. maxTouchPoints=2 from a pen tablet) while exposing a fine-only
++  // pointer, so it claims touch hardware the CSS input class denies. Gating on the coarse bit
++  // keeps the two in agreement everywhere: headful with a digitizer reports the host's real
++  // count alongside the real coarse pointer, and headless (or any touch-less host) presents a
++  // coherent mouse-only desktop instead of that contradiction.
++  const bool ls_coarse =
++      (ls_mask & static_cast<int>(mojom::blink::PointerType::kPointerCoarseType)) != 0;
++  if (!ls_coarse)
++    return 0;
++  return ls_settings->GetMaxTouchPoints();
+ }
+ 
+ }  // namespace blink
+diff -u --recursive a/third_party/blink/renderer/modules/battery/battery_manager.cc b/third_party/blink/renderer/modules/battery/battery_manager.cc
+--- a/third_party/blink/renderer/modules/battery/battery_manager.cc	2026-07-20 14:58:26.878031573 +0000
++++ b/third_party/blink/renderer/modules/battery/battery_manager.cc	2026-07-20 14:58:26.914031728 +0000
+@@ -4,6 +4,10 @@
+ 
+ #include "third_party/blink/renderer/modules/battery/battery_manager.h"
+ 
++#include <limits>
++
++#include "components/ungoogled/persona_profile.h"
++
+ #include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink.h"
+ #include "third_party/blink/renderer/core/dom/dom_exception.h"
+ #include "third_party/blink/renderer/core/dom/events/event.h"
+@@ -79,20 +83,41 @@
+   return battery_property_->Promise(script_state->World());
+ }
+ 
++// clearcote: BatteryManager getters pinned to the canonical "Windows 11
++// desktop on AC power, no battery" values regardless of the host's real
++// device state. Without this, navigator.getBattery() leaks the host's
++// actual battery (e.g. a laptop on battery: level<1.0, finite
++// dischargingTime) while the persona claims a Win11 desktop -- a direct
++// cross-surface contradiction and a fingerprinting tell. These are the
++// exact values real Chrome reports on a battery-less desktop. Fixed
++// constants (not seed-derived): every no-battery desktop reports the same.
+ bool BatteryManager::charging() {
+-  return battery_status_.Charging();
++  // clearcote: a phone persona is on battery (discharging); desktop stays on AC.
++  return !ungoogled::CurrentPersona().mobile;
+ }
+ 
+ double BatteryManager::chargingTime() {
+-  return battery_status_.charging_time().InSecondsF();
++  // Discharging phone: chargingTime is +Infinity per spec; desktop on AC: 0.
++  return ungoogled::CurrentPersona().mobile
++             ? std::numeric_limits<double>::infinity()
++             : 0.0;
+ }
+ 
+ double BatteryManager::dischargingTime() {
+-  return battery_status_.discharging_time().InSecondsF();
++  // Phone on battery: a finite, granularity-rounded estimate; desktop
++  // no-battery: +Infinity.
++  return ungoogled::CurrentPersona().mobile
++             ? 13680.0
++             : std::numeric_limits<double>::infinity();
+ }
+ 
+ double BatteryManager::level() {
+-  return battery_status_.Level();
++  // Phone: a plausible partial charge (seed-derived, 0.55..0.98, rounded to 0.01
++  // like real Chrome); desktop: 1.0 (full, on AC).
++  if (!ungoogled::CurrentPersona().mobile)
++    return 1.0;
++  uint64_t s = ungoogled::CurrentPersona().persona_seed;
++  return (55 + static_cast<int>(s % 44)) / 100.0;
+ }
+ 
+ void BatteryManager::DidUpdateData() {
+diff -u --recursive a/third_party/blink/renderer/modules/keyboard/keyboard_layout.cc b/third_party/blink/renderer/modules/keyboard/keyboard_layout.cc
+--- a/third_party/blink/renderer/modules/keyboard/keyboard_layout.cc	2026-07-20 14:58:26.890031625 +0000
++++ b/third_party/blink/renderer/modules/keyboard/keyboard_layout.cc	2026-07-20 14:58:26.942031849 +0000
+@@ -24,17 +24,10 @@
+ constexpr char kKeyboardMapFrameDetachedErrorMsg[] =
+     "Current frame is detached.";
+ 
+-constexpr char kFeaturePolicyBlocked[] =
+-    "getLayoutMap() must be called from a top-level browsing context or "
+-    "allowed by the permission policy.";
+-
+-constexpr char kKeyboardMapRequestFailedErrorMsg[] =
+-    "getLayoutMap() request could not be completed.";
+-
+ }
+ 
+ KeyboardLayout::KeyboardLayout(ExecutionContext* context)
+-    : ExecutionContextClient(context), service_(context) {}
++    : ExecutionContextClient(context) {}
+ 
+ ScriptPromise<KeyboardLayoutMap> KeyboardLayout::GetKeyboardLayoutMap(
+     ScriptState* script_state,
+@@ -47,71 +40,52 @@
+     return EmptyPromise();
+   }
+ 
+-  if (!EnsureServiceConnected()) {
+-    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+-                                      kKeyboardMapRequestFailedErrorMsg);
+-    return EmptyPromise();
+-  }
+-
+-  if (!layout_map_property_) {
+-    layout_map_property_ = MakeGarbageCollected<LayoutMapProperty>(
+-        ExecutionContext::From(script_state));
+-  }
+-
+-  auto promise = layout_map_property_->Promise(script_state->World());
+-
+-  if (!is_request_pending_) {
+-    is_request_pending_ = true;
+-    service_->GetKeyboardLayoutMap(
+-        BindOnce(&KeyboardLayout::GotKeyboardLayoutMap, WrapPersistent(this)));
+-  }
+-  return promise;
++  // clearcote: return a CANONICAL US-QWERTY layout map regardless of the
++  // host OS / installed physical keyboard. The real per-OS map (Mac §, Win
++  // \\, German ß, French ², etc.) is a strong host-OS/locale fingerprint
++  // that contradicts our modal US-English Windows persona -- and on the
++  // cross-compiled build the platform service would return a Linux/X11 map,
++  // a direct build-host leak. Skip the IPC to the platform keyboard service
++  // entirely; resolve immediately with our fixed US-QWERTY map.
++  HashMap<String, String> canonical_layout = {
++      // Letter keys (KeyA..KeyZ)
++      {"KeyA", "a"}, {"KeyB", "b"}, {"KeyC", "c"}, {"KeyD", "d"},
++      {"KeyE", "e"}, {"KeyF", "f"}, {"KeyG", "g"}, {"KeyH", "h"},
++      {"KeyI", "i"}, {"KeyJ", "j"}, {"KeyK", "k"}, {"KeyL", "l"},
++      {"KeyM", "m"}, {"KeyN", "n"}, {"KeyO", "o"}, {"KeyP", "p"},
++      {"KeyQ", "q"}, {"KeyR", "r"}, {"KeyS", "s"}, {"KeyT", "t"},
++      {"KeyU", "u"}, {"KeyV", "v"}, {"KeyW", "w"}, {"KeyX", "x"},
++      {"KeyY", "y"}, {"KeyZ", "z"},
++      // Digit keys
++      {"Digit0", "0"}, {"Digit1", "1"}, {"Digit2", "2"}, {"Digit3", "3"},
++      {"Digit4", "4"}, {"Digit5", "5"}, {"Digit6", "6"}, {"Digit7", "7"},
++      {"Digit8", "8"}, {"Digit9", "9"},
++      // Common US punctuation
++      {"Backquote", "`"}, {"Minus", "-"}, {"Equal", "="},
++      {"BracketLeft", "["}, {"BracketRight", "]"}, {"Backslash", "\\"},
++      // clearcote: IntlBackslash (VK_OEM_102) is present on every Latin Windows layout,
++      // including US-ANSI where the physical key is absent -- verified against stock Chrome
++      // on a US-ANSI Windows host, which returns 48 entries with IntlBackslash -> "\\".
++      // Omitting it is the tell, not including it.
++      {"IntlBackslash", "\\"},
++      {"Semicolon", ";"}, {"Quote", "'"},
++      {"Comma", ","}, {"Period", "."}, {"Slash", "/"},
++      // (clearcote: NO Intl*/Numpad*/Space. getLayoutMap() enumerates only
++      // Writing-System keys; a real US-ANSI Chrome map is exactly the keys
++      // above. Numpad/Space/Intl entries would be an instant tell.)
++  };
++
++  auto* property = MakeGarbageCollected<LayoutMapProperty>(
++      ExecutionContext::From(script_state));
++  property->Resolve(MakeGarbageCollected<KeyboardLayoutMap>(canonical_layout));
++  return property->Promise(script_state->World());
+ }
+ 
+ bool KeyboardLayout::IsLocalFrameAttached() {
+   return DomWindow();
+ }
+ 
+-bool KeyboardLayout::EnsureServiceConnected() {
+-  if (!service_.is_bound()) {
+-    if (!DomWindow()) {
+-      return false;
+-    }
+-    DomWindow()->GetBrowserInterfaceBroker().GetInterface(
+-        service_.BindNewPipeAndPassReceiver(
+-            DomWindow()->GetTaskRunner(TaskType::kMiscPlatformAPI)));
+-    DCHECK(service_.is_bound());
+-  }
+-  return true;
+-}
+-
+-void KeyboardLayout::GotKeyboardLayoutMap(
+-    mojom::blink::GetKeyboardLayoutMapResultPtr result) {
+-  DCHECK(layout_map_property_);
+-  DCHECK(is_request_pending_);
+-  is_request_pending_ = false;
+-
+-  switch (result->status) {
+-    case mojom::blink::GetKeyboardLayoutMapStatus::kSuccess:
+-      layout_map_property_->Resolve(
+-          MakeGarbageCollected<KeyboardLayoutMap>(result->layout_map));
+-      break;
+-    case mojom::blink::GetKeyboardLayoutMapStatus::kFail:
+-      layout_map_property_->Reject(MakeGarbageCollected<DOMException>(
+-          DOMExceptionCode::kInvalidStateError,
+-          kKeyboardMapRequestFailedErrorMsg));
+-      break;
+-    case mojom::blink::GetKeyboardLayoutMapStatus::kDenied:
+-      layout_map_property_->Reject(MakeGarbageCollected<DOMException>(
+-          DOMExceptionCode::kSecurityError, kFeaturePolicyBlocked));
+-      break;
+-  }
+-  layout_map_property_ = nullptr;
+-}
+-
+ void KeyboardLayout::Trace(Visitor* visitor) const {
+-  visitor->Trace(layout_map_property_);
+-  visitor->Trace(service_);
+   ExecutionContextClient::Trace(visitor);
+ }
+ 
+diff -u --recursive a/third_party/blink/renderer/modules/keyboard/keyboard_layout.h b/third_party/blink/renderer/modules/keyboard/keyboard_layout.h
+--- a/third_party/blink/renderer/modules/keyboard/keyboard_layout.h	2026-07-20 14:58:26.894031642 +0000
++++ b/third_party/blink/renderer/modules/keyboard/keyboard_layout.h	2026-07-20 14:58:26.918031746 +0000
+@@ -37,18 +37,8 @@
+   // Returns true if the local frame is attached to the renderer.
+   bool IsLocalFrameAttached();
+ 
+-  // Returns true if |service_| is initialized and ready to be called.
+-  bool EnsureServiceConnected();
+-
+-  void GotKeyboardLayoutMap(mojom::blink::GetKeyboardLayoutMapResultPtr);
+-
+   using LayoutMapProperty =
+       ScriptPromiseProperty<KeyboardLayoutMap, DOMException>;
+-  Member<LayoutMapProperty> layout_map_property_;
+-
+-  bool is_request_pending_ = false;
+-
+-  HeapMojoRemote<mojom::blink::KeyboardLockService> service_;
+ };
+ 
+ }  // namespace blink
+diff -u --recursive a/third_party/blink/renderer/modules/netinfo/network_information.cc b/third_party/blink/renderer/modules/netinfo/network_information.cc
+--- a/third_party/blink/renderer/modules/netinfo/network_information.cc	2026-07-20 14:58:26.910031711 +0000
++++ b/third_party/blink/renderer/modules/netinfo/network_information.cc	2026-07-20 14:58:26.918031746 +0000
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ 
++#include "components/ungoogled/persona_profile.h"
++
+ #include "base/time/time.h"
+ #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
+ #include "third_party/blink/public/platform/task_type.h"
+@@ -51,23 +53,6 @@
+   NOTREACHED();
+ }
+ 
+-V8EffectiveConnectionType::Enum EffectiveConnectionTypeToEnum(
+-    WebEffectiveConnectionType type) {
+-  switch (type) {
+-    case WebEffectiveConnectionType::kTypeSlow2G:
+-      return V8EffectiveConnectionType::Enum::kSlow2G;
+-    case WebEffectiveConnectionType::kType2G:
+-      return V8EffectiveConnectionType::Enum::k2G;
+-    case WebEffectiveConnectionType::kType3G:
+-      return V8EffectiveConnectionType::Enum::k3G;
+-    case WebEffectiveConnectionType::kTypeUnknown:
+-    case WebEffectiveConnectionType::kTypeOffline:
+-    case WebEffectiveConnectionType::kType4G:
+-      return V8EffectiveConnectionType::Enum::k4G;
+-  }
+-  NOTREACHED();
+-}
+-
+ String GetConsoleLogStringForWebHoldback() {
+   return "Network quality values are overridden using a holdback experiment, "
+          "and so may be inaccurate";
+@@ -88,6 +73,15 @@
+     return V8ConnectionType(V8ConnectionType::Enum::kUnknown);
+   }
+ 
++  // clearcote: a phone persona reports a coherent mobile link type (wifi) rather
++  // than the host's real (datacenter/ethernet) connection. NOTE: the `type`
++  // attribute is only web-exposed when the NetInfoDownlinkMax runtime feature is
++  // enabled (Android/ChromeOS); on the desktop binary this stays coherent but is
++  // not exposed unless that feature is flipped (see report).
++  if (ungoogled::CurrentPersona().mobile) {
++    return V8ConnectionType(V8ConnectionType::Enum::kWifi);
++  }
++
+   // type_ is only updated when listening for events, so ask
+   // networkStateNotifier if not listening (crbug.com/379841).
+   if (!IsObserving()) {
+@@ -111,63 +105,33 @@
+ }
+ 
+ V8EffectiveConnectionType NetworkInformation::effectiveType() {
+-  MaybeShowWebHoldbackConsoleMsg();
+-  std::optional<WebEffectiveConnectionType> override_ect =
+-      GetNetworkStateNotifier().GetWebHoldbackEffectiveType();
+-  if (override_ect) {
+-    return V8EffectiveConnectionType(
+-        EffectiveConnectionTypeToEnum(override_ect.value()));
+-  }
+-
+-  // effective_type_ is only updated when listening for events, so ask
+-  // networkStateNotifier if not listening (crbug.com/379841).
+-  if (!IsObserving()) {
+-    return V8EffectiveConnectionType(EffectiveConnectionTypeToEnum(
+-        GetNetworkStateNotifier().EffectiveType()));
+-  }
+-
+-  // If observing, return m_type which changes when the event fires, per spec.
+-  return V8EffectiveConnectionType(
+-      EffectiveConnectionTypeToEnum(effective_type_));
++  // clearcote: report a coherent residential-desktop effective connection
++  // type instead of the build/run host's real (datacenter) link, which would
++  // contradict the Windows desktop persona. "4g" is what the modal desktop
++  // reports. We intentionally bypass NetworkStateNotifier here.
++  return V8EffectiveConnectionType(V8EffectiveConnectionType::Enum::k4G);
+ }
+ 
+ uint32_t NetworkInformation::rtt() {
+-  MaybeShowWebHoldbackConsoleMsg();
+-  std::optional<base::TimeDelta> override_rtt =
+-      GetNetworkStateNotifier().GetWebHoldbackHttpRtt();
+-  if (override_rtt) {
+-    return GetNetworkStateNotifier().RoundRtt(Host(), override_rtt.value());
+-  }
+-
+-  if (!IsObserving()) {
+-    return GetNetworkStateNotifier().RoundRtt(
+-        Host(), GetNetworkStateNotifier().HttpRtt());
+-  }
+-
+-  return http_rtt_msec_;
++  // clearcote: fixed residential-desktop RTT. Always a multiple of 50ms in
++  // real Chrome (RoundRtt granularity); 50 is the modal value and avoids the
++  // ~0ms datacenter tell. Bypasses the host-derived NetworkStateNotifier.
++  return 50u;
+ }
+ 
+ double NetworkInformation::downlink() {
+-  MaybeShowWebHoldbackConsoleMsg();
+-  std::optional<double> override_downlink_mbps =
+-      GetNetworkStateNotifier().GetWebHoldbackDownlinkThroughputMbps();
+-  if (override_downlink_mbps) {
+-    return GetNetworkStateNotifier().RoundMbps(Host(),
+-                                               override_downlink_mbps.value());
+-  }
+-
+-  if (!IsObserving()) {
+-    return GetNetworkStateNotifier().RoundMbps(
+-        Host(), GetNetworkStateNotifier().DownlinkThroughputMbps());
+-  }
+-
+-  return downlink_mbps_;
++  // clearcote: fixed residential-desktop downlink in Mbps. Real Chrome caps
++  // downlink at 10.0 Mbps (RoundMbps kMaxDownlinkKbps), so any broadband link
++  // saturates this value -- it is the single most common reported number and
++  // maximally non-distinguishing. Bypasses the host-derived notifier.
++  return 10.0;
+ }
+ 
+ bool NetworkInformation::saveData() const {
+-  bool save_data =
+-      IsObserving() ? save_data_ : GetNetworkStateNotifier().SaveDataEnabled();
+-
++  // clearcote: Data Saver is off for the desktop persona, and we never want
++  // the host's setting to leak. Report false (modal desktop). Still run the
++  // devtools probe override so emulation keeps working in DevTools.
++  bool save_data = false;
+   probe::ApplyDataSaverOverride(probe::ToCoreProbeSink(GetExecutionContext()),
+                                 save_data);
+   return save_data;

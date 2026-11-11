@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clearcote-mcp"
+version = "0.3.1"
+description = "MCP server for Clearcote — drive the open-source stealth Chromium from Claude Desktop, Cursor, Cline, and any MCP client."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = [
+    "clearcote>=0.30",
+    # 1.21.1 is the first release that imports with current pydantic (2.14 dropped the eval_type_backport
+    # 1.19-1.21.0 import). 1.19 was the first to pass a CallToolResult a tool returns through as is (1.14-1.18
+    # turn screenshot_page's inline image into one JSON text block; before 1.14 string annotations raise
+    # at import). Both majors are supported; the cap stops pip resolving an untested one.
+    "mcp[cli]>=1.21.1,<3",
+    "markdownify>=0.11",
+]
+
+[project.scripts]
+clearcote-mcp = "clearcote_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/clearcotelabs/clearcote-browser"
+Source = "https://github.com/clearcotelabs/clearcote-browser/tree/main/mcp"
+
+[tool.setuptools]
+packages = ["clearcote_mcp"]

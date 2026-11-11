@@ -1,0 +1,288 @@
+import { describe, it, expect } from "vitest";
+import { gunzipSync } from "node:zlib";
+import {
+  fingerprintArgs,
+  cleanAcceptLanguage,
+  splitFingerprintOptions,
+  encodeProfile,
+  profileHardware,
+  resolveTlsProfile,
+  defaultTimezone,
+} from "../src/fingerprint.js";
+
+describe("fingerprintArgs", () => {
+  const withPlatform = (plat: string, fn: () => void) => {
+    const orig = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: plat, configurable: true });
+    try {
+      fn();
+    } finally {
+      if (orig) Object.defineProperty(process, "platform", orig);
+    }
+  };
+
+  it("defaults the persona to the HOST OS + Chrome, with a coherent Accept-Language + UI locale", () => {
+    // On a Windows host the default persona is Windows + Chrome; defaults keep navigator.platform
+    // and the UA-CH brand coherent, always emit en-US,en, and pin --lang so Intl matches.
+    withPlatform("win32", () => {
+      expect(fingerprintArgs({})).toEqual([
+        "--fingerprint-platform=windows",
+        "--fingerprint-brand=chrome",
+        "--accept-lang=en-US,en",
+        "--lang=en-US",
+        "--timezone=America/New_York",
+      ]);
+    });
+  });
+
+  it("defaults the persona platform to linux on a Linux host (coherent with the Linux binary)", () => {
+    withPlatform("linux", () => {
+      expect(fingerprintArgs({})).toEqual([
+        "--fingerprint-platform=linux",
+        "--fingerprint-brand=chrome",
+        "--accept-lang=en-US,en",
+        "--lang=en-US",
+        "--timezone=America/New_York",
+      ]);
+    });
+  });
+
+  it("derives --lang from the primary Accept-Language tag (Intl/locale coherence)", () => {
+    // --lang is the UI locale Chrome resolves from the first tag (Intl is "fr", not "fr-FR")
+    expect(fingerprintArgs({ acceptLanguage: "fr-FR,fr" })).toContain("--lang=fr");
+    expect(fingerprintArgs({ acceptLanguage: "de-DE,de;q=0.7,en;q=0.3" })).toContain("--lang=de");
+  });
+
+  it("maps every fingerprint option to its Chromium switch", () => {
+    const args = fingerprintArgs({
+      fingerprint: "seed-1",
+      platform: "windows",
+      platformVersion: "10.0.0",
+      brand: "Edge",
+      brandVersion: "149",
+      gpuVendor: "Google Inc.",
+      gpuRenderer: "ANGLE (Intel)",
+      hardwareConcurrency: 8,
+      location: "40.7,-74.0",
+      timezone: "America/New_York",
+      webrtcIp: "1.2.3.4",
+    });
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "--fingerprint=seed-1",
+        "--fingerprint-platform=windows",
+        "--fingerprint-platform-version=10.0.0",
+        "--fingerprint-brand=Edge",
+        "--fingerprint-brand-version=149",
+        "--fingerprint-gpu-vendor=Google Inc.",
+        "--fingerprint-gpu-renderer=ANGLE (Intel)",
+        "--fingerprint-hardware-concurrency=8",
+        "--fingerprint-location=40.7,-74.0",
+        "--timezone=America/New_York",
+        "--webrtc-ip=1.2.3.4",
+      ]),
+    );
+  });
+
+  it("cleans accept-language (strips ;q= weights) for --accept-lang", () => {
+    expect(fingerprintArgs({ acceptLanguage: "en-US,en;q=0.9" })).toContain("--accept-lang=en-US,en");
+  });
+
+  it("emits --disable-gpu-fingerprint only when disableGpuFingerprint is true", () => {
+    expect(fingerprintArgs({ disableGpuFingerprint: true })).toContain("--disable-gpu-fingerprint");
+    expect(fingerprintArgs({ disableGpuFingerprint: false })).not.toContain("--disable-gpu-fingerprint");
+  });
+
+  it("persona schema is opt-in and the real-GPU declaration is a bare flag", () => {
+    // Default: no schema switch at all, so the engine stays on the frozen schema-1 derivation.
+    const none = fingerprintArgs({ fingerprint: "seed" });
+    expect(none.some((a) => a.startsWith("--fingerprint-schema"))).toBe(false);
+    expect(none).not.toContain("--fingerprint-gpu-backend-real");
+    const v2 = fingerprintArgs({ fingerprint: "seed", personaSchema: 2, realGpuHost: true });
+    expect(v2).toContain("--fingerprint-schema=2");
+    expect(v2).toContain("--fingerprint-gpu-backend-real");
+    expect(fingerprintArgs({ personaSchema: 2, realGpuHost: false })).not.toContain("--fingerprint-gpu-backend-real");
+    expect(fingerprintArgs({ personaSchema: 5 })).toContain("--fingerprint-schema=5");
+    expect(fingerprintArgs({ personaSchema: 7 })).toContain("--fingerprint-schema=7");
+  });
+
+  it("disables farble noise only when fingerprintNoise === false", () => {
+    expect(fingerprintArgs({ fingerprintNoise: false })).toContain("--disable-fingerprint-noise");
+    expect(fingerprintArgs({ fingerprintNoise: true })).not.toContain("--disable-fingerprint-noise");
+    expect(fingerprintArgs({})).not.toContain("--disable-fingerprint-noise");
+  });
+
+  // The r12 halves do strictly LESS than the bundles they were split out of, so the negative
+  // assertions are the ones carrying the weight: neither may pull in the other, or a bundle.
+  it("emits the independent gpu-string / canvas-noise switches only on an explicit false", () => {
+    expect(fingerprintArgs({ gpuStringSpoof: false })).toContain("--disable-gpu-string-spoof");
+    expect(fingerprintArgs({ gpuStringSpoof: true })).not.toContain("--disable-gpu-string-spoof");
+    expect(fingerprintArgs({})).not.toContain("--disable-gpu-string-spoof");
+
+    expect(fingerprintArgs({ canvasNoise: false })).toContain("--disable-canvas-noise");
+    expect(fingerprintArgs({ canvasNoise: true })).not.toContain("--disable-canvas-noise");
+    expect(fingerprintArgs({})).not.toContain("--disable-canvas-noise");
+
+    const gpuOnly = fingerprintArgs({ gpuStringSpoof: false });
+    expect(gpuOnly).not.toContain("--disable-canvas-noise");
+    expect(gpuOnly).not.toContain("--disable-gpu-fingerprint");
+    expect(gpuOnly).not.toContain("--disable-fingerprint-noise");
+
+    const canvasOnly = fingerprintArgs({ canvasNoise: false });
+    expect(canvasOnly).not.toContain("--disable-gpu-string-spoof");
+    expect(canvasOnly).not.toContain("--disable-gpu-fingerprint");
+    expect(canvasOnly).not.toContain("--disable-fingerprint-noise");
+
+    // Absence is byte-identical to before the options existed.
+    expect(fingerprintArgs({ gpuStringSpoof: true, canvasNoise: true })).toEqual(fingerprintArgs({}));
+  });
+
+  it("maps the r57 noise style options, and their defaults add nothing", () => {
+    expect(fingerprintArgs({ flatAreaNoise: true })).toContain("--fingerprint-noise-flat-areas");
+    expect(fingerprintArgs({ webglReadMargin: false })).toContain("--fingerprint-webgl-no-read-margin");
+    expect(fingerprintArgs({ flatAreaNoise: false, webglReadMargin: true })).toEqual(fingerprintArgs({}));
+    expect(fingerprintArgs({})).not.toContain("--fingerprint-noise-flat-areas");
+    expect(fingerprintArgs({})).not.toContain("--fingerprint-webgl-no-read-margin");
+  });
+
+  it("skips empty / undefined / null values", () => {
+    const args = fingerprintArgs({ fingerprint: "", timezone: undefined, gpuVendor: null as unknown as string });
+    expect(args.some((a) => a.startsWith("--fingerprint="))).toBe(false);
+    expect(args.some((a) => a.startsWith("--fingerprint-gpu-vendor="))).toBe(false);
+    // timezone is special-cased: unset/empty falls back to the locale default (no host-UTC leak).
+    expect(args).toContain("--timezone=America/New_York");
+  });
+
+  it("encodes a fingerprint profile (gzip+base64, lossless round-trip)", () => {
+    const profile = { navigator: { userAgent: "Mozilla/5.0 …" }, screen: { width: 1920 } };
+    const flag = fingerprintArgs({ fingerprintProfile: profile }).find((a) =>
+      a.startsWith("--fingerprint-profile="),
+    );
+    expect(flag).toBeDefined();
+    const b64 = flag!.slice("--fingerprint-profile=".length);
+    expect(JSON.parse(gunzipSync(Buffer.from(b64, "base64")).toString())).toEqual(profile);
+  });
+});
+
+describe("cleanAcceptLanguage", () => {
+  it("strips q-weights, trims spaces, drops empties", () => {
+    expect(cleanAcceptLanguage("en-US, en ;q=0.8, , fr")).toBe("en-US,en,fr");
+    expect(cleanAcceptLanguage("de-DE,de;q=0.7,en;q=0.3")).toBe("de-DE,de,en");
+    expect(cleanAcceptLanguage("")).toBe("");
+  });
+});
+
+describe("splitFingerprintOptions", () => {
+  it("separates fingerprint options from pass-through Playwright options", () => {
+    const { fingerprint, rest } = splitFingerprintOptions({
+      fingerprint: "s",
+      platform: "windows",
+      headless: true,
+      proxy: { server: "http://x" },
+    } as never);
+    expect(fingerprint).toEqual({ fingerprint: "s", platform: "windows" });
+    expect(rest).toEqual({ headless: true, proxy: { server: "http://x" } });
+  });
+});
+
+describe("encodeProfile", () => {
+  it("accepts a JSON string and round-trips", () => {
+    const json = '{"a":1}';
+    const b64 = encodeProfile(json);
+    expect(gunzipSync(Buffer.from(b64, "base64")).toString()).toBe(json);
+  });
+});
+
+describe("tlsProfile (TLS network persona)", () => {
+  it("match-persona (default) follows brandVersion's major", () => {
+    expect(fingerprintArgs({ brandVersion: "120.0.6099.109" })).toContain(
+      "--fingerprint-tls-profile=chrome-120"
+    );
+  });
+  it("emits nothing with no brandVersion (native TLS)", () => {
+    expect(fingerprintArgs({}).some((a) => a.startsWith("--fingerprint-tls-profile"))).toBe(false);
+  });
+  it("explicit chrome-<major> / number pins it; native/off disables", () => {
+    expect(fingerprintArgs({ tlsProfile: "chrome-124" })).toContain("--fingerprint-tls-profile=chrome-124");
+    expect(fingerprintArgs({ tlsProfile: 118 })).toContain("--fingerprint-tls-profile=chrome-118");
+    for (const off of ["native", "off"] as const) {
+      expect(
+        fingerprintArgs({ tlsProfile: off, brandVersion: "120" }).some((a) =>
+          a.startsWith("--fingerprint-tls-profile")
+        )
+      ).toBe(false);
+    }
+  });
+  it("resolveTlsProfile handles every shape; unrecognized -> native", () => {
+    expect(resolveTlsProfile("match-persona", { brandVersion: "131.0.1" })).toBe("chrome-131");
+    expect(resolveTlsProfile("auto", {})).toBeUndefined();
+    expect(resolveTlsProfile(undefined, {})).toBeUndefined();
+    expect(resolveTlsProfile("chrome-120", {})).toBe("chrome-120");
+    expect(resolveTlsProfile(125, {})).toBe("chrome-125");
+    expect(resolveTlsProfile("off", { brandVersion: "120" })).toBeUndefined();
+    expect(resolveTlsProfile("garbage", {})).toBeUndefined();
+  });
+});
+
+describe("default timezone (locale-coherent, no UTC leak)", () => {
+  it("derives a plausible timezone from the persona locale", () => {
+    expect(defaultTimezone("en-US")).toBe("America/New_York");
+    expect(defaultTimezone("de-DE")).toBe("Europe/Berlin");
+    expect(defaultTimezone("ja-JP")).toBe("Asia/Tokyo");
+    expect(defaultTimezone("en-ZA")).toBe("Africa/Johannesburg");
+    expect(defaultTimezone("en-JM")).toBe("America/New_York"); // en-* subtag fallback -> the en default
+    expect(defaultTimezone("xx-YY")).toBe("America/New_York"); // ultimate fallback
+  });
+  it("emits a locale-coherent --timezone by default; explicit + geoip win", () => {
+    expect(fingerprintArgs({ acceptLanguage: "fr-FR,fr" })).toContain("--timezone=Europe/Paris");
+    expect(fingerprintArgs({ timezone: "Asia/Dubai" }).filter((a) => a.startsWith("--timezone="))).toEqual([
+      "--timezone=Asia/Dubai",
+    ]);
+  });
+});
+
+describe("android persona (best-effort mobile)", () => {
+  it("emits the android platform + a phone window-size", () => {
+    const args = fingerprintArgs({ platform: "android" });
+    expect(args).toContain("--fingerprint-platform=android");
+    expect(args).toContain("--window-size=412,915");
+  });
+  it("never auto-adds a window-size for desktop platforms", () => {
+    for (const plat of ["windows", "linux", "macos"] as const) {
+      expect(fingerprintArgs({ platform: plat }).some((a) => a.startsWith("--window-size"))).toBe(false);
+    }
+  });
+});
+
+// The engine applies a persona's hardware_concurrency / device_memory only with a --fingerprint seed, so a profile
+// on its own sends them as switches (measured 2026-10-31 with r54: without them the real machine's values showed).
+describe("a profile without a seed sends its own threads and memory", () => {
+  const device = { hardware_concurrency: 24, device_memory: 8, screen: { width: 1920, height: 1080 } };
+  const hw = (args: string[]) => args.filter((a) => /^--fingerprint-(hardware-concurrency|device-memory)=/.test(a));
+
+  it("on its own: both go out", () => {
+    expect(hw(fingerprintArgs({ fingerprintProfile: device }))).toEqual(["--fingerprint-hardware-concurrency=24", "--fingerprint-device-memory=8"]);
+    expect(hw(fingerprintArgs({ fingerprintProfile: JSON.stringify(device) }))).toHaveLength(2);
+  });
+  it("with a seed: nothing extra, the persona applies them", () => {
+    expect(hw(fingerprintArgs({ fingerprint: "user-1", fingerprintProfile: device }))).toEqual([]);
+  });
+  it("a caller's own value wins", () => {
+    expect(hw(fingerprintArgs({ fingerprintProfile: device, hardwareConcurrency: 4 }))).toEqual([
+      "--fingerprint-hardware-concurrency=4",
+      "--fingerprint-device-memory=8",
+    ]);
+  });
+  it("with lightStealth the device's values win over the seed's preset", () => {
+    expect(hw(fingerprintArgs({ fingerprint: "user-1", lightStealth: true, fingerprintProfile: device }))).toEqual([
+      "--fingerprint-hardware-concurrency=24",
+      "--fingerprint-device-memory=8",
+    ]);
+  });
+  it("a profile without them, or with nonsense, adds nothing; 0.5 GB stays", () => {
+    expect(hw(fingerprintArgs({ fingerprintProfile: { screen: {} } }))).toEqual([]);
+    expect(hw(fingerprintArgs({ fingerprintProfile: { hardware_concurrency: "8", device_memory: -1 } }))).toEqual([]);
+    expect(profileHardware({ hardware_concurrency: 2, device_memory: 0.5 })).toEqual({ hardwareConcurrency: 2, deviceMemory: 0.5 });
+    expect(profileHardware("not json")).toEqual({});
+  });
+});

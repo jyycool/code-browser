@@ -1,0 +1,1829 @@
+// Clearcote — Playwright drop-in.
+//
+//   import { launch } from "clearcote";
+//   const browser = await launch({ fingerprint: "seed-123", platform: "windows" });
+//   const page = await browser.newPage();
+//   await page.goto("https://abrahamjuliot.github.io/creepjs/");
+//
+// launch() returns a standard Playwright `Browser`, backed by the verified Clearcote binary
+// (auto-downloaded + SHA-256 checked on first use, then cached). Every Playwright launch option
+// (headless, proxy, args, timeout, ...) passes through; the fingerprint options below are added
+// as engine switches.
+//
+// Since 0.34.0 the same call can run the browser on Clearcote's servers instead: `launch({ cloud: true })`
+// (or CLEARCOTE_CLOUD=1) resolves to the same Playwright `Browser`, connected to a hosted session.
+// `Cloud` (./cloud.ts) is the rest of the hosted API: agent runs, profiles, recordings, events,
+// hand-off and webhooks.
+
+import { chromium } from "playwright-core";
+import { existsSync, mkdtempSync, readFileSync, readlinkSync, rmSync } from "node:fs";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
+import type {
+  Browser,
+  BrowserContext,
+  BrowserContextOptions,
+  LaunchOptions as PlaywrightLaunchOptions,
+  Page,
+} from "playwright-core";
+import { makeRecoveredCopy, recoveredExe, removeFailedLaunchDirs } from "./winlaunch.js";
+import { checkInstall, ensureBinary, ensureRunnableHere, ensureVersion, proEnsureBinary, resolvedEngineVersion, resolveReleaseChannel, warmFiles, type DownloadOptions } from "./download.js";
+import { fingerprintArgs, isFingerprintPassthrough, splitFingerprintOptions, type FingerprintOptions } from "./fingerprint.js";
+import { applyGeoipMode, directStunEligible, dropAutoWebrtcIp, geoipMode, resolveGeoDetailed, startEgressDriftCheck, GeoipError, type Geo } from "./geoip.js";
+import { defaultColorScheme, engineDecidesColorScheme, installColorSchemeDefault } from "./colorscheme.js";
+import { installHumanize, installHumanizeOnContext, type HumanizeLaunchOptions } from "./humanize.js";
+import { resolveHumanize } from "./hzoptions.js";
+import { agentArgs, splitAgentOptions, type AgentOptions } from "./agent.js";
+import { resolveProfileOptions, Profile } from "./profile.js";
+import { resolveAuto, resolveLocal, localSetupHint, engineSupportsProfiles, MIN_PROFILE_ENGINE_MAJOR, DEFAULT_LOCAL_DIR, profileWithWindows11Faces, type AutoOptions, type AutoResult } from "./profileauto.js";
+import { measureHost, fetchIndex, fetchProfile, hostOsFamily, type ProfileSourceOptions } from "./profilesource.js";
+import { importDirectory, loadImportedProfile, indexEntryFromProfile } from "./profileimport.js";
+import {
+  selectProfile, scoreProfile, eligible, gpuVendorClass, defaultStickyKey,
+  type HostFacts, type ProfileIndexEntry, type SelectMode, type SelectOptions, type Selection,
+} from "./profilelib.js";
+import {
+  extensionArgs,
+  portableArgs,
+  resolveProxy,
+  engineSupportsSwitch,
+  warnUnsupportedEngineOptions,
+  mergeFeatureFlags,
+  playwrightFeatureOverrideArgs,
+  privacySandboxArgs,
+  quicArgs,
+  relayProxyByIp,
+  socks5UdpArgs,
+  udpRelayOrFallback,
+  webBluetoothArgs,
+  webrtcDefaultDenyArgs,
+  webrtcDirectStunArgs,
+  DEFAULT_IGNORED_ARGS,
+  gpuBlocklistArgs,
+  gpuBackendArgs,
+  playwrightKeepsUnsafeSwiftshader,
+  softwareWebgpuArgs,
+  macosKeychainArgs,
+  gateEngineSwitches,
+  engineExtrasArgs,
+  stockRuntimeArgs,
+  stockRuntimeOn,
+  runtimeBindingsArgs,
+  runtimeBindingsOn,
+  type PwProxy,
+} from "./launchopts.js";
+import { RELEASE } from "./release.js";
+import { fetchWidevine, seedWidevine, widevineArgs, widevineLaunchArgs, widevineMode } from "./widevine.js";
+import { applyCrlsetLaunch, fetchCrlset, installCrlset, type CrlsetOption } from "./crlset.js";
+import { applyAutofillPrefs } from "./autofillpref.js";
+import { emitCoherenceWarnings, emitWarnings, serveExposureWarnings } from "./warnings.js";
+import { checkFontDirs, fontLaunchEnv } from "./fonts.js";
+import { withShaderDialect, type ShaderDialect } from "./shaderdialect.js";
+import { apply as applyPersonaEnv } from "./personaenv.js";
+import { preparePersonaLaunch } from "./persona.js";  // r51+: server-side personas (the signed persona token)
+import {
+  applyHeadlessGeometry, fitServedWindow, headedLinuxFit, installWindowFixup, placeWindow, servedGeometry,
+  FIT_PLAN, type WindowPlan,
+} from "./geometry.js";
+import { acquireLease, resolveLicenseKey, withRunToken, STALE_TOKEN_REFUSAL, type LicenseOptions, type LeaseSession } from "./license.js";
+import { offlineKeyPath, requireOfflineBinary } from "./offline.js";
+export { OfflineKeyError, offlineLease, loadOfflineKey, OFFLINE_KEY_ENV } from "./offline.js";
+import { Cloud, cloudRequested, launchCloud, verifyWebhook, type CloudLaunchOptions, type CloudProfile } from "./cloud.js";
+import { dockerRequested, launchDocker, type DockerOption } from "./docker.js";
+import { HTTP_CACHE_NEEDS_PROFILE, withHttpCache } from "./httpcache.js";
+import { closeOnFailure, requestProxyUpstream, routeRequestApi } from "./reqproxy.js";
+export { DockerUnavailableError, type DockerContainer, type DockerOption } from "./docker.js";
+
+export {
+  Cloud,
+  CloudError,
+  CloudTimeoutError,
+  CloudBrowsers,
+  CloudRuns,
+  CloudProfiles,
+  CloudWebhooks,
+  verifyWebhook,
+  cloudRequested,
+  cloudSessionOf,
+  sessionBody,
+  filterCookies,
+  cookiesFromState,
+  DEFAULT_API_URL,
+  TERMINAL_RUN_STATUSES,
+  SESSION_FIELDS,
+  RUN_FIELDS,
+  SDK_SIDE_OPTIONS,
+  LOCAL_ONLY_OPTIONS,
+  type CloudOptions,
+  type CloudLaunchOptions,
+  type CloudSessionOptions,
+  type CloudProxy,
+  type CloudProfile,
+  type CloudChallengeService,
+  type RunOptions,
+  type SyncOptions,
+} from "./cloud.js";
+
+export type { FingerprintOptions } from "./fingerprint.js";
+export type { DownloadOptions } from "./download.js";
+export { proEnsureBinary, type ProDownloadOptions } from "./download.js";
+export { checkInstall, verifyInstall } from "./download.js";
+export { applyGeoip, resolveGeo, resolveGeoDetailed, geoipTimeoutMs, geoipMode, GeoipError, type Geo, type GeoResult, type GeoipMode } from "./geoip.js";
+export { proxiedRequest, toProxySpec, type ProxySpec } from "./net.js";
+export { resolveReleaseChannel, type ReleaseChannel } from "./download.js";
+export { isFingerprintPassthrough } from "./fingerprint.js";
+export { DEFAULT_IGNORED_ARGS, gpuBlocklistArgs, gpuBackendArgs, softwareWebgpuArgs, engineRevision, xDisplayAvailable, mesaEglAvailable, gateEngineSwitches, engineSupportsSwitch,
+  STOCK_RUNTIME_SWITCH, stockRuntimeWanted, stockRuntimeArgs, RUNTIME_BINDINGS_SWITCH, runtimeBindingsWanted, runtimeBindingsArgs } from "./launchopts.js";
+export { serveMultiplex, type MultiplexOptions, type MultiplexServer } from "./multiplex.js";
+export type { HumanizeLaunchOptions } from "./humanize.js";
+export { ClearcoteStrictError, resolveHumanize } from "./hzoptions.js";
+export type {
+  HumanizeAmbient, HumanizeEngine, HumanizeFallbackEvent, HumanizeOptions, HumanizePreset, HumanizeSetting,
+} from "./hzoptions.js";
+export { pressAndHold, type PressAndHoldOptions, type HoldButton } from "./hold.js";
+export {
+  scoreAction, scoreMotion, scoreTyped, scoreWheel, scoreDrag, scoreHover, scoreAmbient, extractFeatures, stepsToSamples, fingerOf,
+  type ActionScore, type ActionKind, type MotionScore, type MotionFeatures, type Sample as MotionSample, type KeySample, type WheelSample,
+} from "./motionscore.js";
+export { record as recordHumanizeAction, traceEnabled as humanizeScoreEnabled } from "./trace.js";
+export type { DragByOptions } from "./humanize.js";
+export { Profile, listProfiles, loadProfile, PROFILE_DIR, type ProfileOptions } from "./profile.js";
+// Profile library: real captured personas, selected for coherence with THIS host.
+export {
+  selectProfile, scoreProfile, eligible, gpuVendorClass, defaultStickyKey, DEFAULT_MAX_ENCODED,
+  type HostFacts, type ProfileIndexEntry, type SelectMode, type SelectOptions, type Selection,
+} from "./profilelib.js";
+export {
+  importDirectory, loadImportedProfile, indexEntryFromProfile, type ImportResult,
+} from "./profileimport.js";
+export {
+  fetchIndex, fetchProfile, measureHost, hostOsFamily, resolveAutoProfile,
+  type ProfileSourceOptions,
+} from "./profilesource.js";
+export {
+  resolveAuto, resolveLocal, loadLocalIndex, localSetupHint, engineSupportsProfiles,
+  MIN_PROFILE_ENGINE_MAJOR, DEFAULT_LOCAL_DIR,
+  type AutoOptions, type AutoResult, type ProfileOrigin,
+} from "./profileauto.js";
+export {
+  runAgentTask,
+  agentArgs,
+  OPENROUTER_BASE_URL,
+  type AgentOptions,
+  type AgentTaskOptions,
+  type AgentTaskResult,
+  type AgentStep,
+} from "./agent.js";
+export { RELEASE } from "./release.js";
+export { fetchWidevine, seedWidevine } from "./widevine.js";
+export { fetchCrlset, installCrlset } from "./crlset.js";
+export { checkRenderCoherence, type RenderVerdict } from "./render.js";
+export {
+  resolveLicenseKey,
+  acquireLease,
+  getSessionSeats,
+  saveLicenseKey,
+  removeLicenseKey,
+  licenseKeySource,
+  licenseKeyPath,
+  type SessionSeats,
+  LicenseError,
+  ConcurrencyLimitError,
+  LicenseRevokedError,
+  LicenseServerChallengeError,
+  type LicenseOptions,
+  type LeaseSession,
+} from "./license.js";
+export { PersonaServiceError } from "./persona.js";  // r51+: the persona service refused or could not be reached
+export { ClockSkewError } from "./clockcheck.js";      // this computer's clock is too far off for the engine to accept a token
+
+/** On by default (since 0.66.0): resolve the egress geo (the proxy's exit IP, or this machine's own
+ * public IP without a proxy) and fill any unset `timezone`, `acceptLanguage`, `location` and `webrtcIp`
+ * so they match where the connection comes from. Left unset, a failed lookup warns and launches;
+ * `true` fails the launch instead ({@link GeoipError}); `false` (or CLEARCOTE_GEOIP=0) skips it. */
+interface GeoipOption {
+  geoip?: boolean;
+}
+
+/** When set, launch a saved persona ({@link Profile}) — by name (under `CLEARCOTE_PROFILE_DIR`),
+ * by path, or a `Profile` instance. Its saved options form the base; any options passed alongside
+ * here override them.
+ *
+ * `"auto"` is special: instead of a saved option-set, it resolves a REAL CAPTURED FINGERPRINT
+ * for this machine — the licensed profile service first, a local imported directory as backup —
+ * and applies it as `fingerprintProfile` with NO seed. That distinction matters: with no
+ * `--fingerprint`, the farbling machinery never engages and canvas/WebGL/audio readbacks are
+ * byte-identical to an unmodified browser, which is why the profile path survives strict
+ * anti-bot scoring where a synthetic seed does not.
+ *
+ * Tune it with {@link AutoProfileOptions.profileSelect}. */
+interface ProfileOption {
+  profile?: string | Profile | "auto";
+  /** Selection + source options for `profile: "auto"`. */
+  profileSelect?: AutoOptions;
+}
+
+/** Load unpacked extensions (emits --load-extension + --disable-extensions-except). */
+interface ExtensionsOption {
+  /** Unpacked-extension directory paths. */
+  extensions?: string[];
+  /** Keep the cookie encryption key in the profile so the user data dir is portable between
+   * machines. Opt-in: the cookie database is then effectively unencrypted at rest. */
+  portableProfile?: boolean;
+  /** Derive the profile encryption key from this secret instead, writing nothing to disk.
+   * Preferred when the profile is synced to shared storage. */
+  encryptionKey?: string;
+  /** Disable Privacy Sandbox APIs (Topics/FLEDGE/Shared Storage/Fenced Frames).
+   *
+   * Default `false` since 0.23.0 — real Google Chrome ships all of them, and the default persona
+   * (`brand: "chrome"`) claims to be Google Chrome, so disabling them was a coherence tell rather
+   * than a privacy win. Set `true` when the persona genuinely is de-Googled Chromium. */
+  disablePrivacySandbox?: boolean;
+}
+
+/** Profile-directory control for {@link launch}. */
+interface EphemeralProfileOption {
+  /** Launch on a throwaway persistent profile that is deleted on close. Default `true` since
+   * 0.23.0 — incognito cannot load the Widevine CDM, which is itself a tell. Set `false` for the
+   * pre-0.23 incognito launch. */
+  ephemeralProfile?: boolean;
+  /** Keep a profile at this path instead of a throwaway one (delegates to
+   * {@link launchPersistentContext}; the directory is NOT deleted). */
+  userDataDir?: string;
+}
+
+/** Shader-dialect reporting (see ./shaderdialect.ts). */
+interface ShaderDialectOption {
+  /** Report ANGLE's translated shader in this dialect for
+   * `WEBGL_debug_shaders.getTranslatedShaderSource()`.
+   *
+   * `"hlsl"` makes a Windows persona on a Linux host report HLSL, matching the Direct3D renderer
+   * string it already advertises — without it the Vulkan backend answers with SPIR-V and the two
+   * values contradict each other. Rendering is unaffected.
+   *
+   * ON by default for a Windows claim on a non-Windows host (since 0.39.0); pass `false` to turn it
+   * off. A shader the HLSL translator rejects falls back to the backend's own output, the state
+   * every launch was in before. Needs a PRO engine 151 r15+; older engines ignore it. */
+  shaderDialect?: ShaderDialect | false;
+}
+
+/** Where the persona switches travel (engine patch 1021, see ./personaenv.ts). */
+interface PersonaEnvOption {
+  /** Keep the persona switches (seed, overrides, proxy credentials, canvas-bridge token) off the
+   * browser's command line, which any local user can read: on an engine that implements
+   * `--persona-from-env` they travel in the CLEARCOTE_PERSONA_ARGS environment variable instead.
+   * Unset follows CLEARCOTE_PERSONA_ENV (on unless it says 0/false/off/no); `false` keeps them on the
+   * command line. An older engine gets them on its command line either way. A Docker launch hands it
+   * to the image's entrypoint, which does the same for the container's browser. */
+  personaEnv?: boolean;
+}
+
+interface FontDirsOption {
+  /** Linux: directories of your own fonts, typically a copy of a Windows machine's Fonts folder. The
+   * bundled fonts are self-contained, so fonts installed on the host are otherwise invisible to the
+   * browser. These are listed ahead of the bundle, and every family they provide renders as itself
+   * instead of its metric-compatible lookalike (Arial instead of Arimo, Segoe UI instead of Selawik,
+   * …); the CSS generics follow (sans-serif -> Arial, system-ui -> Segoe UI, …). Added to the
+   * CLEARCOTE_FONT_DIRS environment variable. A path that is not a directory throws. Ignored on
+   * Windows and macOS, which have their own fonts. */
+  fontDirs?: string | string[];
+}
+
+/** Engine behaviour switches that are not part of the persona (engine 152 r22+). */
+interface EngineExtrasOption {
+  /**
+   * Third-party cookies. Allowed by default, as in stock Chrome: embedded reCAPTCHA, SSO sign-in
+   * and payment challenges rely on them. `false` blocks them. Since 0.45.0; before that they were
+   * blocked unless this was `true`, because the de-Googled base blocks them (engine 152 r22 to r35;
+   * from 154 r36 the engine allows them on its own). An engine before 152 r22 always blocks them.
+   */
+  allowThirdPartyCookies?: boolean;
+  /**
+   * Hide proxy use from origins and pages: send `Connection` instead of `Proxy-Connection` on
+   * plain-HTTP requests through an HTTP proxy, and report proxied connection timing the way a reused
+   * connection reports it (no proxy-shaped DNS/connect/TLS durations). Requires a proxy.
+   */
+  transparentProxy?: boolean;
+  /**
+   * Chromium's own DevTools Runtime behaviour (engine r32+, `--disable-runtime-suppression`): Playwright's
+   * `console` and `pageerror` events, `setContent()`, and `exposeFunction()` / `exposeBinding()` after a
+   * navigation work as in stock Chromium. Off by default, because pages can observe some of the restored
+   * behaviour. Unset follows CLEARCOTE_STOCK_RUNTIME (1/true/yes/on). An engine without the switch launches
+   * without it, with one warning per process. Local and Docker launches only; a cloud launch warns once.
+   */
+  stockRuntime?: boolean;
+  /**
+   * Only the bindings part of {@link stockRuntime} (engine r54+, `--enable-runtime-bindings`): `exposeFunction()` /
+   * `exposeBinding()` (and any CDP `Runtime.addBinding`) keep working after `page.goto()` or a reload, while console
+   * events stay suppressed. A launch that adds no binding looks the same to a page; one that does shows the page
+   * that binding's global, as Chrome does. Off by default. Unset follows CLEARCOTE_RUNTIME_BINDINGS
+   * (1/true/yes/on). Not added when stockRuntime is on (which already restores it). An engine without the switch
+   * launches without it, with one warning per process. Local and Docker launches only; a cloud launch warns once.
+   */
+  runtimeBindings?: boolean;
+}
+
+/** Google's Widevine CDM (DRM/EME), see ./widevine.ts. */
+interface WidevineOption {
+  /**
+   * Load Google's Widevine CDM so DRM/EME works (`requestMediaKeySystemAccess('com.widevine.alpha')`
+   * resolves) and the EME surface matches a real Chrome instead of being a no-Widevine tell.
+   *
+   * ON BY DEFAULT for a licensed launch (a licence key resolved: the PRO build, which claims the Google
+   * Chrome brand) on an engine with `--widevine-cdm-path` (r32+), since 0.48.0. The CDM is downloaded
+   * from Google's component server on first use and cached; later launches use the cache with no network.
+   * When the first download cannot be had within CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS (default 15) the launch
+   * goes on without it and warns once. CLEARCOTE_WIDEVINE=0 (or `false`) turns it off; `false` is also
+   * accepted, and ignored, by a cloud or Docker launch. A free launch stays opt-in: `true` (or
+   * CLEARCOTE_WIDEVINE=1) fetches it, and a persistent context also gets it seeded into its profile.
+   * An explicit value wins over the environment. clearcote never bundles Google's blob.
+   */
+  widevine?: boolean;
+}
+
+/** Chrome's certificate revocation list (CRLSet), see ./crlset.ts. */
+interface CrlsetLaunchOption {
+  /**
+   * CRLSET (opt-in). The engine never downloads Chrome's certificate revocation list (CRLSet), so revoked
+   * or distrusted CA keys stay trusted. `true` (or CLEARCOTE_CRLSET=1) seeds the current CRLSet into the
+   * profile (fetched from Google's component updater on first use, cached in ~/.clearcote/crlset,
+   * refreshed every 6 h) and the launch waits, a few seconds, until the engine has it live. `"nowait"`
+   * seeds without waiting (live once the first tab has been idle for a moment), `"<path>"` seeds that
+   * file (a crl-set file or a component directory). Needs a profile: launch() (its throwaway profile),
+   * `userDataDir` and launchPersistentContext() take it; `ephemeralProfile: false` launches without one
+   * and says so. Never fails a launch: without a CRLSet it warns once and goes on.
+   */
+  crlset?: CrlsetOption;
+  /** How long the launch waits for the seeded CRLSet to be live, in seconds (default
+   * CLEARCOTE_CRLSET_TIMEOUT, else 15). */
+  crlsetTimeout?: number;
+}
+
+/** A shared HTTP cache for fresh profiles (see ./httpcache.ts). */
+interface HttpCacheOption {
+  /**
+   * Keep the HTTP disk cache (scripts, styles, images) in this folder across runs, while the profile itself
+   * stays fresh: cookies and storage are new every run, only cached files carry over, so a site's assets come
+   * from disk instead of through the proxy again (measured: about 8 MB of proxy traffic per run down to about
+   * 0.4 MB on script-heavy pages). Browsers running at the same time each get their own slot inside the folder
+   * (`slot-0`, `slot-1`, ...), because Chromium lets only one browser use a cache at once.
+   *
+   * Only share a folder between runs that may look like the same visitor: a site can link two sessions through
+   * what they have cached (validators such as ETags are sent back). Use one folder per identity (persona,
+   * proxy, account) when that matters. Needs a profile (launch()'s default throwaway one, `userDataDir`,
+   * launchPersistentContext(), serve()): `ephemeralProfile: false` keeps the cache in memory and throws. Local
+   * launches only; `cloud` and `docker` refuse it. Combining it with your own `--disk-cache-dir` in `args` throws.
+   */
+  httpCacheDir?: string;
+}
+
+/** Opt-in SOCKS5 UDP relaying (see {@link socks5UdpArgs}). */
+interface Socks5UdpOption {
+  /** Relay WebRTC's UDP through the SOCKS5 proxy using UDP ASSOCIATE, instead of letting it egress
+   * on the host's own path.
+   *
+   * By default clearcote denies non-proxied UDP, which keeps UDP from leaking around the proxy but
+   * also means peer connections that need UDP never establish — stock Chromium cannot proxy a
+   * datagram. Turn this on to get working UDP that still leaves from the proxy's address.
+   *
+   * Applies only to a `socks5://` proxy; ignored otherwise. Needs a PRO engine 151 r17+, and a
+   * proxy that actually permits the ASSOCIATE command. */
+  socks5Udp?: boolean;
+}
+
+/** Local or cloud: the one switch, and the account a cloud launch uses (a local launch ignores the
+ * account options, so code that always passes them switches with nothing but `cloud`). */
+interface CloudSwitchOption {
+  /** true (or a {@link Cloud} client): run the browser on Clearcote's servers and resolve to the same
+   * Playwright Browser. Unset follows CLEARCOTE_CLOUD=1|true|yes. See {@link CloudLaunchOptions}. */
+  cloud?: boolean | Cloud;
+  /** Cloud API key; defaults to CLEARCOTE_API_KEY. */
+  apiKey?: string;
+  /** Cloud API base URL; defaults to CLEARCOTE_API_URL, then https://www.clearcotelabs.com. */
+  apiUrl?: string;
+}
+
+/** Options for {@link launch}: Playwright launch options + Clearcote fingerprint + agent + download options. */
+export interface LaunchOptions extends PlaywrightLaunchOptions, FingerprintOptions, AgentOptions, GeoipOption, ProfileOption, ExtensionsOption, EphemeralProfileOption, HumanizeLaunchOptions, DownloadOptions, LicenseOptions, ShaderDialectOption, PersonaEnvOption, FontDirsOption, Socks5UdpOption, EngineExtrasOption, CloudSwitchOption, DockerOption, WidevineOption, CrlsetLaunchOption, HttpCacheOption {}
+
+/** The account options a local launch drops (see CloudSwitchOption). */
+function withoutCloudOptions<T extends object>(options: T): T {
+  const { cloud: _c, apiKey: _k, apiUrl: _u, ...rest } = options as T & CloudSwitchOption;
+  return rest as T;
+}
+
+/** Options for {@link launchPersistentContext}. */
+export interface PersistentContextOptions
+  extends PlaywrightLaunchOptions,
+    BrowserContextOptions,
+    FingerprintOptions,
+    AgentOptions,
+    GeoipOption,
+    ProfileOption,
+    ExtensionsOption,
+    HumanizeLaunchOptions,
+    DownloadOptions,
+    LicenseOptions,
+    ShaderDialectOption,
+    PersonaEnvOption,
+    FontDirsOption,
+    Socks5UdpOption,
+    EngineExtrasOption,
+    CloudSwitchOption,
+    WidevineOption,
+    CrlsetLaunchOption,
+    HttpCacheOption {}
+
+
+
+/**
+ * Resolve the Clearcote chrome.exe path, downloading + verifying it if needed.
+ * Order: explicit `executablePath` > `CLEARCOTE_BINARY` env > PRO (when licensed) > free auto-download.
+ *
+ * `pro` (a resolved license key + optional API base) selects the license-gated PRO binary via the
+ * site's authenticated download route. When it's absent — the free path — behaviour is unchanged.
+ */
+export async function executablePath(
+  options: { executablePath?: string; version?: string; releaseChannel?: string; pro?: { licenseKey: string; licenseApiBase?: string } } & DownloadOptions = {}
+): Promise<string> {
+  if (options.executablePath) {
+    // Caller-supplied tree (often a browser bundled into a packaged app): we did not install it, so
+    // validate it here — a half-copied tree otherwise CHECK-crashes during browser startup.
+    requireBinary(options.executablePath);
+    checkInstall(options.executablePath);
+    return options.executablePath;
+  }
+  if (process.env.CLEARCOTE_BINARY) {
+    requireBinary(process.env.CLEARCOTE_BINARY);
+    checkInstall(process.env.CLEARCOTE_BINARY);
+    return process.env.CLEARCOTE_BINARY;
+  }
+  const version = options.version || process.env.CLEARCOTE_BROWSER_VERSION;
+  if (version) {
+    // Explicit version selector: validate against the catalog FIRST (clear error if it doesn't
+    // exist or needs a license), then route free (GitHub) vs pro (authenticated route).
+    return ensureVersion(version, {
+      licenseKey: options.pro?.licenseKey,
+      apiBase: options.pro?.licenseApiBase,
+      cacheDir: options.cacheDir,
+      quiet: options.quiet,
+      releaseChannel: options.releaseChannel,
+    });
+  }
+  if (options.pro) {
+    return proEnsureBinary(options.pro.licenseKey, {
+      apiBase: options.pro.licenseApiBase,
+      cacheDir: options.cacheDir,
+      quiet: options.quiet,
+      releaseChannel: resolveReleaseChannel(options.releaseChannel),
+    });
+  }
+  return ensureBinary({ cacheDir: options.cacheDir, quiet: options.quiet, autoUpdate: options.autoUpdate });
+}
+
+/** A resolved license key + API base for PRO-binary selection, or undefined in free mode. */
+function proSelector(
+  licenseKey: string | undefined,
+  licenseApiBase: string | undefined,
+): { licenseKey: string; licenseApiBase?: string } | undefined {
+  const key = resolveLicenseKey(licenseKey);
+  return key ? { licenseKey: key, licenseApiBase } : undefined;
+}
+
+/** Pre-fetch + verify the Clearcote binary without launching it. Returns the chrome.exe path.
+ * Pass `version` ("150" / "150.0.7871.115" / "latest") to fetch a specific catalog build (PRO-tier
+ * versions need `licenseKey` / `CLEARCOTE_LICENSE_KEY`). Pin a PRO rebuild with "150.0.7871.114-r7"
+ * (or bare "r7"). */
+export async function download(
+  options: DownloadOptions & { version?: string; licenseKey?: string; licenseApiBase?: string; releaseChannel?: string } = {},
+): Promise<string> {
+  const { version, licenseKey, licenseApiBase, releaseChannel, ...dl } = options;
+  return executablePath({ version, releaseChannel, pro: proSelector(licenseKey, licenseApiBase), ...dl });
+}
+
+/** Headless, and headed on Linux (see headedLinuxFit): `viewport: null` is a CONTEXT option and
+ * `chromium.launch()` takes none, so it rides on newPage/newContext instead, with the window fit to
+ * the work area (the persona's, the display `--screen-info` set, or headed the X display's). See
+ * ./geometry.ts for why each is needed. */
+function installHeadlessGeometry(browser: Browser, args?: readonly string[] | null, plan: WindowPlan | null = FIT_PLAN): void {
+  // Same shape as installHeadedViewport. Each new context is a new window, so each also gets the
+  // window step: the fit on older engines, nothing for an r39+ persona window (the engine opened it at
+  // the persona's bounds) except a position reconcile when a call passes its own viewport. Any
+  // per-call geometry option wins.
+  const merge = (o: Record<string, unknown> = {}) =>
+    "viewport" in o || "screen" in o ? o : { ...o, viewport: null };
+  const perCall = (o: Record<string, unknown>): WindowPlan | null =>
+    plan && plan.mode === "persona-native"
+      ? {
+          ...plan,
+          reconcile: o.viewport !== null && o.viewport !== undefined,
+          viewport: o.viewport !== null && o.viewport !== undefined ? (o.viewport as { width: number; height: number }) : null,
+        }
+      : plan;
+  const origNewPage = browser.newPage.bind(browser);
+  const origNewContext = browser.newContext.bind(browser);
+  (browser as unknown as { newPage: (o?: Record<string, unknown>) => Promise<Page> }).newPage =
+    async (o = {}) => {
+      const merged = merge(o);
+      const page = await origNewPage(merged as Parameters<typeof origNewPage>[0]);
+      await placeWindow(page, args, perCall(merged));
+      return page;
+    };
+  (browser as unknown as { newContext: (o?: Record<string, unknown>) => Promise<BrowserContext> }).newContext =
+    async (o = {}) => {
+      const merged = merge(o);
+      const context = await origNewContext(merged as Parameters<typeof origNewContext>[0]);
+      await installWindowFixup(context, args, perCall(merged));
+      return context;
+    };
+}
+
+/** A headed launch with Playwright's default emulated viewport (1280x720) on the real OS window
+ * makes window.innerWidth/Height disagree with the actual window — an impossible-window tell. For a
+ * headed browser, default new pages/contexts to `viewport: null` (innerWidth tracks the real window)
+ * unless the caller asked for a viewport. */
+function installHeadedViewport(browser: Browser): void {
+  const origNewPage = browser.newPage.bind(browser);
+  (browser as { newPage: unknown }).newPage = (o: Record<string, unknown> = {}) =>
+    origNewPage("viewport" in o ? o : { ...o, viewport: null });
+  const origNewContext = browser.newContext.bind(browser);
+  (browser as { newContext: unknown }).newContext = (o: Record<string, unknown> = {}) =>
+    origNewContext("viewport" in o ? o : { ...o, viewport: null });
+}
+
+/** Assemble the final engine args from all layers: persona + agent + extensions + proxy, the
+ * Privacy-Sandbox-disable default, the WebRTC leak-proof default, and the user's own args — then
+ * collapse all --enable-features/--disable-features into one each (Chromium keeps only the last). */
+function assembleArgs(
+  fpArgs: string[],
+  agArgs: string[],
+  extArgs: string[],
+  proxyArgs: string[],
+  disablePrivacySandbox: boolean | undefined,
+  webrtcIp: unknown,
+  userArgs: string[],
+  proxyForQuic?: PwProxy,
+  socks5Udp?: boolean,
+  extra?: {
+    exe?: string; headed?: boolean; quiet?: boolean; allowThirdPartyCookies?: boolean; transparentProxy?: boolean;
+    /** What {@link stockRuntimeArgs} gave this launch (computed before the warnings, which read it). */
+    stockRuntimeArgs?: string[];
+    /** What {@link runtimeBindingsArgs} gave this launch (likewise). */
+    runtimeBindingsArgs?: string[];
+    /** Set when Playwright starts this browser (launch / launchPersistentContext, not serve): the
+     * caller's ignoreDefaultArgs, `null` when they passed none. See playwrightFeatureOverrideArgs. */
+    playwrightIgnoreDefaultArgs?: string[] | boolean | null;
+    /** No proxy and the WebRTC IP is this machine's own (directStunEligible): real STUN on r54+. */
+    directStun?: boolean;
+  },
+): string[] {
+  // webBluetoothArgs: navigator.bluetooth must follow the CLAIM, in both directions. A Linux
+  // build hides it while exposing usb/serial/hid (an OS-origin tell on a Windows persona); a
+  // Windows build shows it under a LINUX claim, which genuine Chrome 154 on Linux does not. The
+  // host is never consulted; whichever switch agrees with this build's default is a no-op.
+  const base = [...fpArgs, ...agArgs, ...extArgs, ...proxyArgs, ...quicArgs(proxyForQuic, socks5Udp, extra?.exe), ...socks5UdpArgs(socks5Udp, proxyForQuic),
+    ...webBluetoothArgs(
+      fpArgs.find((a) => a.startsWith("--fingerprint-platform="))?.slice("--fingerprint-platform=".length),
+    ),
+  ];
+  // DEFAULT FLIPPED IN 0.23.0 — opt IN to disabling, rather than opt out.
+  //
+  // Disabling Topics/FLEDGE/Shared Storage/Fenced Frames is coherent for a de-Googled persona, and
+  // incoherent for the default one: `brand: "chrome"` claims Google Chrome, which ships all of
+  // them. Measured on the live audit against 150-r10, "a build claiming Chrome carries the Privacy
+  // Sandbox surface Chrome ships" failed as an implausible value — the same defect class as the
+  // WebUSB split fixed in r7. Pass disablePrivacySandbox: true when the persona really is
+  // de-Googled Chromium.
+  // Playwright disables third-party storage partitioning, which genuine Chrome never does; re-emit
+  // its list without that entry as the last --disable-features. See playwrightFeatureOverrideArgs.
+  if (extra && extra.playwrightIgnoreDefaultArgs !== undefined) {
+    base.push(...playwrightFeatureOverrideArgs(extra.playwrightIgnoreDefaultArgs ?? undefined));
+  }
+  if (disablePrivacySandbox === true) base.push(...privacySandboxArgs());
+  base.push(...webrtcDefaultDenyArgs([...base, ...userArgs], webrtcIp));
+  if (extra) {
+    base.push(...engineExtrasArgs(extra, proxyForQuic, extra.quiet));
+    // Opt-in, engine r32+: Chromium's own DevTools Runtime behaviour, only on an engine that has the switch.
+    base.push(...(extra.stockRuntimeArgs ?? []));
+    // Opt-in, engine r54+: only the bindings part of it (exposeFunction() across navigations).
+    base.push(...(extra.runtimeBindingsArgs ?? []));
+    base.push(...webrtcDirectStunArgs(extra.exe, !!extra.directStun, userArgs));
+    base.push(...gpuBlocklistArgs(!!extra.headed, process.platform, userArgs));
+    // On a Linux host, render WebGL through the backend whose limits match the CLAIMED platform
+    // (read back from the built persona switch; absent = pass-through). See gpuBackendArgs.
+    base.push(...gpuBackendArgs(
+      fpArgs.find((a) => a.startsWith("--fingerprint-platform="))?.slice("--fingerprint-platform=".length),
+      !!extra.headed, process.platform, userArgs));
+    // Engine r47+ (pro-r47-04) on a Linux host: a software WebGPU adapter that wears the persona under
+    // a Windows or macOS claim. Gated on the engine (an older one would show a raw SwiftShader
+    // adapter), and never a switch twice: Playwright's own --enable-unsafe-swiftshader counts when kept.
+    base.push(...softwareWebgpuArgs(
+      extra.exe,
+      fpArgs.find((a) => a.startsWith("--fingerprint-platform="))?.slice("--fingerprint-platform=".length),
+      process.platform,
+      [...base, ...userArgs,
+        ...(extra.playwrightIgnoreDefaultArgs !== undefined && playwrightKeepsUnsafeSwiftshader(extra.playwrightIgnoreDefaultArgs)
+          ? ["--enable-unsafe-swiftshader"] : [])]));
+    // macOS: the build is unsigned, so every launch would prompt for the "Chromium Safe Storage"
+    // keychain item. See macosKeychainArgs.
+    base.push(...macosKeychainArgs(process.platform, userArgs));
+  }
+  const merged = mergeFeatureFlags([...base, ...userArgs]);
+  // Last: drop 152 r22+ switches this engine does not implement (with a warning), wherever they came from.
+  return extra ? gateEngineSwitches(extra.exe, merged, extra.quiet).args : merged;
+}
+
+export function isWinLaunchRace(err: unknown): boolean {
+  const m = String((err as Error)?.message ?? err).toLowerCase();
+  return m.includes("spawn unknown") || m.includes("side-by-side") || m.includes("side by side");
+}
+
+/** `doLaunch(exe)`; when Windows could not start the process, first remove the temp directories
+ * Playwright made for it (they leak otherwise, see winlaunch.ts). */
+async function launchAttempt<T>(doLaunch: (exe: string) => Promise<T>, exe: string): Promise<T> {
+  const started = Date.now();
+  try {
+    return await doLaunch(exe);
+  } catch (err) {
+    if (isWinLaunchRace(err)) removeFailedLaunchDirs(err, started);
+    throw err;
+  }
+}
+
+/**
+ * Launch via `doLaunch(exePath)`, working around Windows refusing to start a cached build
+ * ("spawn UNKNOWN" / "side-by-side configuration is incorrect").
+ *
+ * Inside an MSIX-packaged app a build downloaded into %LOCALAPPDATA% is invisible to the
+ * activation-context check, so it never starts in place; real-time antivirus scanning a freshly
+ * extracted chrome_elf.dll can cause the same error for a while (see winlaunch.ts). So: (1) launch
+ * from this build's recovered copy when one exists; else (2) re-scan + back off + retry in place up
+ * to three times, removing each failed attempt's temp directories; else (3) copy the build once to
+ * `~/.clearcote/recovered/` and launch from there, which every later launch (Node or Python) reuses.
+ * Pass-through on non-Windows.
+ */
+export async function winAvRetry<T>(doLaunch: (exe: string) => Promise<T>, exe: string, backoffMs = 800): Promise<T> {
+  if (process.platform !== "win32") return doLaunch(exe);
+  const ready = recoveredExe(exe);
+  if (ready) return launchAttempt(doLaunch, ready);
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await launchAttempt(doLaunch, exe);
+    } catch (err) {
+      if (!isWinLaunchRace(err)) throw err;
+      warmFiles(dirname(exe));
+      await new Promise((resolve) => setTimeout(resolve, backoffMs * (i + 1)));
+    }
+  }
+  return launchAttempt(doLaunch, makeRecoveredCopy(exe, warmFiles));
+}
+
+/**
+ * Resolve `profile: "auto"` into a `fingerprintProfile`, in place.
+ *
+ * Host GPU/display can only be read by rendering, so this may launch the engine once with NO
+ * persona and cache the result (keyed by binary, 30 days). The nested launch passes no `profile`,
+ * so it cannot recurse.
+ *
+ * An explicit `fingerprintProfile` always wins — if the caller already named a profile, "auto"
+ * has nothing to decide and must not silently replace it.
+ */
+async function applyAutoProfile(
+  fingerprint: FingerprintOptions,
+  exe: string,
+  opts: AutoOptions,
+): Promise<void> {
+  if (fingerprint.fingerprintProfile !== undefined) return;
+  // RELEASE.version is only the SDK's PINNED default; measureHost reads the real major from the
+  // engine it launches, which is what matters when the caller pinned a version or brought their
+  // own binary.
+  // THE NESTED LAUNCH NEEDS THE LICENSE TOO, and used to be given it only by accident.
+  //
+  // measureHost launches the SAME binary the real session will use. On PRO that is the gated
+  // build: with no run-token the engine gate kills it at startup and Playwright surfaces
+  // `TargetClosedError: Target page, context or browser has been closed` — which names neither
+  // licensing nor a call the caller wrote. It only worked when the key happened to be in
+  // CLEARCOTE_LICENSE_KEY, because launch() resolves that itself; passing licenseKey as an
+  // option — the documented way — failed. opts.licenseKey is already resolved by the caller.
+  //
+  // ephemeralProfile: false — the probe reads GPU/display off about:blank and needs no profile,
+  // so it skips the create+delete a persistent launch would otherwise pay on every resolution.
+  const host = await measureHost(
+    (o) => launch({
+      ...(o as LaunchOptions),
+      licenseKey: opts.licenseKey,
+      licenseApiBase: opts.apiBase,
+      ephemeralProfile: false,
+      cloud: false, // the probe measures THIS host, whatever CLEARCOTE_CLOUD says
+      widevine: false, // reads GPU + display only: the CDM (on by default when licensed) would only cost a fetch
+    }) as unknown as Promise<{
+      newContext: () => Promise<{ newPage: () => Promise<unknown> }>;
+      version?: () => string;
+      close: () => Promise<void>;
+    }>,
+    exe,
+    Number(String(RELEASE.version).split(".")[0]),
+  );
+
+  // BACKWARDS COMPATIBILITY. The free 149 engine has no persona-profile patch, and Chromium
+  // discards unknown switches silently — so sending it a profile would leave the user with NO
+  // persona while believing they had one. Fall back to the seed path that engine does support,
+  // and say so, rather than failing or silently doing nothing.
+  if (!engineSupportsProfiles(host.browser_major)) {
+    if (fingerprint.fingerprint === undefined) {
+      // A stable per-machine seed, so this degrades to a CONSISTENT identity rather than a new
+      // one per launch — same reasoning as keyless "rotate".
+      fingerprint.fingerprint = defaultStickyKey();
+    }
+    if (!opts.quiet) {
+      process.stderr.write(
+        `[clearcote] [profile] engine ${host.browser_major} does not support imported profiles ` +
+          `(added in ${MIN_PROFILE_ENGINE_MAJOR}) — using the seed persona instead. ` +
+          `Upgrade with version: "150" (PRO) for the profile path.\n`,
+      );
+    }
+    return;
+  }
+
+  const { profile } = await resolveAuto(host, opts);
+  // The corpus never probed the Windows 11 system fonts; a Windows 11 donor gets them back.
+  fingerprint.fingerprintProfile = profileWithWindows11Faces(profile);
+  // A seed alongside a profile is the combination that fails strict scoring, and it also makes
+  // profile fields apply only partially. "auto" therefore never sets one — and says so if the
+  // caller supplied one, rather than silently doing something different from what was asked.
+  if (fingerprint.fingerprint !== undefined && !opts.quiet) {
+    process.stderr.write(
+      "[clearcote] [profile] warning: profile:\"auto\" with an explicit fingerprint seed — the " +
+        "seed engages farbling, which strict anti-bots score as tampering and which makes " +
+        "profile fields apply only partially. Drop `fingerprint` for the coherent path.\n",
+    );
+  }
+}
+
+/**
+ * Layer a saved persona's options under the caller's (`profile:` a name, path or Profile).
+ *
+ * `profile: "auto"` is NOT a saved option-set — it resolves a real captured fingerprint once the
+ * binary is known ({@link applyProfileAuto}) — so it must never reach Profile.load. Every entry
+ * point goes through here: launchPersistentContext and serve() used to load "auto" as a saved
+ * name and throw ENOENT for ~/.clearcote/profiles/auto.json, which broke the default launch().
+ */
+function mergeSavedProfile<T extends { profile?: string | Profile }>(options: T): T {
+  return options.profile && options.profile !== "auto"
+    ? { ...resolveProfileOptions(options.profile), ...options }
+    : options;
+}
+
+/**
+ * `profile: "auto"` -> resolve a REAL captured fingerprint for this host and apply it as
+ * fingerprintProfile. Deliberately does NOT set a seed: with no --fingerprint the farbling
+ * machinery stays off, which is the whole reason this path survives strict scoring.
+ * Called once `exe` is known, because both the engine's Chromium major and the host GPU
+ * measurement depend on the binary that will actually run. Pass-through (fingerprint "off") runs
+ * with NO persona, so "auto" has nothing to apply.
+ */
+async function applyProfileAuto(
+  profile: unknown,
+  fingerprint: FingerprintOptions,
+  exe: string,
+  o: { quiet?: boolean; licenseKey?: string; licenseApiBase?: string; profileSelect?: AutoOptions },
+): Promise<void> {
+  if (profile !== "auto" || isFingerprintPassthrough(fingerprint.fingerprint)) return;
+  await applyAutoProfile(fingerprint, exe, {
+    quiet: o.quiet,
+    licenseKey: resolveLicenseKey(o.licenseKey),
+    // The profile service lives on the same backend as licensing, so a caller who overrode
+    // one has overridden both; profilesource still prefers CLEARCOTE_PROFILE_API when set.
+    apiBase: o.licenseApiBase,
+    ...(o.profileSelect ?? {}),
+  });
+}
+
+/**
+ * Delete a throwaway profile directory — but only once the browser that used it has EXITED.
+ *
+ * NOT ON THE `close` EVENT. Playwright emits it when the browser's pipe drops, which on Linux is
+ * ~100 ms BEFORE the browser process exits, and Chrome keeps writing the profile until then. Deleting
+ * it at that point either fails (ENOTEMPTY: 28 of 30 traced launches) or succeeds and Chrome writes
+ * the directory back — Default/, Local State, first_party_sets.db — after the cleanup has marked
+ * itself done, so nothing retries. That left a clearcote-run-* directory in /tmp on the 0.36.0 release
+ * smoke run. It also deleted the SingletonSocket link Chrome uses to find its own socket directory,
+ * which then leaked as an org.chromium.Chromium.* directory.
+ *
+ * So no trigger deletes a profile under a live browser:
+ *  - close(): Playwright resolves it only after the browser process has exited, so the directory is
+ *    removed right then — and is gone by the time the caller's `await close()` returns;
+ *  - `close` with no close() call (the browser crashed, or its last window was closed): wait for the
+ *    browser's process to exit first (its pid is in the profile, see browserProcessFiles);
+ *  - process exit: Playwright's own exit handler, registered at launch and so run before this one, has
+ *    killed the browser by then.
+ *
+ * THE RETRY IS NOT DEFENSIVE PADDING — on Windows the browser can still hold handles under the
+ * profile for a moment, so the first removal throws EBUSY/EPERM (measured on the Python port: the
+ * directory survived a close plus a 1.5 s wait).
+ */
+function installEphemeralProfileCleanup(context: BrowserContext, userDataDir: string): void {
+  const browser = browserProcessFiles(userDataDir);
+  let done = false;
+  const onExit = () => { if (!done) removeProfileDirSync(userDataDir, browser.socketDir); };
+  let removing: Promise<void> | null = null;
+  const removeAfterExit = (): Promise<void> => (removing ??= (async () => {
+    if (await waitForProcessExit(browser.pid)) done = await removeProfileDir(userDataDir, browser.socketDir);
+    if (done) process.off("exit", onExit); // one hook per launch would otherwise pile up for the process's life
+    else removing = null; // still running, or out of retries: a later trigger tries again
+  })());
+  let closing = false;
+  const close = context.close.bind(context);
+  context.close = async (...args: Parameters<BrowserContext["close"]>) => {
+    closing = true;
+    try {
+      return await close(...args);
+    } finally {
+      await removeAfterExit();
+    }
+  };
+  context.on("close", () => { if (!closing) void removeAfterExit(); });
+  process.once("exit", onExit);
+}
+
+/**
+ * The browser's pid and its singleton-socket directory, read from the symlinks Chrome keeps in its
+ * profile on Linux and macOS while it runs: SingletonLock -> "<hostname>-<pid>" and SingletonSocket ->
+ * "<tmp>/org.chromium.Chromium.XXXXXX/SingletonSocket". Read right after launch, while both exist.
+ * Windows has neither: nothing to wait for, and there its file locks make an early delete fail rather
+ * than succeed.
+ */
+function browserProcessFiles(userDataDir: string): { pid: number | null; socketDir: string | null } {
+  let pid: number | null = null;
+  let socketDir: string | null = null;
+  try {
+    const n = Number(readlinkSync(join(userDataDir, "SingletonLock")).split("-").pop());
+    if (Number.isInteger(n) && n > 0) pid = n;
+  } catch { /* no lock: nothing to wait for */ }
+  try {
+    const dir = dirname(readlinkSync(join(userDataDir, "SingletonSocket")));
+    // Only ever Chrome's own temp directory: the path comes out of a file, so never delete just anything.
+    if (/^(org\.chromium\.Chromium|com\.google\.Chrome)\./.test(basename(dir))) socketDir = dir;
+  } catch { /* no socket */ }
+  return { pid, socketDir };
+}
+
+/** Wait for a process to exit: true once it has (or when there is no pid), false if still running at the deadline. */
+async function waitForProcessExit(pid: number | null, timeoutMs = 10_000): Promise<boolean> {
+  if (pid === null) return true;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ESRCH") return true; // EPERM: alive, someone else's
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/**
+ * Remove a profile directory (and the browser's socket dir), retrying while the browser still holds
+ * handles (see above). A null profile: only the socket dir, for a profile that is the caller's.
+ */
+async function removeProfileDir(userDataDir: string | null, socketDir: string | null = null): Promise<boolean> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      if (socketDir) rmSync(socketDir, { recursive: true, force: true });
+      if (userDataDir) rmSync(userDataDir, { recursive: true, force: true });
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, 250 * (attempt + 1))); // 0.25→1.5s, ~5s total
+    }
+  }
+  return false;
+}
+
+/**
+ * removeProfileDir for process exit. Synchronous: an exit handler cannot await, and an unresolved
+ * promise at exit removes nothing. It retries all the same: on Windows the killed browser's handles
+ * outlive it for a moment, and a single attempt left the profile behind (1 of 3 exits with the browser
+ * open on 0.36.0).
+ */
+function removeProfileDirSync(userDataDir: string | null, socketDir: string | null): void {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      if (socketDir) rmSync(socketDir, { recursive: true, force: true });
+      if (userDataDir) rmSync(userDataDir, { recursive: true, force: true });
+      return;
+    } catch {
+      Atomics.wait(pause, 0, 0, 50 * (attempt + 1)); // 50→400 ms, ~1.8 s at most
+    }
+  }
+}
+
+/**
+ * Stop a browser serve() started, and wait for it to exit: SIGTERM (on Windows, TerminateProcess),
+ * then SIGKILL once `graceMs` has passed. True once it has exited.
+ */
+async function stopServedBrowser(proc: ChildProcess, graceMs: number): Promise<boolean> {
+  const exited = () => proc.exitCode !== null || proc.signalCode !== null;
+  const waitForExit = (ms: number) => new Promise<boolean>((resolve) => {
+    if (exited()) return resolve(true);
+    const onExit = () => { clearTimeout(timer); resolve(true); };
+    const timer = setTimeout(() => { proc.off("exit", onExit); resolve(exited()); }, ms);
+    proc.once("exit", onExit);
+  });
+  if (exited()) return true;
+  try { proc.kill("SIGTERM"); } catch { /* gone */ }
+  if (await waitForExit(graceMs)) return true;
+  try { proc.kill("SIGKILL"); } catch { /* gone */ }
+  return waitForExit(5_000);
+}
+
+/**
+ * stopServedBrowser for process exit, where nothing can be awaited. Nor can the child's exit be seen
+ * the usual way: the event loop reaps exited children, and it no longer runs, so an exited browser
+ * stays a zombie that signal 0 still finds. Linux reads its state from /proc, macOS asks ps.
+ */
+function stopServedBrowserSync(proc: ChildProcess, graceMs: number): boolean {
+  const pid = proc.pid;
+  if (pid === undefined || proc.exitCode !== null || proc.signalCode !== null) return true;
+  const gone = (): boolean => {
+    try {
+      process.kill(pid, 0); // on Windows this asks whether the process is still active
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === "ESRCH";
+    }
+    if (process.platform === "win32") return false;
+    if (process.platform === "linux") {
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, "utf8"); // "<pid> (<name>) <state> ..."
+        return stat[stat.lastIndexOf(")") + 2] === "Z";
+      } catch {
+        return true;
+      }
+    }
+    // ps prints the state, Z for a zombie, and nothing once the pid is gone.
+    const ps = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+    if (ps.error) return false;
+    const state = (ps.stdout ?? "").trim();
+    return state === "" || state.startsWith("Z");
+  };
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  const waitForExit = (ms: number) => {
+    for (const deadline = Date.now() + ms; ;) {
+      if (gone()) return true;
+      if (Date.now() >= deadline) return false;
+      Atomics.wait(pause, 0, 0, 25);
+    }
+  };
+  try { proc.kill("SIGTERM"); } catch { /* gone */ }
+  if (waitForExit(graceMs)) return true;
+  try { proc.kill("SIGKILL"); } catch { /* gone */ }
+  return waitForExit(2_000);
+}
+
+/**
+ * A persistent context on a fresh temp profile the caller never named, so never sees again: it is
+ * removed when the context closes and at process exit — and at once when the launch fails, which
+ * used to leak one directory per failed launch.
+ */
+async function launchOnThrowawayProfile(prefix: string, options: PersistentContextOptions): Promise<BrowserContext> {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  let context: BrowserContext;
+  try {
+    // cloud: false — the caller already chose a local launch; CLEARCOTE_CLOUD must not re-route it.
+    context = await launchPersistentContext(dir, { ...options, cloud: false });
+  } catch (e) {
+    await removeProfileDir(dir);
+    throw e;
+  }
+  installEphemeralProfileCleanup(context, dir);
+  return context;
+}
+
+/**
+ * Make a persistent BrowserContext satisfy code written against launch()'s Browser.
+ *
+ * `newContext()` returns THE PERSISTENT CONTEXT ITSELF rather than a fresh incognito one. That is
+ * deliberate: a real incognito context would silently leave the profile behind — taking the
+ * Widevine CDM and the component-updated state with it — handing back exactly the browser this
+ * change exists to stop producing. Two calls returning the same context is a visible, documented
+ * compromise; quietly returning a profile-less browser is not.
+ */
+function asBrowserLike(context: BrowserContext): Browser {
+  const c = context as BrowserContext & { newContext?: unknown; contexts?: unknown };
+  if (c.newContext === undefined) c.newContext = async () => context;
+  if (c.contexts === undefined) c.contexts = () => [context];
+  return context as unknown as Browser;
+}
+
+/**
+ * Launch Clearcote and return a Playwright browser handle backed by a REAL Chrome profile.
+ *
+ * PROFILE-BACKED BY DEFAULT (changed in 0.23.0). This used to be `chromium.launch()` — incognito,
+ * no profile directory. Incognito cannot load a component-updated CDM, so
+ * `requestMediaKeySystemAccess('com.widevine.alpha')` rejected and the EME surface was a
+ * no-Widevine tell on a build branded Google Chrome (measured against the live audit on 150-r10).
+ * It now launches a persistent context on a throwaway directory, so `widevine: true` works here.
+ *
+ * The directory is deleted when the context closes AND on process exit, so nothing is left behind
+ * and no state survives to the next launch — the incognito-like isolation callers relied on is
+ * preserved. Pass `userDataDir` to keep a profile, or `ephemeralProfile: false` to opt back out.
+ */
+/**
+ * Start a browser; if it fails to start, release the lease before re-throwing. On a per-browser plan
+ * (the free tier) the slot would otherwise stay taken until the lease TTL. Exported for tests.
+ *
+ * `launchToken` (the launch's run-token file) goes too: a paid lease is shared, so its stop() only drops
+ * a reference, and the file stayed in the temp directory until the process exited.
+ */
+export async function releaseLeaseOnFailure<T>(
+  lease: LeaseSession | null, start: () => Promise<T>, launchToken?: { release(): void } | null,
+): Promise<T> {
+  try {
+    return await start();
+  } catch (e) {
+    try { await lease?.stop(); } catch { /* ignore: the original failure is what matters */ }
+    launchToken?.release();
+    throw e;
+  }
+}
+
+/**
+ * A browser the caller named must exist. Handed a missing one, Playwright fails only after creating
+ * temp directories it then leaves behind (playwright-artifacts-*, playwright_chromiumdev_profile-*),
+ * and a licensed launch would have taken a lease first. Same message as the .NET SDK.
+ */
+function requireBinary(path: string): void {
+  if (!existsSync(path)) {
+    throw new Error(`Clearcote binary not found at '${path}'. Set executablePath / CLEARCOTE_BINARY, or let the SDK auto-download it.`);
+  }
+}
+
+/**
+ * Start a browser; if the PRO engine refuses the run-token as older than one it has already accepted on
+ * this machine ("older than the last one accepted"), mint a fresh token and start once more.
+ *
+ * acquireLease() already replaces a token it can SEE is older than the engine's mark. This covers the race
+ * it cannot see: another process (a parallel launch, the hosted-browser gateway, another key) moving the
+ * mark between that check and this launch. `start` must build its env from `lease.token` each time it is
+ * called; the bound token file follows the lease by itself. Playwright's launch error carries the engine's
+ * stderr, which is where the refusal lands. Exported for tests.
+ */
+export async function retryOnStaleRunToken<T>(lease: LeaseSession | null, start: () => Promise<T>): Promise<T> {
+  try {
+    return await start();
+  } catch (e) {
+    const refused = String((e as Error)?.message ?? e).includes(STALE_TOKEN_REFUSAL);
+    if (!lease?.refreshToken || !refused || !(await lease.refreshToken())) throw e;
+    return await start();
+  }
+}
+
+/**
+ * LOCAL OR CLOUD. `cloud: true` runs the browser on Clearcote's servers instead and resolves to the
+ * same Playwright `Browser`, connected over CDP, with `humanize` applied here exactly as for a local
+ * browser. `cloud` unset follows CLEARCOTE_CLOUD=1|true|yes. The API key comes from `apiKey` or
+ * CLEARCOTE_API_KEY; the cloud options are {@link CloudLaunchOptions}, and an option a cloud browser
+ * cannot take (executablePath, args, userDataDir, ...) throws naming it. `close()` disconnects and
+ * ends the session.
+ *
+ * MACOS. On an Apple Silicon Mac, launch() runs a native macOS build (a `Chromium.app` bundle,
+ * downloaded and verified like the other platforms): the PRO build with a licence key, and without one the
+ * open macOS build this SDK pins (Chromium 150, v0.1.0-pre.24, a major behind the open Windows and Linux
+ * builds). Its fonts and canvas text metrics stay host-native, so only `platform: "macos"` (the default
+ * there) is coherent; another platform without a `fingerprintProfile` captured on that OS warns. On an
+ * Intel Mac, launch() starts the Clearcote Docker image instead
+ * (teamflatearth/clearcote:sdk-<version>; `dockerImage` or CLEARCOTE_DOCKER_IMAGE picks another) and
+ * resolves to the same Playwright `Browser`, connected to it over CDP; `close()` stops the container.
+ * The persona options, `headless`, `proxy`, `args`, `version` and the licence key go to the container;
+ * an option it cannot take throws naming it. Docker must be installed and running
+ * ({@link DockerUnavailableError} says so otherwise). `docker: true` (or CLEARCOTE_DOCKER=1) uses the
+ * container on any OS, an Apple Silicon Mac included; `docker: false` (or CLEARCOTE_DOCKER=0) never does.
+ */
+export async function launch(options: LaunchOptions | CloudLaunchOptions = {}): Promise<Browser> {
+  if (cloudRequested((options as CloudSwitchOption).cloud)) {
+    return (await launchCloud(options as Record<string, unknown>)) as Browser;
+  }
+  const { docker, dockerImage, ...notDocker } = options as LaunchOptions;
+  if (dockerRequested(docker, notDocker as Record<string, unknown>)) {
+    // macOS without the native PRO build: the Clearcote Docker image, connected over CDP
+    return launchDocker({ ...(withoutCloudOptions(notDocker) as Record<string, unknown>), dockerImage });
+  }
+  options = notDocker;
+  // ephemeralProfile: false restores the pre-0.23 incognito launch. Kept because the persistent
+  // path costs a directory create+delete per launch, which a caller spawning hundreds of
+  // short-lived browsers may reasonably not want to pay for a CDM they never touch.
+  const { ephemeralProfile, userDataDir, ...restOpts } = withoutCloudOptions(options as LaunchOptions) as LaunchOptions & {
+    ephemeralProfile?: boolean;
+    userDataDir?: string;
+  };
+  if (userDataDir !== undefined) {
+    return asBrowserLike(await launchPersistentContext(userDataDir, { ...(restOpts as PersistentContextOptions), cloud: false }));
+  }
+  if (ephemeralProfile !== false) {
+    return asBrowserLike(await launchOnThrowawayProfile("clearcote-run-", restOpts as PersistentContextOptions));
+  }
+  return launchIncognito(restOpts as LaunchOptions);
+}
+
+/** The pre-0.23 incognito launch, reached via `ephemeralProfile: false`. */
+async function launchIncognito(options: LaunchOptions = {}): Promise<Browser> {
+  if (options.httpCacheDir !== undefined && options.httpCacheDir !== null) throw new TypeError(HTTP_CACHE_NEEDS_PROFILE);
+  // profile= a saved persona: its options are the base, explicit options override. ("auto" is
+  // resolved later, once the executable is known.)
+  const merged = mergeSavedProfile(options);
+  const { profile, profileSelect, extensions, portableProfile, shaderDialect, personaEnv, fontDirs, socks5Udp: socks5UdpOpt, encryptionKey, disablePrivacySandbox, executablePath: exeOption, args, geoip, humanize, showCursor, autoUpdate, cacheDir, quiet, widevine, crlset, crlsetTimeout, version, licenseKey, licenseApiBase, licenseThroughProxy, offlineKey, releaseChannel, allowThirdPartyCookies, transparentProxy, stockRuntime, runtimeBindings, ...rest } = merged;
+  // incognito has no profile to seed a CRLSet into (see ./crlset.ts): drop the options, warn if asked for
+  if (crlset !== undefined && crlset !== null && crlset !== false) {
+    process.stderr.write("clearcote: crlset: ephemeralProfile: false has no profile to seed a CRLSet into; launching without one\n");
+  }
+  void crlsetTimeout;
+  resolveHumanize(humanize); // true | "strict" | HumanizeOptions: an unknown option throws before anything starts
+  const { fingerprint, rest: afterFp } = splitFingerprintOptions(rest);
+  const { agent, rest: pwOptions } = splitAgentOptions(afterFp);
+  const fontDirList = checkFontDirs(fontDirs);  // Linux fontconfig dirs: a typo throws before the lease
+  const proxyOpt = (pwOptions as PlaywrightLaunchOptions).proxy;  // captured before resolveProxy drops it
+  // geoip is on by default: the proxy's exit, or this machine's own IP without a proxy (./geoip.ts)
+  // Relay UDP: a proxy that refuses UDP ASSOCIATE gets no relay (udpRelayOrFallback), asked before geoip so a
+  // sticky session is already on its UDP-capable exit when geoip looks the exit up.
+  const socks5Udp = await udpRelayOrFallback((pwOptions as PlaywrightLaunchOptions).proxy as PwProxy | undefined, socks5UdpOpt, quiet);
+  const geoApplied = await applyGeoipMode(fingerprint, (pwOptions as PlaywrightLaunchOptions).proxy, geoipMode(geoip), quiet);
+  const geo = geoApplied.geo;
+  // A rotating proxy changes the exit per connection; checked alongside the launch, awaited at the end.
+  const egressDrift = startEgressDriftCheck((pwOptions as PlaywrightLaunchOptions).proxy as PwProxy | undefined, geo?.ip ?? undefined, quiet);
+  // The binary is resolved before the proxy route is chosen: http(s) credentials go to the
+  // engine's --proxy-auth only when THIS engine implements it (r19+); older engines keep
+  // Playwright's handling, which authenticates (routing blindly would leave every request at 407).
+  requireOfflineBinary(offlineKey, exeOption);  // offline mode never downloads (./offline.ts)
+  const offline = !!offlineKeyPath(offlineKey);
+  // Offline: no PRO selection (it would ask the server which build to fetch), and nothing that downloads.
+  const pro = offline ? undefined : proSelector(licenseKey, licenseApiBase);
+  const exe = await executablePath(offline ? { executablePath: exeOption, quiet } : { executablePath: exeOption, version, autoUpdate, cacheDir, quiet, releaseChannel, pro });  // capability-gated proxy route
+  ensureRunnableHere(exe);
+  dropAutoWebrtcIp(fingerprint, geoApplied, proxyOpt, !!pro || offline);  // open build + proxy: no default WebRTC IP
+  // Before the warnings below, so they judge the persona that will actually run (as in Python).
+  await applyProfileAuto(profile, fingerprint, exe, { quiet, licenseKey, licenseApiBase, profileSelect });
+  // Widevine: on by default for a licensed launch (`pro`: the key that selects the PRO build, which claims
+  // the Google Chrome brand) on an engine with --widevine-cdm-path, which loads the CDM without a profile;
+  // opt-in for a free one. Bounded + fail-soft by default (see ./widevine.ts).
+  const widevineCdm = await widevineLaunchArgs(exe, widevine, !!pro, args, { quiet });
+  // SOCKS5-with-credentials must go through --proxy-server (Playwright rejects it); drop it from PW.
+  const { args: proxyArgs, proxy } = resolveProxy(await relayProxyByIp((pwOptions as PlaywrightLaunchOptions).proxy as PwProxy | undefined, socks5Udp, quiet), engineSupportsSwitch(exe, "proxy-auth"));
+  warnUnsupportedEngineOptions(exe, fingerprint as Record<string, unknown>, proxyOpt as PwProxy | undefined, quiet);
+  // Credentials moved to the engine: Playwright's request API gets a local credential-less forwarder
+  // instead of no proxy at all, which sent it from this machine's IP (./reqproxy.ts).
+  const reqRoute = proxy === undefined ? await routeRequestApi(proxyOpt as PwProxy | undefined, proxyArgs, quiet) : null;
+  // proxy unchanged unless it was rerouted to --proxy-server (drop it from Playwright) or its URL
+  // carried the credentials (hand Playwright the fields it reads)
+  if (reqRoute) (pwOptions as PlaywrightLaunchOptions).proxy = reqRoute.proxy.playwrightProxy as PlaywrightLaunchOptions["proxy"];
+  else if (proxy === undefined) delete (pwOptions as Record<string, unknown>).proxy;
+  else (pwOptions as PlaywrightLaunchOptions).proxy = proxy as PlaywrightLaunchOptions["proxy"];
+  if (reqRoute) proxyArgs.push(...reqRoute.args);
+  const stockArgs = stockRuntimeArgs(exe, stockRuntime, args ?? [], quiet);  // engine r32+, opt-in
+  const bindArgs = runtimeBindingsArgs(exe, runtimeBindings, [...stockArgs, ...(args ?? [])], quiet);  // engine r54+, opt-in
+  emitCoherenceWarnings(
+    { ...fingerprint, proxy: proxyOpt, geoip, headless: (pwOptions as PlaywrightLaunchOptions).headless,
+      devtools: (pwOptions as Record<string, unknown>).devtools, userAgent: (pwOptions as Record<string, unknown>).userAgent,
+      _userArgs: args ?? [], _stockRuntime: stockRuntimeOn(exe, [...stockArgs, ...(args ?? [])]),
+      _runtimeBindings: runtimeBindingsOn(exe, [...bindArgs, ...(args ?? [])]) },
+    quiet, process.platform, String(RELEASE.version).split(".")[0]);
+  const headed = (pwOptions as PlaywrightLaunchOptions).headless === false;
+  // License (opt-in): check out a concurrency slot and inject CLEARCOTE_RUN_TOKEN so the PRO
+  // engine gate lets the browser launch. Inert (null) in free mode / when no key is set.
+  const lease = await acquireLease({
+    licenseKey, licenseApiBase, offlineKey, quiet, sdkVersion: SDK_VERSION, licenseThroughProxy, proxy: proxyOpt as PwProxy | undefined,
+    // resolved lazily on cold checkout only (never per launch); telemetry, never gates the lease
+    engineVersion: () => resolvedEngineVersion(version, !!resolveLicenseKey(licenseKey)),
+  });
+  const engineArgs = assembleArgs(fingerprintArgs(fingerprint), agentArgs(agent), [...extensionArgs(extensions), ...portableArgs(portableProfile, encryptionKey)], proxyArgs, disablePrivacySandbox, fingerprint.webrtcIp, args ?? [], proxyOpt as PwProxy | undefined, socks5Udp,
+    { exe, headed, quiet, allowThirdPartyCookies, transparentProxy, stockRuntimeArgs: stockArgs, runtimeBindingsArgs: bindArgs, directStun: directStunEligible(fingerprint, geoApplied, proxyOpt),
+      playwrightIgnoreDefaultArgs: ((pwOptions as PlaywrightLaunchOptions).ignoreDefaultArgs as string[] | boolean | undefined) ?? null });
+  // On Linux, point FONTCONFIG_FILE at the bundled metric-compatible clones (Segoe UI, Arial, …)
+  // and LANGUAGE at the persona's UI locale (after engineArgs: it reads their --lang).
+  const launchEnv = withShaderDialect(shaderDialect, fontLaunchEnv(exe, (pwOptions as PlaywrightLaunchOptions).env, engineArgs, fontDirList), engineArgs);
+  const launchToken = lease?.bindLaunch();
+  // A function: a launch retried after a stale-token refusal must carry the lease's fresh token.
+  const runtimeEnv = () => (lease ? withRunToken(lease.token, launchEnv, launchToken?.file) : launchEnv);
+  // Headless: screen.* has to be handled alongside the viewport or the window reports a geometry no
+  // real browser can (see ./geometry.ts). Probe a copy — viewport is a context option, which
+  // chromium.launch() does not take — and carry the result to newPage/newContext. The display
+  // switches go on the command line; the fit keeps reading the caller's own engineArgs.
+  const geom = headed
+    ? null
+    : applyHeadlessGeometry({ ...(pwOptions as Record<string, unknown>) }, fingerprint.fingerprint, engineArgs, fingerprint, exe);
+  const launchArgs = [...engineArgs, ...(geom?.args ?? []), ...widevineCdm];
+  // r51+: the signed persona token, fetched once before the launch; every attempt's env carries it.
+  const personaLaunch = await preparePersonaLaunch(exe, launchArgs, lease, licenseThroughProxy ? proxyOpt : undefined, { env: runtimeEnv() });
+  const browser = await releaseLeaseOnFailure(lease, () => retryOnStaleRunToken(lease, () => winAvRetry((exePath) => {
+    // Last step on both: on a 1021 engine the persona leaves the command line for the env (./personaenv.ts).
+    const { args: finalArgs, env } = applyPersonaEnv(exe, personaLaunch.args, personaLaunch.env(runtimeEnv()), personaEnv);
+    return chromium.launch({
+      // Drop Playwright's --enable-automation (keeps AutomationControlled off), --enable-unsafe-swiftshader
+      // (see DEFAULT_IGNORED_ARGS; paired with --ignore-gpu-blocklist in assembleArgs) and the headless
+      // --hide-scrollbars and --disable-popup-blocking. Caller can override via ignoreDefaultArgs.
+      ignoreDefaultArgs: [...DEFAULT_IGNORED_ARGS],
+      ...(pwOptions as PlaywrightLaunchOptions),
+      executablePath: exePath,
+      ...(env ? { env } : {}),
+      args: finalArgs,
+    });
+  }, exe)), launchToken).catch(closeOnFailure(reqRoute));
+  if (reqRoute) browser.on("disconnected", () => { void reqRoute.proxy.close(); });
+  // Release the concurrency slot + remove the run-token file when the browser closes.
+  if (lease) browser.on("disconnected", () => { void lease.stop(); launchToken?.release(); });
+  if (headed && headedLinuxFit(engineArgs, process.platform, exe)) {
+    // Headed Linux with no window manager (Xvfb: every Docker/VPS headful run) leaves Chrome's
+    // 945x1060 default window at (10,10); the same first-page fit as headless maximizes it (SC 180).
+    installHeadlessGeometry(browser, engineArgs);
+  } else if (headed) installHeadedViewport(browser); // launch() takes no viewport option -> wrap newPage/newContext
+  else if (geom) installHeadlessGeometry(browser, engineArgs, geom);
+  // r32+: the persona's colour scheme reaches the page instead of Playwright's emulated light.
+  if (engineDecidesColorScheme(exe)) installColorSchemeDefault(browser);
+  installHumanize(browser, { humanize, showCursor, seed: fingerprint.fingerprint }); // seed => stable motor persona
+  await egressDrift;
+  return browser;
+}
+
+/** Options of a cloud {@link launchPersistentContext}: a cloud launch on a named cloud profile. */
+export interface CloudPersistentOptions extends Omit<CloudLaunchOptions, "profile"> {
+  /** The cloud profile whose cookies the session loads and saves back when the context closes. */
+  profile: CloudProfile;
+}
+
+/**
+ * Launch Clearcote with a persistent profile directory and return a Playwright
+ * {@link BrowserContext} (cookies, storage, etc. persist in `userDataDir`).
+ *
+ * CLOUD: `launchPersistentContext({ cloud: true, profile: "name" })` resolves to the context of a
+ * hosted session that loads the cloud profile `name` and saves it back when the context closes
+ * (which also ends the session). A cloud browser has no local directory: a `userDataDir` with
+ * `cloud: true` throws, pointing at `profile`.
+ */
+export async function launchPersistentContext(options: CloudPersistentOptions): Promise<BrowserContext>;
+export async function launchPersistentContext(userDataDir: string, options?: PersistentContextOptions): Promise<BrowserContext>;
+export async function launchPersistentContext(
+  dirOrOptions: string | CloudPersistentOptions | null | undefined,
+  maybeOptions: PersistentContextOptions = {},
+): Promise<BrowserContext> {
+  const optionsFirst = dirOrOptions !== null && typeof dirOrOptions === "object";
+  const options = (optionsFirst ? dirOrOptions : maybeOptions) as PersistentContextOptions;
+  const userDataDir = optionsFirst ? undefined : (dirOrOptions as string | null | undefined);
+  if (cloudRequested(options.cloud)) {
+    return (await launchCloud(options as Record<string, unknown>, true, userDataDir)) as BrowserContext;
+  }
+  if (typeof userDataDir !== "string") {
+    throw new TypeError('launchPersistentContext() needs a userDataDir (or { cloud: true, profile: "name" } for a cloud profile)');
+  }
+  return launchLocalPersistentContext(userDataDir, withoutCloudOptions(options));
+}
+
+async function launchLocalPersistentContext(
+  userDataDir: string,
+  options: PersistentContextOptions = {}
+): Promise<BrowserContext> {
+  const cache = withHttpCache(options);
+  let context: BrowserContext;
+  try {
+    context = await launchLocalPersistentContextNow(userDataDir, cache.options);
+  } catch (e) {
+    cache.release();
+    throw e;
+  }
+  context.once("close", cache.release);
+  return context;
+}
+
+async function launchLocalPersistentContextNow(
+  userDataDir: string,
+  options: PersistentContextOptions = {}
+): Promise<BrowserContext> {
+  const merged = mergeSavedProfile(options);
+  const { profile, profileSelect, extensions, portableProfile, shaderDialect, personaEnv, fontDirs, socks5Udp: socks5UdpOpt, encryptionKey, disablePrivacySandbox, executablePath: exeOption, args, geoip, humanize, showCursor, autoUpdate, cacheDir, quiet, widevine, crlset, crlsetTimeout, version, licenseKey, licenseApiBase, licenseThroughProxy, offlineKey, releaseChannel, allowThirdPartyCookies, transparentProxy, stockRuntime, runtimeBindings, ...rest } = merged;
+  resolveHumanize(humanize); // true | "strict" | HumanizeOptions: an unknown option throws before anything starts
+  const { fingerprint, rest: afterFp } = splitFingerprintOptions(rest);
+  const { agent, rest: pwOptions } = splitAgentOptions(afterFp);
+  const fontDirList = checkFontDirs(fontDirs);  // Linux fontconfig dirs: a typo throws before the lease
+  const proxyOpt = (pwOptions as PlaywrightLaunchOptions).proxy;  // captured before resolveProxy drops it
+  // geoip is on by default: the proxy's exit, or this machine's own IP without a proxy (./geoip.ts)
+  // Relay UDP: a proxy that refuses UDP ASSOCIATE gets no relay (udpRelayOrFallback), asked before geoip so a
+  // sticky session is already on its UDP-capable exit when geoip looks the exit up.
+  const socks5Udp = await udpRelayOrFallback((pwOptions as PlaywrightLaunchOptions).proxy as PwProxy | undefined, socks5UdpOpt, quiet);
+  const geoApplied = await applyGeoipMode(fingerprint, (pwOptions as PlaywrightLaunchOptions).proxy, geoipMode(geoip), quiet);
+  const geo = geoApplied.geo;
+  // A rotating proxy changes the exit per connection; checked alongside the launch, awaited at the end.
+  const egressDrift = startEgressDriftCheck((pwOptions as PlaywrightLaunchOptions).proxy as PwProxy | undefined, geo?.ip ?? undefined, quiet);
+  requireOfflineBinary(offlineKey, exeOption);  // offline mode never downloads (./offline.ts)
+  const offline = !!offlineKeyPath(offlineKey);
+  // Offline: no PRO selection (it would ask the server which build to fetch), and nothing that downloads.
+  const pro = offline ? undefined : proSelector(licenseKey, licenseApiBase);
+  const exe = await executablePath(offline ? { executablePath: exeOption, quiet } : { executablePath: exeOption, version, autoUpdate, cacheDir, quiet, releaseChannel, pro });  // capability-gated proxy route
+  ensureRunnableHere(exe);
+  dropAutoWebrtcIp(fingerprint, geoApplied, proxyOpt, !!pro || offline);  // open build + proxy: no default WebRTC IP
+  await applyProfileAuto(profile, fingerprint, exe, { quiet, licenseKey, licenseApiBase, profileSelect });
+  const { args: proxyArgs, proxy } = resolveProxy(await relayProxyByIp((pwOptions as PlaywrightLaunchOptions).proxy as PwProxy | undefined, socks5Udp, quiet), engineSupportsSwitch(exe, "proxy-auth"));
+  warnUnsupportedEngineOptions(exe, fingerprint as Record<string, unknown>, proxyOpt as PwProxy | undefined, quiet);
+  // As launch(): the request API reaches the proxy through a local forwarder (./reqproxy.ts).
+  const reqRoute = proxy === undefined ? await routeRequestApi(proxyOpt as PwProxy | undefined, proxyArgs, quiet) : null;
+  if (reqRoute) (pwOptions as PlaywrightLaunchOptions).proxy = reqRoute.proxy.playwrightProxy as PlaywrightLaunchOptions["proxy"];
+  else if (proxy === undefined) delete (pwOptions as Record<string, unknown>).proxy;
+  else (pwOptions as PlaywrightLaunchOptions).proxy = proxy as PlaywrightLaunchOptions["proxy"];
+  if (reqRoute) proxyArgs.push(...reqRoute.args);
+  const stockArgs = stockRuntimeArgs(exe, stockRuntime, args ?? [], quiet);  // engine r32+, opt-in
+  const bindArgs = runtimeBindingsArgs(exe, runtimeBindings, [...stockArgs, ...(args ?? [])], quiet);  // engine r54+, opt-in
+  emitCoherenceWarnings(
+    { ...fingerprint, proxy: proxyOpt, geoip, headless: (pwOptions as PlaywrightLaunchOptions).headless,
+      devtools: (pwOptions as Record<string, unknown>).devtools, userAgent: (pwOptions as Record<string, unknown>).userAgent,
+      _userArgs: args ?? [], _stockRuntime: stockRuntimeOn(exe, [...stockArgs, ...(args ?? [])]),
+      _runtimeBindings: runtimeBindingsOn(exe, [...bindArgs, ...(args ?? [])]) },
+    quiet, process.platform, String(RELEASE.version).split(".")[0]);
+  const opts = pwOptions as PlaywrightLaunchOptions & BrowserContextOptions;
+  // headed + no explicit viewport -> disable the emulated viewport (impossible-window tell)
+  if (opts.headless === false && opts.viewport === undefined) opts.viewport = null;
+  // Widevine ASKED FOR (widevine: true or CLEARCOTE_WIDEVINE=1): seed the CDM into the profile +
+  // un-suppress the component updater (Playwright disables it by default) so an engine without
+  // --widevine-cdm-path registers it too. Failure -> DRM gracefully off, launch proceeds. The licensed
+  // DEFAULT only uses the switch (widevineLaunchArgs below).
+  // Default the automation strip BEFORE the Widevine helper so it appends --disable-component-update
+  // to ['--enable-automation'] rather than clobbering it (losing the strip). Caller's own wins.
+  let ignoreDefaultArgs: string[] | boolean | undefined =
+    (opts.ignoreDefaultArgs as string[] | boolean | undefined) ?? [...DEFAULT_IGNORED_ARGS];
+  let userArgs = args ?? [];
+  if (widevineMode(widevine, false) === "explicit") {
+    try {
+      await seedWidevine(userDataDir, { quiet });
+      // The --component-updater=fast-update scan is Windows-only (on Linux the hint file registers
+      // the CDM). Only warn about a user-supplied non-fast-update mode where fast-update matters.
+      const cu = userArgs.filter((a) => a.includes("component-updater"));
+      if (process.platform !== "linux" && cu.length && !cu.some((a) => a.includes("fast-update")) && !quiet) {
+        process.stderr.write("[clearcote] [widevine] note: your --component-updater mode may not register the CDM; --component-updater=fast-update is needed to scan the pre-installed component\n");
+      }
+      const tweak = widevineArgs(ignoreDefaultArgs, userArgs);
+      ignoreDefaultArgs = tweak.ignoreDefaultArgs;
+      userArgs = tweak.args;
+    } catch (e) {
+      if (!quiet) process.stderr.write(`[clearcote] [widevine] setup failed (continuing without DRM): ${String(e)}\n`);
+    }
+  }
+  // Autofill on where the profile never set it, as Chrome has it (the engine's defaults are off; ./autofillpref.ts).
+  applyAutofillPrefs(userDataDir, quiet);
+  // CRLSet: Chrome's revocation list, which the engine never downloads (see ./crlset.ts). Seeded into the
+  // profile with the component updater un-suppressed; the launch then waits until it is live.
+  const crlsetLaunch = { crlset, crlsetTimeout, ignoreDefaultArgs };
+  const crlsetPlan = await applyCrlsetLaunch(userDataDir, crlsetLaunch, quiet);
+  ignoreDefaultArgs = crlsetLaunch.ignoreDefaultArgs;
+  // A 1022 engine registers the CDM from --widevine-cdm-path in every profile; the seeding above keeps
+  // older engines working. On by default for a licensed launch (`pro`), bounded + fail-soft; asked for,
+  // best-effort as always: [] on any failure, and the launch goes on.
+  const widevineCdm = await widevineLaunchArgs(exe, widevine, !!pro, args, { quiet });
+  delete (opts as Record<string, unknown>).ignoreDefaultArgs;  // passed explicitly below
+  // A license key selects the PRO (gated) binary; no key -> the free binary (unchanged path).
+  // License (opt-in): check out a concurrency slot + inject CLEARCOTE_RUN_TOKEN. Inert in free mode.
+  const lease = await acquireLease({
+    licenseKey, licenseApiBase, offlineKey, quiet, sdkVersion: SDK_VERSION, licenseThroughProxy, proxy: proxyOpt as PwProxy | undefined,
+    // resolved lazily on cold checkout only (never per launch); telemetry, never gates the lease
+    engineVersion: () => resolvedEngineVersion(version, !!resolveLicenseKey(licenseKey)),
+  });
+  const engineArgs = assembleArgs(fingerprintArgs(fingerprint), agentArgs(agent), [...extensionArgs(extensions), ...portableArgs(portableProfile, encryptionKey)], proxyArgs, disablePrivacySandbox, fingerprint.webrtcIp, userArgs, proxyOpt as PwProxy | undefined, socks5Udp,
+    { exe, headed: opts.headless === false, quiet, allowThirdPartyCookies, transparentProxy, stockRuntimeArgs: stockArgs, runtimeBindingsArgs: bindArgs, directStun: directStunEligible(fingerprint, geoApplied, proxyOpt),
+      playwrightIgnoreDefaultArgs: ignoreDefaultArgs ?? null });
+  const ctxEnv = withShaderDialect(shaderDialect, fontLaunchEnv(exe, (opts as PlaywrightLaunchOptions).env, engineArgs, fontDirList), engineArgs);
+  const launchToken = lease?.bindLaunch();
+  // A function: a launch retried after a stale-token refusal must carry the lease's fresh token.
+  const runtimeEnv = () => (lease ? withRunToken(lease.token, ctxEnv, launchToken?.file) : ctxEnv);
+  // headless: the persona owns screen when it is running, so only the window needs fitting; with no
+  // persona the SDK sets the headless display itself (see ./geometry.ts). Headed already set
+  // viewport: null; on Linux (Xvfb/Docker headful, no window manager) it also gets the first-page
+  // window fit, which maximizes the window as headless does (SC 180).
+  const geom = opts.headless === false
+    ? null
+    : applyHeadlessGeometry(opts as unknown as Record<string, unknown>, fingerprint.fingerprint, engineArgs, fingerprint, exe);
+  const headedFit = opts.headless === false && headedLinuxFit(engineArgs, process.platform, exe);
+  const launchArgs = [...engineArgs, ...(geom?.args ?? []), ...widevineCdm];
+  // the readiness probe's port must bypass a launch proxy, so its server starts first
+  // The forwarder (reqRoute) is a proxy Playwright holds but the browser does not use: no <-loopback> to work around.
+  if (crlsetPlan) launchArgs.push(...(await crlsetPlan.beforeLaunch(reqRoute ? {} : opts as { proxy?: { bypass?: string } })));
+  let context: BrowserContext;
+  try {
+    // r51+: the signed persona token, fetched once before the launch; every attempt's env carries it.
+    const personaLaunch = await preparePersonaLaunch(exe, launchArgs, lease, licenseThroughProxy ? proxyOpt : undefined, { env: runtimeEnv() });
+    context = await releaseLeaseOnFailure(lease, () => retryOnStaleRunToken(lease, () => winAvRetry((exePath) => {
+      // Last step on both: on a 1021 engine the persona leaves the command line for the env (./personaenv.ts).
+      const { args: finalArgs, env } = applyPersonaEnv(exe, personaLaunch.args, personaLaunch.env(runtimeEnv()), personaEnv);
+      return chromium.launchPersistentContext(userDataDir, {
+        // r32+: the persona's colour scheme reaches the page instead of Playwright's emulated light.
+        ...(engineDecidesColorScheme(exe) ? defaultColorScheme(opts) : opts),
+        ignoreDefaultArgs,  // keep AutomationControlled off (+ component updater on when widevine)
+        executablePath: exePath,
+        ...(env ? { env } : {}),
+        args: finalArgs,
+      });
+    }, exe)), launchToken);
+  } catch (e) {
+    crlsetPlan?.close();
+    await reqRoute?.proxy.close().catch(() => {});
+    throw e;
+  }
+  if (reqRoute) context.on("close", () => { void reqRoute.proxy.close(); });
+  if (lease) context.on("close", () => { void lease.stop(); launchToken?.release(); });
+  if (crlsetPlan) await crlsetPlan.wait(context);  // before anything touches the first tab: it must stay idle on about:blank
+  if (geom || headedFit) await installWindowFixup(context, engineArgs, geom ?? FIT_PLAN);
+  installHumanizeOnContext(context, { humanize, showCursor, seed: fingerprint.fingerprint }); // seed => stable motor persona
+  await egressDrift;
+  return context;
+}
+
+/** Options for {@link launchAgent}: persistent-context options + an optional `userDataDir`. */
+export interface LaunchAgentOptions extends PersistentContextOptions {
+  /** Profile directory to persist (cookies/storage/logins). Defaults to a fresh temp dir that is
+   * deleted when the context closes. */
+  userDataDir?: string;
+}
+
+/**
+ * Launch Clearcote ready for the in-browser AI agent and return a Playwright {@link BrowserContext}.
+ *
+ * The agent drives Chrome's Actor framework, which only attaches to a **regular profile** — not
+ * incognito — so this uses a *persistent* context: a fresh temp `userDataDir`, deleted when the
+ * context closes, unless you pass one to keep.
+ * Set `agentLlmKey` (+ optional `agentModel`), then drive a page with {@link runAgentTask}:
+ *
+ * ```ts
+ * const ctx = await launchAgent({ agentLlmKey: process.env.OPENROUTER_API_KEY, agentModel: "openai/gpt-4o-mini" });
+ * const page = ctx.pages()[0] ?? (await ctx.newPage());
+ * await page.goto("https://example.com");
+ * const result = await runAgentTask(page, "Click the 'More information...' link.");
+ * ```
+ *
+ * Use this (or {@link launchPersistentContext}) for the agent — plain {@link launch} is incognito,
+ * where the Actor framework can't attach the tab.
+ */
+export async function launchAgent(options: LaunchAgentOptions = {}): Promise<BrowserContext> {
+  const { userDataDir, ...rest } = options;
+  // the agent drives the LOCAL engine's Actor framework: never a cloud browser
+  if (userDataDir !== undefined) return launchPersistentContext(userDataDir, { ...rest, cloud: false });
+  return launchOnThrowawayProfile("clearcote-agent-", rest);
+}
+
+/** A free ephemeral TCP port on loopback. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = createServer();
+    s.once("error", reject);
+    s.listen(0, "127.0.0.1", () => {
+      const addr = s.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      s.close(() => resolve(port));
+    });
+  });
+}
+
+export interface ServeOptions extends LaunchOptions {
+  /** CDP port (default: a free ephemeral port; pass 9222 for the conventional one). */
+  port?: number;
+  /** Bind address — keep it loopback (default 127.0.0.1) for stealth + safety. */
+  host?: string;
+  /** `--remote-allow-origins` value (default: the loopback origins only; "*" for trusted local use). */
+  allowOrigins?: string;
+  /** Persistent profile dir (default: a fresh temp dir, removed on close). */
+  userDataDir?: string;
+  /** Run headless (default true; false for a visible window). */
+  headless?: boolean;
+  /** How long to wait for the CDP endpoint to come up (ms; default 30000). */
+  readyTimeoutMs?: number;
+  /**
+   * Headless: the outer window size in CSS px, clamped to the display's work area so the window can
+   * never be larger than its screen. Default: the whole work area (a maximized window). Ignored when
+   * headed, and when `args` carries a window or display switch (the caller then owns geometry).
+   */
+  windowSize?: { width: number; height: number };
+}
+
+/**
+ * Handle for a standing clearcote CDP endpoint. Use `.cdpUrl` with any CDP client.
+ *
+ * close() WAITS FOR THE BROWSER TO EXIT, then removes what it leaves in the temp directory: the
+ * profile serve() made, and on Linux and macOS the browser's singleton-socket directory
+ * (org.chromium.Chromium.*), whichever profile it ran on. A browser stopped with a signal never
+ * removes that directory itself, and close() used to signal it and return at once: every serve() +
+ * close() left one behind, and the profile went while the browser was still writing it.
+ */
+export class Server {
+  /** Where the browser's singleton socket lives, read while it runs (see browserProcessFiles). */
+  private readonly socketDir: string | null;
+  private closing: Promise<void> | null = null;
+  private cleanedUp = false;
+  // Process exit: Node runs no async work there, so close()'s steps run synchronously.
+  private readonly onProcessExit = (): void => {
+    if (this.cleanedUp) return;
+    stopServedBrowserSync(this.proc, 5_000);
+    this.lease?.stop().catch(() => { /* best-effort */ });
+    this.launchToken?.release();
+    removeProfileDirSync(this.ownUdd ? this.userDataDir : null, this.socketDir ?? browserProcessFiles(this.userDataDir).socketDir);
+    this.cleanedUp = true;
+  };
+
+  constructor(
+    private readonly proc: ChildProcess,
+    readonly host: string,
+    readonly port: number,
+    private readonly userDataDir: string,
+    private readonly ownUdd: boolean,
+    private readonly lease?: LeaseSession | null,
+    private readonly launchToken?: { file: string; release(): void } | null,
+  ) {
+    // Now, while the browser runs: one that shuts down cleanly unlinks it from the profile.
+    this.socketDir = browserProcessFiles(userDataDir).socketDir;
+    process.once("exit", this.onProcessExit);
+  }
+  /** HTTP CDP base — pass to `connectOverCDP` / `puppeteer.connect({ browserURL })`. */
+  get cdpUrl(): string {
+    return `http://${this.host}:${this.port}`;
+  }
+  /** The browser-level WebSocket URL (for clients that want `connect({ browserWSEndpoint })`). */
+  async wsUrl(): Promise<string | undefined> {
+    try {
+      const r = await fetch(`${this.cdpUrl}/json/version`);
+      return ((await r.json()) as { webSocketDebuggerUrl?: string }).webSocketDebuggerUrl;
+    } catch {
+      return undefined;
+    }
+  }
+  /** OS process id of the browser, when running. */
+  get pid(): number | undefined {
+    return this.proc.pid;
+  }
+  isAlive(): boolean {
+    return this.proc.exitCode === null && !this.proc.killed;
+  }
+  /**
+   * Stop the browser and wait for it to exit (SIGTERM, then SIGKILL after 10 s), release the licence
+   * slot, then remove the temp profile serve() made and the browser's socket directory.
+   */
+  close(): Promise<void> {
+    return (this.closing ??= (async () => {
+      if (this.cleanedUp) return;
+      const socketDir = this.socketDir ?? browserProcessFiles(this.userDataDir).socketDir;
+      await stopServedBrowser(this.proc, 10_000);
+      // Release the concurrency slot (best-effort) + remove the run-token file.
+      try { await this.lease?.stop(); } catch { /* ignore */ }
+      this.launchToken?.release();
+      await removeProfileDir(this.ownUdd ? this.userDataDir : null, socketDir);
+      this.cleanedUp = true;
+      process.off("exit", this.onProcessExit); // one per serve() would otherwise pile up
+    })());
+  }
+}
+
+/** serve() as root on Linux needs --no-sandbox (unless the caller already passed it). */
+export function serveNeedsNoSandbox(platform: string, uid: number | undefined, args: string[]): boolean {
+  return platform === "linux" && uid === 0 && !args.includes("--no-sandbox");
+}
+
+/**
+ * The switch that keeps the engine's "unsupported command-line flag" warning bar off a served browser.
+ * Any flag on Chromium's list raises it, --no-sandbox among them (which serve adds as root on Linux),
+ * and it lands on the first tab: 56px off that tab's innerHeight, a frame (outer - inner) no other tab
+ * and no real Chrome has. launch() never shows it: Playwright starts that browser without a startup
+ * window, and passes --disable-infobars to a persistent context.
+ * - Headless: --disable-infobars, the same switch. Chromium honours it only in headless, where it
+ *   suppresses infobars and nothing else, so every headless serve gets it.
+ * - Headed: Chromium ignores --disable-infobars. The one switch that drops the warning is --test-type,
+ *   which also turns on test-harness behaviour (chrome.test in extension pages, no component
+ *   extensions with background pages, no OS integration for installed web apps), none of it visible
+ *   to a page. So only with --no-sandbox, the flag root on Linux cannot run without, and bare:
+ *   --test-type=webdriver would also waive Payment Request's user-interaction check.
+ */
+export function serveInfobarArgs(headless: boolean, args: readonly string[]): string[] {
+  const has = (sw: string) => args.some((a) => a === sw || a.startsWith(`${sw}=`));
+  if (headless) return has("--disable-infobars") ? [] : ["--disable-infobars"];
+  return has("--no-sandbox") && !has("--test-type") ? ["--test-type"] : [];
+}
+
+/**
+ * Launch Clearcote with a RAW CDP endpoint and return a {@link Server} — the drop-in-for-the-whole-
+ * ecosystem mode. Unlike {@link launch} (which spawns and *owns* a Playwright browser), `serve`
+ * leaves a standing browser any client attaches to with no code change:
+ * ```ts
+ * const srv = await serve({ fingerprint: "seed-1", platform: "windows" });
+ * const browser = await chromium.connectOverCDP(srv.cdpUrl);        // Playwright
+ * // or: await puppeteer.connect({ browserURL: srv.cdpUrl });        // Puppeteer
+ * // or: point browser-use / Crawl4AI / Stagehand at srv.cdpUrl
+ * await srv.close();
+ * ```
+ * Stays stealthy: the binary is launched **directly** (not through Playwright/Puppeteer), so the
+ * `--enable-automation` flag those frameworks add is never present and `navigator.webdriver` stays
+ * `false`; the engine's `Runtime.enable` neutralization keeps the attached CDP client undetectable
+ * to the page; the port binds to loopback with an origin allowlist; attaching over CDP adds no
+ * launch flags, so the served persona is preserved end to end.
+ */
+export async function serve(options: ServeOptions = {}): Promise<Server> {
+  const cache = withHttpCache(options);
+  let srv: Server;
+  try {
+    srv = await serveNow(cache.options);
+  } catch (e) {
+    cache.release();
+    throw e;
+  }
+  // The slot stays held until close() has stopped the browser (or this process exits).
+  const close = srv.close.bind(srv);
+  srv.close = async () => {
+    try { await close(); } finally { cache.release(); }
+  };
+  return srv;
+}
+
+async function serveNow(options: ServeOptions = {}): Promise<Server> {
+  const {
+    port,
+    host = "127.0.0.1",
+    allowOrigins,
+    userDataDir: uddOption,
+    headless = true,
+    readyTimeoutMs = 30000,
+    windowSize,
+    humanize: _humanize, // Playwright-only; not applicable to a direct launch
+    showCursor: _showCursor,
+    ...launchOpts
+  } = options;
+  if (windowSize !== undefined) {
+    const ok = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= 100 && v <= 10000;
+    if (!windowSize || !ok(windowSize.width) || !ok(windowSize.height)) {
+      throw new TypeError("clearcote serve: windowSize must be { width, height } in whole CSS px, 100-10000");
+    }
+  }
+
+  // Build the same stealth arg set as launch(), then launch the binary ourselves.
+  const merged = mergeSavedProfile(launchOpts);
+  const {
+    profile, profileSelect, extensions, portableProfile, shaderDialect, personaEnv, fontDirs, socks5Udp: socks5UdpOpt, encryptionKey, disablePrivacySandbox, executablePath: exeOption,
+    args: userArgs, geoip, autoUpdate, cacheDir, quiet, widevine, version, licenseKey, licenseApiBase, licenseThroughProxy, offlineKey, releaseChannel, allowThirdPartyCookies, transparentProxy, stockRuntime, runtimeBindings, ...rest
+  } = merged;
+  const { fingerprint, rest: afterFp } = splitFingerprintOptions(rest);
+  const { agent, rest: pwOptions } = splitAgentOptions(afterFp);
+  const fontDirList = checkFontDirs(fontDirs);  // Linux fontconfig dirs: a typo throws before the lease
+  const proxyOpt = (pwOptions as PlaywrightLaunchOptions).proxy as PwProxy | undefined;
+  // Relay UDP: a proxy that refuses UDP ASSOCIATE gets no relay (udpRelayOrFallback), asked before geoip so a
+  // sticky session is already on its UDP-capable exit when geoip looks the exit up.
+  const socks5Udp = await udpRelayOrFallback(proxyOpt as PwProxy | undefined, socks5UdpOpt, quiet);
+  const geoApplied = await applyGeoipMode(fingerprint, proxyOpt, geoipMode(geoip), quiet);  // on by default (./geoip.ts)
+  const geo = geoApplied.geo;
+  // A rotating proxy changes the exit per connection; checked alongside the launch, awaited at the end.
+  const egressDrift = startEgressDriftCheck(proxyOpt, geo?.ip ?? undefined, quiet);
+  requireOfflineBinary(offlineKey, exeOption);  // offline mode never downloads (./offline.ts)
+  const offline = !!offlineKeyPath(offlineKey);
+  // Offline: no PRO selection (it would ask the server which build to fetch), and nothing that downloads.
+  const pro = offline ? undefined : proSelector(licenseKey, licenseApiBase);
+  const exe = await executablePath(offline ? { executablePath: exeOption, quiet } : { executablePath: exeOption, version, autoUpdate, cacheDir, quiet, releaseChannel, pro });  // capability-gated proxy route
+  ensureRunnableHere(exe);
+  dropAutoWebrtcIp(fingerprint, geoApplied, proxyOpt, !!pro || offline);  // open build + proxy: no default WebRTC IP
+  await applyProfileAuto(profile, fingerprint, exe, { quiet, licenseKey, licenseApiBase, profileSelect });
+  // Widevine: as launch() (on by default for a licensed launch on an r32+ engine, opt-in otherwise).
+  const widevineCdm = await widevineLaunchArgs(exe, widevine, !!pro, userArgs, { quiet });
+  // passProxy: what is left for a plain --proxy-server once credentials went to the engine's own
+  // switches (undefined then — proxyArgs already carries --proxy-server).
+  const { args: proxyArgs, proxy: passProxy } = resolveProxy(await relayProxyByIp(proxyOpt, socks5Udp, quiet), engineSupportsSwitch(exe, "proxy-auth"));
+  // A client attached over CDP runs Playwright's request API in its own process with no proxy of its
+  // own (./reqproxy.ts): nothing here can route it, so say so.
+  if (!quiet && !process.env.CLEARCOTE_NO_WARN && requestProxyUpstream(proxyOpt, proxyArgs))
+    console.warn("clearcote: context.request / page.request of a client attached over CDP do not use this proxy and connect from the client's own IP; make API calls inside the page (page.evaluate(() => fetch(...))) instead.");
+  warnUnsupportedEngineOptions(exe, fingerprint as Record<string, unknown>, proxyOpt, quiet);
+  const stockArgs = stockRuntimeArgs(exe, stockRuntime, userArgs ?? [], quiet);  // engine r32+, opt-in
+  const bindArgs = runtimeBindingsArgs(exe, runtimeBindings, [...stockArgs, ...(userArgs ?? [])], quiet);  // engine r54+, opt-in
+  emitCoherenceWarnings(
+    { ...fingerprint, proxy: proxyOpt, geoip, headless, _userArgs: userArgs ?? [],
+      _stockRuntime: stockRuntimeOn(exe, [...stockArgs, ...(userArgs ?? [])]),
+      _runtimeBindings: runtimeBindingsOn(exe, [...bindArgs, ...(userArgs ?? [])]) },
+    quiet, process.platform, String(RELEASE.version).split(".")[0]);
+  // A license key selects the PRO (gated) binary; no key -> the free binary (unchanged path).
+  const engineArgs = assembleArgs(
+    fingerprintArgs(fingerprint), agentArgs(agent), [...extensionArgs(extensions), ...portableArgs(portableProfile, encryptionKey)],
+    proxyArgs, disablePrivacySandbox, fingerprint.webrtcIp, userArgs ?? [], proxyOpt, socks5Udp,
+    // serve launches the binary directly, so Playwright's SwiftShader default is never added; the
+    // blocklist rule still applies to a headed endpoint and on Windows.
+    { exe, headed: !headless, quiet, allowThirdPartyCookies, transparentProxy, stockRuntimeArgs: stockArgs, runtimeBindingsArgs: bindArgs,
+      directStun: directStunEligible(fingerprint, geoApplied, proxyOpt) });
+
+  const resolvedPort = port ?? (await freePort());
+  const ownUdd = !uddOption;
+  const userDataDir = uddOption ?? mkdtempSync(join(tmpdir(), "clearcote-serve-"));
+  applyAutofillPrefs(userDataDir, quiet);  // autofill on where the profile never set it (./autofillpref.ts)
+  const origins = allowOrigins ?? `http://${host}:${resolvedPort},http://localhost:${resolvedPort}`;
+  // A non-loopback bind or a "*" origin list hands the browser to whoever can reach the port.
+  emitWarnings(serveExposureWarnings(host, origins), quiet);
+  const cdpArgs = [
+    `--remote-debugging-port=${resolvedPort}`,
+    `--remote-debugging-address=${host}`,
+    `--remote-allow-origins=${origins}`,
+    `--user-data-dir=${userDataDir}`,
+  ];
+  if (headless) cdpArgs.push("--headless=new");
+  // Never the caller's raw server: it comes after proxyArgs, so a second --proxy-server would win,
+  // and one still carrying user:pass@ is rejected by Chromium's parser — every request then failed
+  // with ERR_NO_SUPPORTED_PROXIES (measured on r27).
+  if (passProxy?.server) cdpArgs.push(`--proxy-server=${passProxy.server}`);
+  // Chromium refuses to start as root without --no-sandbox, and serve spawns the binary itself, so
+  // Playwright's own --no-sandbox is missing: `clearcote serve` in a root container just timed out.
+  if (serveNeedsNoSandbox(process.platform, process.getuid?.(), engineArgs)) cdpArgs.push("--no-sandbox");
+  // ...and the warning bar that flag (or any of the caller's on Chromium's list) puts on the first tab.
+  cdpArgs.push(...serveInfobarArgs(headless, [...engineArgs, ...cdpArgs]));
+  // Headless geometry for a raw endpoint: the display and window are set browser-wide, since no
+  // client's context options or CDP overrides would reach every page (see ./geometry.ts).
+  const geometry = servedGeometry(engineArgs, fingerprint, headless, exe, windowSize);
+  if (geometry) cdpArgs.push(...geometry.args);
+  cdpArgs.push(...widevineCdm);
+
+  // License (opt-in): check out a concurrency slot + inject CLEARCOTE_RUN_TOKEN. Inert in free mode.
+  const lease = await acquireLease({
+    licenseKey, licenseApiBase, offlineKey, quiet, sdkVersion: SDK_VERSION, licenseThroughProxy, proxy: proxyOpt,
+    // resolved lazily on cold checkout only (never per launch); telemetry, never gates the lease
+    engineVersion: () => resolvedEngineVersion(version, !!resolveLicenseKey(licenseKey)),
+  });
+  const launchToken = lease?.bindLaunch();
+  const env = { ...process.env, ...(withShaderDialect(shaderDialect, fontLaunchEnv(exe, undefined, engineArgs, fontDirList), engineArgs) ?? {}), ...(lease ? { CLEARCOTE_RUN_TOKEN: lease.token, ...(launchToken ? { CLEARCOTE_RUN_TOKEN_FILE: launchToken.file } : {}) } : {}) };
+  // Launched DIRECTLY (no Playwright) => no --enable-automation => navigator.webdriver stays false.
+  // Wrap in winAvRetry so a just-extracted binary survives the Windows SxS/AV first-launch race
+  // ("spawn UNKNOWN"), same as launch(): warm + back off + retry, then recover from a fresh copy.
+  // r51+ persona token; `env` so a caller's own CLEARCOTE_RUN_TOKEN (the hosted gateway) counts as the lease.
+  const personaLaunch = await preparePersonaLaunch(exe, engineArgs, lease, licenseThroughProxy ? proxyOpt : undefined, { env });
+  const persona = applyPersonaEnv(exe, personaLaunch.args, personaLaunch.env(env), personaEnv);  // persona off the browser's argv (1021)
+  const proc = await releaseLeaseOnFailure(lease, () => winAvRetry(
+    (exePath) => new Promise<ChildProcess>((resolve, reject) => {
+      let settled = false;
+      const p = spawn(exePath, [...persona.args, ...cdpArgs], { env: persona.env, stdio: "ignore" });
+      p.once("error", (err) => { if (!settled) { settled = true; reject(err); } });
+      p.once("spawn", () => { if (!settled) { settled = true; resolve(p); } });
+    }),
+    exe,
+  ), launchToken);
+
+  const deadline = Date.now() + readyTimeoutMs;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null) break;
+    try {
+      await fetch(`http://${host}:${resolvedPort}/json/version`);
+      ready = true;
+      break;
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const srv = new Server(proc, host, resolvedPort, userDataDir, ownUdd, lease, launchToken);
+  if (!ready) {
+    await srv.close();
+    throw new Error(
+      `clearcote serve: CDP endpoint at http://${host}:${resolvedPort} did not come up within ${readyTimeoutMs}ms`);
+  }
+  // Before any client attaches: the window onto the work area (and, under a persona, the headless
+  // display onto the persona's). Its own connection, closed again; never fails the launch. A caller's
+  // own --window-position keeps its place (fit: false).
+  if (geometry?.fit) {
+    await fitServedWindow(await srv.wsUrl().catch(() => undefined),
+      { persona: geometry.persona, windowSize, native: geometry.native });
+  }
+  if (!quiet) {
+    process.stderr.write(
+      `[clearcote] CDP endpoint ready: ${srv.cdpUrl}\n` +
+      `            attach any client: connectOverCDP(${JSON.stringify(srv.cdpUrl)}) / puppeteer.connect({ browserURL })\n`);
+  }
+  await egressDrift;
+  return srv;
+}
+
+import { runAgentTask } from "./agent.js";
+
+// The SDK PACKAGE version (reported to the lease backend as sdk_version). Read from the packaged
+// package.json (present in every npm install, one level above dist/). Falls back to the engine pin
+// only if that read ever fails. Kept separate from the engine build (engine_version telemetry).
+const SDK_VERSION: string = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version as string;
+  } catch {
+    return String(RELEASE.version);
+  }
+})();
+import { listProfiles, loadProfile } from "./profile.js";
+export default {
+  launch,
+  launchPersistentContext,
+  launchAgent,
+  serve,
+  Server,
+  executablePath,
+  download,
+  runAgentTask,
+  Profile,
+  listProfiles,
+  loadProfile,
+  fetchWidevine,
+  seedWidevine,
+  fetchCrlset,
+  installCrlset,
+  Cloud,
+  verifyWebhook,
+  RELEASE,
+};

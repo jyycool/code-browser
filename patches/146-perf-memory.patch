@@ -1,0 +1,33 @@
+--- a/third_party/blink/renderer/core/timing/memory_info.cc
++++ b/third_party/blink/renderer/core/timing/memory_info.cc
+@@ -39,6 +39,8 @@
+ #include "third_party/blink/renderer/platform/wtf/math_extras.h"
+ #include "v8/include/v8.h"
+ 
++#include "components/ungoogled/persona_profile.h"
++
+ namespace blink {
+ 
+ static constexpr base::TimeDelta kTwentyMinutes = base::Minutes(20);
+@@ -51,7 +53,10 @@
+       heap_statistics.used_heap_size() + heap_statistics.external_memory();
+   info.total_js_heap_size =
+       heap_statistics.total_physical_size() + heap_statistics.external_memory();
+-  info.js_heap_size_limit = heap_statistics.heap_size_limit();
++  // clearcote: report a realistic, non-round desktop heap limit from the persona
++  // (the raw V8 value is host-RAM-derived and varies by machine; an exact power of
++  // two is itself atypical). Overridable from an imported profile.
++  info.js_heap_size_limit = ungoogled::CurrentPersona().js_heap_size_limit;
+ }
+ 
+ class HeapSizeCache {
+@@ -99,7 +104,8 @@
+ 
+     info_.used_js_heap_size = QuantizeMemorySize(info_.used_js_heap_size);
+     info_.total_js_heap_size = QuantizeMemorySize(info_.total_js_heap_size);
+-    info_.js_heap_size_limit = QuantizeMemorySize(info_.js_heap_size_limit);
++    // clearcote: leave the persona heap limit verbatim -- it is already a realistic
++    // bucket value; re-quantizing would snap it to a coarser, rounder number.
+   }
+ 
+   std::optional<base::TimeTicks> last_update_time_;

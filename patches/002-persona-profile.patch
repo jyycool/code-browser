@@ -1,0 +1,1137 @@
+--- /dev/null
++++ b/components/ungoogled/persona_profile.cc
+@@ -0,0 +1,792 @@
++// Copyright 2026 The ungoogled-chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/ungoogled/persona_profile.h"
++
++#include <array>
++#include <cstddef>
++#include <mutex>
++#include <random>
++#include <string>
++
++#include "base/base64.h"
++#include "base/command_line.h"
++#include "base/json/json_reader.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_util.h"
++#include "base/values.h"
++#include "components/ungoogled/ungoogled_switches.h"
++#include "third_party/zlib/google/compression_utils.h"
++#include <optional>
++
++namespace ungoogled {
++namespace {
++
++template <typename T>
++struct WeightedEntry {
++  T value;
++  double weight;
++};
++
++// Weighted picker over std::array<WeightedEntry<T>, N>.
++template <typename T, size_t N>
++const T& WeightedPick(std::mt19937_64& rng,
++                      const std::array<WeightedEntry<T>, N>& pool) {
++  std::array<double, N> weights;
++  for (size_t i = 0; i < N; ++i) {
++    weights[i] = pool[i].weight;
++  }
++  std::discrete_distribution<size_t> dist(weights.begin(), weights.end());
++  return pool[dist(rng)].value;
++}
++
++struct ChromeVer {
++  unsigned major;
++  const char* full;
++};
++struct ScreenSize {
++  int w;
++  int h;
++  int avail_h;  // height minus a realistic Windows taskbar
++};
++struct WebGLGPU {
++  const char* vendor;
++  const char* renderer;
++};
++
++// Chrome version pool — clearcote 150 line (mirrors fingerprint_data.h).
++constexpr std::array<WeightedEntry<ChromeVer>, 4> kChromeVersions = {{
++    {{150, "150.0.7871.114"}, 0.55},
++    {{150, "150.0.7871.115"}, 0.20},
++    {{150, "150.0.7871.100"}, 0.15},
++    {{150, "150.0.7871.46"}, 0.10},
++}};
++
++// Windows desktop resolutions (StatCounter / Steam-survey weighted). avail_h is
++// the work area = height minus the taskbar (~40px) so screen.availHeight is
++// plausible rather than == height.
++constexpr std::array<WeightedEntry<ScreenSize>, 9> kScreens = {{
++    {{1920, 1080, 1040}, 0.34},
++    {{1920, 1080, 1080}, 0.06},  // auto-hide taskbar
++    {{1366, 768, 728}, 0.15},
++    {{1536, 864, 824}, 0.12},
++    {{1440, 900, 860}, 0.05},
++    {{2560, 1440, 1400}, 0.10},
++    {{1680, 1050, 1010}, 0.04},
++    {{1600, 900, 860}, 0.04},
++    {{3840, 2160, 2120}, 0.10},
++}};
++
++// Hardware tiers: pick a tier first, then draw cores + RAM from that tier's
++// constrained pools so the (cores, RAM) pair is one a real desktop ships. Flat
++// independent sampling produces off-distribution combos (e.g. 20 cores + 16 GB,
++// 4 cores + 32 GB) that anti-detect ML flags as tampered. Weights skew toward
++// entry/mainstream (incl. the cloud-Windows-VPS shape) per Steam Hardware
++// Survey aggregates.
++struct HwTier {
++  std::array<WeightedEntry<unsigned>, 3> hc;
++  std::array<WeightedEntry<float>, 2> mem;
++};
++constexpr std::array<WeightedEntry<HwTier>, 4> kHwTiers = {{
++    // Tier 1 — entry laptop / older desktop / cloud Win VPS.
++    {{{{{4u, 0.55}, {6u, 0.20}, {8u, 0.25}}}, {{{4.0f, 0.30}, {8.0f, 0.70}}}},
++     0.62},
++    // Tier 2 — mainstream desktop / gaming laptop.
++    {{{{{8u, 0.60}, {12u, 0.25}, {16u, 0.15}}}, {{{8.0f, 0.40}, {16.0f, 0.60}}}},
++     0.30},
++    // Tier 3 — high-end gaming desktop.
++    {{{{{12u, 0.30}, {16u, 0.55}, {20u, 0.15}}},
++      {{{16.0f, 0.55}, {32.0f, 0.45}}}},
++     0.06},
++    // Tier 4 — enthusiast / workstation (rare).
++    {{{{{16u, 0.30}, {20u, 0.40}, {24u, 0.30}}},
++      {{{32.0f, 0.65}, {64.0f, 0.35}}}},
++     0.02},
++}};
++
++// Color depth: Win11 desktops are overwhelmingly 24; HDR / multi-monitor can be
++// 30/32. Keep 24 dominant so a Windows persona never reports the rare value too
++// often (which is itself a tell).
++constexpr std::array<WeightedEntry<unsigned>, 3> kColorDepths = {{
++    {24u, 0.92},
++    {30u, 0.04},
++    {32u, 0.04},
++}};
++
++// Windows consumer GPU pool (ANGLE/D3D11 strings). Index 0 (Intel UHD 770) is
++// the coherent default for the SwiftShader backend: empirically a low-end IGP
++// claim scores far lower on VM/anti-detect classifiers than claiming a discrete
++// GPU whose pixel output software rendering cannot match. NVIDIA/AMD are kept
++// for future per-seed GPU selection; every persona currently uses index 0.
++constexpr std::array<WeightedEntry<WebGLGPU>, 3> kWebGLGPUs = {{
++    {{"Google Inc. (Intel)",
++      "ANGLE (Intel, Intel(R) UHD Graphics 770 (0xA780) Direct3D11 vs_5_0 "
++      "ps_5_0, D3D11)"},
++     0.50},
++    {{"Google Inc. (NVIDIA)",
++      "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)"},
++     0.35},
++    {{"Google Inc. (AMD)",
++      "ANGLE (AMD, AMD Radeon(TM) Graphics (0x000015D8) Direct3D11 vs_5_0 "
++      "ps_5_0, D3D11)"},
++     0.15},
++}};
++
++// clearcote: Android device table. Each row is an ATOMIC, mutually-consistent
++// phone profile -- model, Android version, portrait screen + DPR, GPU IHV +
++// ANGLE-wrapped GLES renderer, and color gamut are drawn TOGETHER so no surface
++// can contradict another (e.g. a Pixel model never pairs with an Adreno string).
++// Seed-weighted: Pixel 7 0.50, Galaxy S23 0.30, Galaxy A54 0.20. All three are
++// OLED P3 (color-gamut:p3, dynamic-range:high).
++struct AndroidDevice {
++  const char* model;             // UA-CH model, e.g. "Pixel 7"
++  const char* platform_version;  // UA-CH platformVersion, e.g. "14.0.0"
++  int screen_w;                  // CSS px (portrait)
++  int screen_h;
++  double dpr;                    // devicePixelRatio
++  int max_touch;                 // navigator.maxTouchPoints
++  int hc;                        // hardwareConcurrency
++  int mem_gb;                    // deviceMemory (clamped to 8)
++  const char* gl_vendor;         // WebGL UNMASKED_VENDOR_WEBGL
++  const char* gl_renderer;       // WebGL UNMASKED_RENDERER_WEBGL (ANGLE-wrapped)
++  int gl_max_texture_size;       // GL_MAX_TEXTURE_SIZE (flagship 16384, mid 8192)
++  const char* color_gamut;       // CSS color-gamut
++};
++constexpr std::array<WeightedEntry<AndroidDevice>, 3> kAndroidDevices = {{
++    {{"Pixel 7", "14.0.0", 412, 915, 2.625, 5, 8, 8, "Google Inc. (ARM)",
++      "ANGLE (ARM, Mali-G710, OpenGL ES 3.2)", 16384, "p3"},
++     0.50},
++    {{"SM-S911B", "14.0.0", 360, 780, 3.0, 5, 8, 8, "Google Inc. (Qualcomm)",
++      "ANGLE (Qualcomm, Adreno (TM) 740, OpenGL ES 3.2)", 16384, "p3"},
++     0.30},
++    {{"SM-A546B", "14.0.0", 412, 892, 2.625, 5, 8, 8, "Google Inc. (ARM)",
++      "ANGLE (ARM, Mali-G68 MC4, OpenGL ES 3.2)", 8192, "p3"},
++     0.20},
++}};
++
++// Parse the persona seed from the existing --fingerprint switch. Numeric values
++// are used directly; non-numeric values are FNV-1a hashed to a stable uint64
++// (matching the per-site seed parse used elsewhere, and stable across builds,
++// unlike std::hash) so the browser and every renderer derive the SAME persona.
++uint64_t SeedFromCommandLine() {
++  const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++  if (!cmd || !cmd->HasSwitch(switches::kFingerprint)) {
++    return 0;
++  }
++  const std::string raw = cmd->GetSwitchValueASCII(switches::kFingerprint);
++  uint64_t parsed = 0;
++  if (base::StringToUint64(raw, &parsed)) {
++    return parsed;
++  }
++  uint64_t h = 14695981039346656037ULL;  // FNV-1a offset basis
++  for (unsigned char c : raw) {
++    h ^= c;
++    h *= 1099511628211ULL;  // FNV prime
++  }
++  return h;
++}
++
++// clearcote: when --fingerprint-profile=<gzip+base64 JSON> is set (a captured real
++// fingerprint), override the seed-derived persona fields with the imported values.
++// Absent fields keep their DerivePersona() value, so partial profiles stay coherent.
++void ApplyProfileOverride(PersonaProfile* p) {
++  const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++  if (!cmd || !cmd->HasSwitch(switches::kFingerprintProfile))
++    return;
++  std::string gz;
++  if (!base::Base64Decode(cmd->GetSwitchValueASCII(switches::kFingerprintProfile), &gz))
++    return;
++  std::string json;
++  if (!compression::GzipUncompress(gz, &json))
++    return;
++  auto parsed = base::JSONReader::ReadDict(json, base::JSON_PARSE_RFC);
++  if (!parsed)
++    return;
++  const base::DictValue& d = *parsed;
++  auto num = [](const base::DictValue& dd, const char* k) -> std::optional<double> {
++    if (auto v = dd.FindDouble(k)) return v;
++    if (auto v = dd.FindInt(k)) return static_cast<double>(*v);
++    return std::nullopt;
++  };
++  if (auto v = d.FindInt("hardware_concurrency")) p->hardware_concurrency = *v;
++  if (auto v = num(d, "device_memory")) p->device_memory_gb = static_cast<float>(*v);
++  if (const base::DictValue* s = d.FindDict("screen")) {
++    if (auto v = s->FindInt("width")) p->screen_width = *v;
++    if (auto v = s->FindInt("height")) p->screen_height = *v;
++    if (auto v = s->FindInt("avail_width")) p->avail_screen_width = *v;
++    if (auto v = s->FindInt("avail_height")) p->avail_screen_height = *v;
++    if (auto v = s->FindInt("color_depth")) p->color_depth = *v;
++    if (auto v = num(*s, "device_pixel_ratio")) p->device_pixel_ratio = *v;
++  }
++  if (const base::DictValue* w = d.FindDictByDottedPath("webgl.webgl1")) {
++    if (const base::DictValue* dbg = w->FindDict("debug")) {
++      if (const std::string* s = dbg->FindString("UNMASKED_VENDOR_WEBGL")) p->webgl_vendor = *s;
++      if (const std::string* s = dbg->FindString("UNMASKED_RENDERER_WEBGL")) p->webgl_renderer = *s;
++    }
++    if (const base::DictValue* pr = w->FindDict("parameters")) {
++      auto gi = [&](const char* k, int* dst) { if (auto v = pr->FindInt(k)) *dst = *v; };
++      gi("MAX_TEXTURE_SIZE", &p->webgl_max_texture_size);
++      gi("MAX_CUBE_MAP_TEXTURE_SIZE", &p->webgl_max_cube_map_texture_size);
++      gi("MAX_RENDERBUFFER_SIZE", &p->webgl_max_renderbuffer_size);
++      gi("MAX_VARYING_VECTORS", &p->webgl_max_varying_vectors);
++      gi("MAX_VERTEX_UNIFORM_VECTORS", &p->webgl_max_vertex_uniform_vectors);
++      gi("MAX_FRAGMENT_UNIFORM_VECTORS", &p->webgl_max_fragment_uniform_vectors);
++      gi("MAX_COMBINED_TEXTURE_IMAGE_UNITS", &p->webgl_max_combined_texture_image_units);
++    }
++  }
++  if (const base::DictValue* w2 = d.FindDictByDottedPath("webgl.webgl2")) {
++    if (const base::DictValue* pr = w2->FindDict("parameters")) {
++      auto gi = [&](const char* k, int* dst) { if (auto v = pr->FindInt(k)) *dst = *v; };
++      gi("MAX_3D_TEXTURE_SIZE", &p->webgl_max_3d_texture_size);
++      gi("MAX_ARRAY_TEXTURE_LAYERS", &p->webgl_max_array_texture_layers);
++      gi("MAX_DRAW_BUFFERS", &p->webgl_max_draw_buffers);
++      gi("MAX_COLOR_ATTACHMENTS", &p->webgl_max_color_attachments);
++      gi("MAX_SAMPLES", &p->webgl_max_samples);
++      gi("MAX_VERTEX_UNIFORM_BLOCKS", &p->webgl_max_vertex_uniform_blocks);
++      gi("MAX_FRAGMENT_UNIFORM_BLOCKS", &p->webgl_max_fragment_uniform_blocks);
++      gi("MAX_COMBINED_UNIFORM_BLOCKS", &p->webgl_max_combined_uniform_blocks);
++      gi("MAX_UNIFORM_BUFFER_BINDINGS", &p->webgl_max_uniform_buffer_bindings);
++      gi("MAX_VERTEX_UNIFORM_COMPONENTS", &p->webgl_max_vertex_uniform_components);
++      gi("MAX_FRAGMENT_UNIFORM_COMPONENTS", &p->webgl_max_fragment_uniform_components);
++      if (auto v = num(*pr, "MAX_TEXTURE_LOD_BIAS")) p->webgl_max_texture_lod_bias = static_cast<float>(*v);
++    }
++  }
++  if (const base::DictValue* a = d.FindDict("audio")) {
++    if (auto v = num(*a, "BaseAudioContextSampleRate")) p->audio_sample_rate = static_cast<float>(*v);
++    if (auto v = num(*a, "AudioContextBaseLatency")) p->audio_base_latency = *v;
++    if (auto v = num(*a, "AudioContextOutputLatency")) p->audio_output_latency = *v;
++  }
++  if (const base::DictValue* pm = d.FindDict("perf_memory")) {
++    if (auto v = num(*pm, "jsHeapSizeLimit"))
++      p->js_heap_size_limit = static_cast<uint64_t>(*v);
++  }
++  if (const std::string* uav = d.FindStringByDottedPath("navigator.uadata.high_entropy.uaFullVersion")) {
++    if (!uav->empty()) {
++      p->chrome_full_version = *uav;
++      int maj = 0; base::StringToInt(uav->substr(0, uav->find('.')), &maj);
++      if (maj > 0) p->chrome_major_version = static_cast<unsigned>(maj);
++    }
++  }
++  if (const base::ListValue* voices = d.FindList("speech")) {
++    if (!voices->empty()) {
++      p->voices.clear();
++      for (const base::Value& item : *voices) {
++        const base::DictValue* vd = item.GetIfDict();
++        if (!vd)
++          continue;
++        PersonaProfile::Voice voice;
++        if (const std::string* s = vd->FindString("voice_uri")) voice.voice_uri = *s;
++        if (const std::string* s = vd->FindString("name")) voice.name = *s;
++        if (const std::string* s = vd->FindString("lang")) voice.lang = *s;
++        if (auto bv = vd->FindBool("local_service")) voice.local_service = *bv;
++        if (auto bv = vd->FindBool("default")) voice.is_default = *bv;
++        p->voices.push_back(std::move(voice));
++      }
++    }
++  }
++  if (const base::DictValue* fonts = d.FindDict("fonts")) {
++    if (const base::ListValue* detected = fonts->FindList("detected")) {
++      if (!detected->empty()) {
++        p->fonts.clear();
++        for (const base::Value& item : *detected) {
++          if (const std::string* s = item.GetIfString())
++            p->fonts.push_back(*s);
++        }
++      }
++    }
++  }
++  if (const base::DictValue* w1 = d.FindDictByDottedPath("webgl.webgl1")) {
++    if (const base::DictValue* pr = w1->FindDict("parameters")) {
++      auto gi = [&](const char* k, int* dst) { if (auto v = pr->FindInt(k)) *dst = *v; };
++      gi("RED_BITS", &p->webgl_red_bits);
++      gi("GREEN_BITS", &p->webgl_green_bits);
++      gi("BLUE_BITS", &p->webgl_blue_bits);
++      gi("ALPHA_BITS", &p->webgl_alpha_bits);
++      gi("DEPTH_BITS", &p->webgl_depth_bits);
++      gi("STENCIL_BITS", &p->webgl_stencil_bits);
++      gi("SUBPIXEL_BITS", &p->webgl_subpixel_bits);
++      gi("SAMPLE_BUFFERS", &p->webgl_sample_buffers);
++      gi("SAMPLES", &p->webgl_samples);
++      if (auto v = pr->FindDouble("MAX_TEXTURE_MAX_ANISOTROPY_EXT"))
++        p->webgl_max_texture_max_anisotropy = static_cast<float>(*v);
++      auto garr = [&](const char* k, int* mn, int* mx) {
++        const base::ListValue* a = pr->FindList(k);
++        if (!a || a->size() < 2) return;
++        if (auto i0 = (*a)[0].GetIfInt()) *mn = *i0;
++        else if (auto d0 = (*a)[0].GetIfDouble()) *mn = static_cast<int>(*d0);
++        if (auto i1 = (*a)[1].GetIfInt()) *mx = *i1;
++        else if (auto d1 = (*a)[1].GetIfDouble()) *mx = static_cast<int>(*d1);
++      };
++      garr("ALIASED_LINE_WIDTH_RANGE", &p->webgl_aliased_line_width_range_min,
++           &p->webgl_aliased_line_width_range_max);
++      garr("ALIASED_POINT_SIZE_RANGE", &p->webgl_aliased_point_size_range_min,
++           &p->webgl_aliased_point_size_range_max);
++    }
++    if (const base::ListValue* ext = w1->FindList("extensions")) {
++      if (!ext->empty()) {
++        p->webgl_extensions.clear();
++        for (const base::Value& item : *ext)
++          if (const std::string* s = item.GetIfString()) p->webgl_extensions.push_back(*s);
++      }
++    }
++  }
++  // clearcote: imported profile WebGPU adapter identity (webgpu.vendor /
++  // webgpu.architecture) overrides the seed-derived values.
++  if (const std::string* v = d.FindStringByDottedPath("webgpu.vendor"))
++    p->webgpu_vendor = *v;
++  if (const std::string* a = d.FindStringByDottedPath("webgpu.architecture"))
++    p->webgpu_architecture = *a;
++  // clearcote: imported profile WebGPU limits (webgpu.limits dict) override the
++  // default desktop table key-by-key. Big values (>INT_MAX) arrive as JSON
++  // doubles, so fall back to FindDouble / numeric string.
++  if (const base::DictValue* wl = d.FindDictByDottedPath("webgpu.limits")) {
++    auto gl = [&](const char* k) {
++      if (auto v = wl->FindInt(k))
++        p->webgpu_limits[k] = static_cast<uint64_t>(*v);
++      else if (auto v2 = wl->FindDouble(k))
++        p->webgpu_limits[k] = static_cast<uint64_t>(*v2);
++      else if (const std::string* s = wl->FindString(k)) {
++        uint64_t out = 0;
++        if (base::StringToUint64(*s, &out)) p->webgpu_limits[k] = out;
++      }
++    };
++    gl("maxTextureDimension1D");
++    gl("maxTextureDimension2D");
++    gl("maxTextureDimension3D");
++    gl("maxTextureArrayLayers");
++    gl("maxBindGroups");
++    gl("maxBindGroupsPlusVertexBuffers");
++    gl("maxBindingsPerBindGroup");
++    gl("maxDynamicUniformBuffersPerPipelineLayout");
++    gl("maxDynamicStorageBuffersPerPipelineLayout");
++    gl("maxSampledTexturesPerShaderStage");
++    gl("maxSamplersPerShaderStage");
++    gl("maxStorageBuffersPerShaderStage");
++    gl("maxStorageTexturesPerShaderStage");
++    gl("maxUniformBuffersPerShaderStage");
++    gl("maxUniformBufferBindingSize");
++    gl("maxStorageBufferBindingSize");
++    gl("minUniformBufferOffsetAlignment");
++    gl("minStorageBufferOffsetAlignment");
++    gl("maxVertexBuffers");
++    gl("maxBufferSize");
++    gl("maxVertexAttributes");
++    gl("maxVertexBufferArrayStride");
++    gl("maxInterStageShaderVariables");
++    gl("maxColorAttachments");
++    gl("maxColorAttachmentBytesPerSample");
++    gl("maxComputeWorkgroupStorageSize");
++    gl("maxComputeInvocationsPerWorkgroup");
++    gl("maxComputeWorkgroupSizeX");
++    gl("maxComputeWorkgroupSizeY");
++    gl("maxComputeWorkgroupSizeZ");
++    gl("maxComputeWorkgroupsPerDimension");
++    gl("maxStorageBuffersInFragmentStage");
++    gl("maxStorageTexturesInFragmentStage");
++    gl("maxStorageBuffersInVertexStage");
++    gl("maxStorageTexturesInVertexStage");
++  }
++  // clearcote: imported-profile media-codec support. Container key may be
++  // "mediaCapabilities" or "codecs"; each codec family maps to a dict
++  // {supported, smooth, powerEfficient}. Missing bools keep the derived default.
++  const base::DictValue* mc = d.FindDict("mediaCapabilities");
++  if (!mc) mc = d.FindDict("codecs");
++  if (mc) {
++    auto mcset = [&](const char* key) {
++      const base::DictValue* c = mc->FindDict(key);
++      if (!c) return;
++      PersonaProfile::MediaCodecSupport e = p->media_codecs[key];
++      if (auto v = c->FindBool("supported")) e.supported = *v;
++      if (auto v = c->FindBool("smooth")) e.smooth = *v;
++      if (auto v = c->FindBool("powerEfficient")) e.power_efficient = *v;
++      p->media_codecs[key] = e;
++    };
++    mcset("h264");
++    mcset("vp8");
++    mcset("vp9");
++    mcset("av1");
++    mcset("hevc");
++  }
++  // clearcote: imported-profile device list (mediaDevices: array of
++  // {kind,label,device_id,group_id}). A non-empty list replaces the derived
++  // roster wholesale (mirrors the voices parser); absent/empty keeps the default.
++  if (const base::ListValue* devs = d.FindList("mediaDevices")) {
++    if (!devs->empty()) {
++      p->media_devices.clear();
++      for (const base::Value& item : *devs) {
++        const base::DictValue* dd = item.GetIfDict();
++        if (!dd)
++          continue;
++        PersonaProfile::MediaDevice dev;
++        if (const std::string* s = dd->FindString("kind")) dev.kind = *s;
++        if (const std::string* s = dd->FindString("label")) dev.label = *s;
++        if (const std::string* s = dd->FindString("device_id")) dev.device_id = *s;
++        if (const std::string* s = dd->FindString("group_id")) dev.group_id = *s;
++        p->media_devices.push_back(std::move(dev));
++      }
++    }
++  }
++  if (const base::DictValue* css = d.FindDict("css")) {
++    if (auto v = css->FindBool("color-gamut:rec2020"); v && *v) p->css_color_gamut = "rec2020";
++    else if (auto v = css->FindBool("color-gamut:p3"); v && *v) p->css_color_gamut = "p3";
++    else if (auto v = css->FindBool("color-gamut:srgb"); v && *v) p->css_color_gamut = "srgb";
++  }
++}
++
++}  // namespace
++
++// clearcote: single source of truth for --fingerprint-platform (see
++// persona_profile.h). Parsed once, lowercased once.
++PersonaPlatform GetPersonaPlatform() {
++  static const PersonaPlatform kPlatform = [] {
++    const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    if (!cmd->HasSwitch(switches::kFingerprintPlatform))
++      return PersonaPlatform::kUnset;
++    const std::string value = base::ToLowerASCII(
++        cmd->GetSwitchValueASCII(switches::kFingerprintPlatform));
++    if (value == "windows")
++      return PersonaPlatform::kWindows;
++    if (value == "linux")
++      return PersonaPlatform::kLinux;
++    if (value == "macos")
++      return PersonaPlatform::kMacOS;
++    if (value == "android")
++      return PersonaPlatform::kAndroid;
++    return PersonaPlatform::kUnset;
++  }();
++  return kPlatform;
++}
++
++const char* PersonaPlatformName(PersonaPlatform p) {
++  switch (p) {
++    case PersonaPlatform::kWindows:
++      return "windows";
++    case PersonaPlatform::kLinux:
++      return "linux";
++    case PersonaPlatform::kMacOS:
++      return "macos";
++    case PersonaPlatform::kAndroid:
++      return "android";
++    case PersonaPlatform::kUnset:
++      return "";
++  }
++  return "";
++}
++
++// clearcote: Linux (ANGLE-over-GL / Mesa) renderer equivalents of the Windows GPU pool, so a
++// Linux persona reports an OpenGL/Mesa UNMASKED_RENDERER instead of a Windows-only Direct3D11
++// string (which would contradict navigator.platform=Linux).
++std::string LinuxWebGLRenderer(const std::string& vendor) {
++  if (vendor.find("NVIDIA") != std::string::npos)
++    return "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.6.0 NVIDIA 535.146.02)";
++  if (vendor.find("AMD") != std::string::npos || vendor.find("Radeon") != std::string::npos)
++    return "ANGLE (AMD, AMD Radeon Graphics (radeonsi, raphael_mendocino, LLVM 15.0.7, DRM 3.54, "
++           "6.5.0-generic), OpenGL 4.6 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.2)";
++  return "ANGLE (Intel, Mesa Intel(R) UHD Graphics 770 (RPL-S), OpenGL 4.6 (Core Profile) "
++         "Mesa 23.2.1-1ubuntu3.1~22.04.2)";
++}
++
++template <typename Rng>
++std::vector<PersonaProfile::MediaDevice> LinuxMediaDevices(Rng& rng) {
++  const std::string grp = "cc-grp-" + base::NumberToString(rng());
++  const std::string mic = "cc-mic-" + base::NumberToString(rng());
++  const std::string spk = "cc-spk-" + base::NumberToString(rng());
++  const std::string mon = "cc-mon-" + base::NumberToString(rng());
++  // PulseAudio/PipeWire enumeration: a 'default' + one physical codec per direction, plus the
++  // characteristic Linux monitor source. No Windows 'Communications -' endpoint / Realtek codec.
++  return {
++      {"audioinput", "Default", "default", grp},
++      {"audioinput", "Built-in Audio Analog Stereo", mic, grp},
++      {"audioinput", "Monitor of Built-in Audio Analog Stereo", mon, grp},
++      {"audiooutput", "Default", "default", grp},
++      {"audiooutput", "Built-in Audio Analog Stereo", spk, grp},
++  };
++}
++
++// clearcote: Android enumerateDevices() roster -- a default mic + speaker plus a
++// back/front camera pair with the real Chrome-on-Android "camera2 N, facing ..."
++// label format. No Windows Realtek/Communications endpoints. Raw ids are seed-
++// derived; the per-origin HMAC hashes them and blanks labels pre-permission.
++template <typename Rng>
++std::vector<PersonaProfile::MediaDevice> AndroidMediaDevices(Rng& rng) {
++  const std::string agrp = "cc-agrp-" + base::NumberToString(rng());
++  const std::string cam_b = "cc-cam-" + base::NumberToString(rng());
++  const std::string cam_f = "cc-cam-" + base::NumberToString(rng());
++  const std::string cgrp_b = "cc-cgrp-" + base::NumberToString(rng());
++  const std::string cgrp_f = "cc-cgrp-" + base::NumberToString(rng());
++  return {
++      {"audioinput", "Default", "default", agrp},
++      {"audiooutput", "Default", "default", agrp},
++      {"videoinput", "camera2 0, facing back", cam_b, cgrp_b},
++      {"videoinput", "camera2 1, facing front", cam_f, cgrp_f},
++  };
++}
++
++PersonaProfile DerivePersona(uint64_t seed) {
++  // SplitMix64 decorrelates weak seeds (1, 2, 3 otherwise produce visibly
++  // similar mt19937_64 streams).
++  uint64_t mixed = seed + 0x9E3779B97F4A7C15ull;
++  mixed = (mixed ^ (mixed >> 30)) * 0xBF58476D1CE4E5B9ull;
++  mixed = (mixed ^ (mixed >> 27)) * 0x94D049BB133111EBull;
++  mixed = mixed ^ (mixed >> 31);
++
++  std::mt19937_64 rng(mixed);
++
++  PersonaProfile p;
++  p.persona_seed = mixed;
++
++  // Identity.
++  const ChromeVer& cv = WeightedPick(rng, kChromeVersions);
++  p.chrome_major_version = cv.major;
++  p.chrome_full_version = cv.full;
++
++  // Hardware: tier first, then correlated cores + RAM.
++  std::array<double, kHwTiers.size()> tier_weights;
++  for (size_t i = 0; i < kHwTiers.size(); ++i) {
++    tier_weights[i] = kHwTiers[i].weight;
++  }
++  std::discrete_distribution<size_t> tier_dist(tier_weights.begin(),
++                                               tier_weights.end());
++  const HwTier& tier = kHwTiers[tier_dist(rng)].value;
++  p.hardware_concurrency = WeightedPick(rng, tier.hc);
++  p.device_memory_gb = WeightedPick(rng, tier.mem);
++
++  // Screen.
++  const ScreenSize& sc = WeightedPick(rng, kScreens);
++  p.screen_width = sc.w;
++  p.screen_height = sc.h;
++  p.avail_screen_width = sc.w;
++  p.avail_screen_height = sc.avail_h;
++  p.color_depth = WeightedPick(rng, kColorDepths);
++  p.device_pixel_ratio = 1.0;
++
++  // WebGL identity (coherent Intel UHD 770 default; see kWebGLGPUs).
++  const WebGLGPU& gpu = kWebGLGPUs[0].value;
++  p.webgl_vendor = gpu.vendor;
++  p.webgl_renderer = gpu.renderer;
++
++  // Default Windows voice set (closes the getVoices()=0 tell); a profile overrides.
++  p.voices = {
++      {"Microsoft David - English (United States)",
++       "Microsoft David - English (United States)", "en-US", true, true},
++      {"Microsoft Zira - English (United States)",
++       "Microsoft Zira - English (United States)", "en-US", true, false},
++      {"Microsoft Mark - English (United States)",
++       "Microsoft Mark - English (United States)", "en-US", true, false},
++  };
++
++  // clearcote: canonical desktop WebGPU adapter limits -- the spec-tier
++  // maximums shared by modern desktop GPUs (a real capture), so they read as
++  // genuine hardware and stay coherent with the spoofed WebGL GPU regardless
++  // of the host's actual GPU. An imported profile's webgpu.limits overrides
++  // individual entries (see ApplyProfileOverride).
++  p.webgpu_limits = {
++      {"maxTextureDimension1D", 16384ull},
++      {"maxTextureDimension2D", 16384ull},
++      {"maxTextureDimension3D", 2048ull},
++      {"maxTextureArrayLayers", 2048ull},
++      {"maxBindGroups", 4ull},
++      {"maxBindGroupsPlusVertexBuffers", 24ull},
++      {"maxBindingsPerBindGroup", 1000ull},
++      {"maxDynamicUniformBuffersPerPipelineLayout", 10ull},
++      {"maxDynamicStorageBuffersPerPipelineLayout", 8ull},
++      {"maxSampledTexturesPerShaderStage", 48ull},
++      {"maxSamplersPerShaderStage", 16ull},
++      {"maxStorageBuffersPerShaderStage", 16ull},
++      {"maxStorageTexturesPerShaderStage", 8ull},
++      {"maxUniformBuffersPerShaderStage", 12ull},
++      {"maxUniformBufferBindingSize", 65536ull},
++      {"maxStorageBufferBindingSize", 2147483644ull},
++      {"minUniformBufferOffsetAlignment", 256ull},
++      {"minStorageBufferOffsetAlignment", 256ull},
++      {"maxVertexBuffers", 8ull},
++      {"maxBufferSize", 2147483648ull},
++      {"maxVertexAttributes", 30ull},
++      {"maxVertexBufferArrayStride", 2048ull},
++      {"maxInterStageShaderVariables", 28ull},
++      {"maxColorAttachments", 8ull},
++      {"maxColorAttachmentBytesPerSample", 128ull},
++      {"maxComputeWorkgroupStorageSize", 32768ull},
++      {"maxComputeInvocationsPerWorkgroup", 1024ull},
++      {"maxComputeWorkgroupSizeX", 1024ull},
++      {"maxComputeWorkgroupSizeY", 1024ull},
++      {"maxComputeWorkgroupSizeZ", 64ull},
++      {"maxComputeWorkgroupsPerDimension", 65535ull},
++      {"maxStorageBuffersInFragmentStage", 16ull},
++      {"maxStorageTexturesInFragmentStage", 8ull},
++      {"maxStorageBuffersInVertexStage", 16ull},
++      {"maxStorageTexturesInVertexStage", 8ull},
++  };
++
++  // clearcote: canonical desktop media-codec support -- a modern Windows Chrome
++  // on the default Intel UHD 770 iGPU (HW decode for H.264/VP8/VP9/AV1/HEVC).
++  // {supported, smooth, powerEfficient}. Overrides the host's real
++  // MediaCapabilities answers so they stay coherent with the spoofed GPU
++  // regardless of the build box's actual hardware. An imported profile's
++  // mediaCapabilities/codecs dict overrides individual entries.
++  p.media_codecs = {
++      {"h264", {true, true, true}},
++      {"vp8", {true, true, true}},
++      {"vp9", {true, true, true}},
++      {"av1", {true, true, true}},
++      {"hevc", {true, true, true}},
++  };
++
++  // clearcote: enumerateDevices() persona device set -- a coherent real Windows
++  // desktop with one onboard Realtek audio codec and no webcam (the most common,
++  // lowest-entropy config). One shared group_id (one physical codec). Raw ids are
++  // seed-derived so different --fingerprint seeds differ; the per-origin HMAC
++  // (TranslateMediaDeviceInfo) hashes them per site and blanks labels pre-grant.
++  // The literal "default"/"communications" ids pass through unhashed. An imported
++  // profile's mediaDevices list overrides this (see ApplyProfileOverride).
++  {
++    const std::string raw_mic = "cc-mic-" + base::NumberToString(rng());
++    const std::string raw_spk = "cc-spk-" + base::NumberToString(rng());
++    const std::string raw_grp = "cc-grp-" + base::NumberToString(rng());
++    p.media_devices = {
++        {"audioinput", "Default - Microphone (Realtek(R) Audio)", "default", raw_grp},
++        {"audioinput", "Communications - Microphone (Realtek(R) Audio)",
++         "communications", raw_grp},
++        {"audioinput", "Microphone (Realtek(R) Audio)", raw_mic, raw_grp},
++        {"audiooutput", "Default - Speakers (Realtek(R) Audio)", "default", raw_grp},
++        {"audiooutput", "Communications - Speakers (Realtek(R) Audio)",
++         "communications", raw_grp},
++        {"audiooutput", "Speakers (Realtek(R) Audio)", raw_spk, raw_grp},
++    };
++  }
++
++  ApplyProfileOverride(&p);
++
++  // clearcote: an explicit --fingerprint-gpu-vendor/-renderer overrides the seed-/profile-
++  // derived GPU (precedence: switch > imported profile > seed); WebGL getParameter reads these.
++  const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++  // clearcote: the seed/profile persona defaults are Windows-shaped (ANGLE/D3D11 GPU, Microsoft
++  // SAPI voices, Realtek/WASAPI audio devices). On a Linux persona, swap each to its coherent
++  // Linux form so no field contradicts platform=Linux. Only rewrite a still-Windows default (an
++  // imported Linux/mac profile is left intact); an explicit --fingerprint-gpu-renderer wins below.
++  if (GetPersonaPlatform() == PersonaPlatform::kLinux) {
++    if (p.webgl_renderer.find("Direct3D") != std::string::npos)
++      p.webgl_renderer = LinuxWebGLRenderer(p.webgl_vendor);
++    // A real Chrome-on-Linux with no speech-dispatcher reports getVoices()==[]; never Windows
++    // SAPI names. Empty is a common, coherent Linux state; drop only the Windows default.
++    if (!p.voices.empty() && p.voices.front().name.rfind("Microsoft", 0) == 0)
++      p.voices.clear();
++    // enumerateDevices: Pulse/PipeWire shape (no Windows 'Communications -' endpoint / Realtek).
++    if (!p.media_devices.empty() &&
++        p.media_devices.front().label.find("Realtek") != std::string::npos)
++      p.media_devices = LinuxMediaDevices(rng);
++  }
++  // clearcote: Android persona. Unlike linux (which rewrites only GPU/voices/
++  // devices and keeps the Windows screen/pointer/touch), android inverts the
++  // desktop shape structurally, so it overwrites screen/DPR/mobile/touch/GPU +
++  // the GLES limit table from one atomic device row.
++  if (GetPersonaPlatform() == PersonaPlatform::kAndroid) {
++    const AndroidDevice& dev = WeightedPick(rng, kAndroidDevices);
++    // Portrait screen; Android reports availWidth/Height == the full screen.
++    p.screen_width = dev.screen_w;
++    p.screen_height = dev.screen_h;
++    p.avail_screen_width = dev.screen_w;
++    p.avail_screen_height = dev.screen_h;
++    p.color_depth = 24;
++    p.device_pixel_ratio = dev.dpr;
++    p.mobile = true;
++    p.max_touch_points = dev.max_touch;
++    p.pointer_coarse = true;
++    p.hover_none = true;
++    p.orientation_type = "portrait-primary";
++    p.orientation_angle = 0;
++    p.dynamic_range_high = true;
++    p.hardware_concurrency = dev.hc;
++    p.device_memory_gb = static_cast<float>(dev.mem_gb);
++    p.webgl_vendor = dev.gl_vendor;
++    p.webgl_renderer = dev.gl_renderer;
++    p.android_model = dev.model;
++    p.android_platform_version = dev.platform_version;
++    p.css_color_gamut = dev.color_gamut;
++    // Mobile GLES 3.2 getParameter limit table (WebGL getParameter reads these).
++    // NOTE: raises the bar but does NOT change rendered pixels (still desktop GPU
++    // / SwiftShader). Values are common mobile-GLES; verify vs a real-device
++    // capture before ship (see report).
++    p.webgl_max_texture_size = dev.gl_max_texture_size;
++    p.webgl_max_cube_map_texture_size = dev.gl_max_texture_size;
++    p.webgl_max_renderbuffer_size = dev.gl_max_texture_size;
++    p.webgl_max_viewport_dim = dev.gl_max_texture_size;
++    p.webgl_max_vertex_uniform_vectors = 1024;
++    p.webgl_max_fragment_uniform_vectors = 1024;
++    p.webgl_max_varying_vectors = 31;
++    p.webgl_max_combined_texture_image_units = 96;
++    p.webgl_max_samples = 4;
++    p.webgl_max_uniform_buffer_bindings = 24;
++    // TTS: a Chrome-on-Android with no bound local engine reports getVoices()==[]
++    // (mirror the linux fix); never leak the Windows SAPI default.
++    if (!p.voices.empty() && p.voices.front().name.rfind("Microsoft", 0) == 0)
++      p.voices.clear();
++    // enumerateDevices: phone-shaped roster.
++    p.media_devices = AndroidMediaDevices(rng);
++  }
++  if (cmd->HasSwitch(switches::kFingerprintGpuVendor))
++    p.webgl_vendor = cmd->GetSwitchValueASCII(switches::kFingerprintGpuVendor);
++  if (cmd->HasSwitch(switches::kFingerprintGpuRenderer))
++    p.webgl_renderer = cmd->GetSwitchValueASCII(switches::kFingerprintGpuRenderer);
++  // clearcote: --disable-gpu-fingerprint presents the REAL backend. WebGL getParameter checks
++  // webgl_real and routes the GPU strings/params/extensions to the stock getters, and the
++  // readback noise is skipped -- so the reported GPU matches the rendered pixels (no spoof to
++  // cross-check). Top precedence over seed/profile/gpu-switch; webgl_vendor stays intact so the
++  // WebGPU identity below remains coherent.
++  if (cmd->HasSwitch(switches::kDisableGpuFingerprint)) {
++    p.webgl_real = true;
++    p.webgl_real_strings = true;  // full honest mode implies honest strings
++  }
++  // clearcote: --disable-gpu-string-spoof is the GPU-STRING half of --disable-gpu-fingerprint
++  // on its own -- UNMASKED_VENDOR/RENDERER go real while the persona keeps the getParameter
++  // limits, the extension list, the precision formats and the readPixels farble.
++  if (cmd->HasSwitch(switches::kDisableGpuStringSpoof))
++    p.webgl_real_strings = true;
++  // clearcote: explicit --fingerprint-webgpu-vendor/-architecture overrides the
++  // profile-/seed-derived WebGPU identity (precedence: switch > profile > seed).
++  if (cmd->HasSwitch("fingerprint-webgpu-vendor"))
++    p.webgpu_vendor = cmd->GetSwitchValueASCII("fingerprint-webgpu-vendor");
++  if (cmd->HasSwitch("fingerprint-webgpu-architecture"))
++    p.webgpu_architecture = cmd->GetSwitchValueASCII("fingerprint-webgpu-architecture");
++  // If neither a profile nor a switch set the WebGPU identity, derive it from the
++  // FINAL WebGL GPU (after the gpu-vendor switch/profile) so navigator.gpu always
++  // matches the WebGL UNMASKED vendor: lowercase WebGPU vendor + canonical arch.
++  if (p.webgpu_vendor.empty() || p.webgpu_architecture.empty()) {
++    std::string cc_v, cc_a;
++    if (p.webgl_vendor.find("NVIDIA") != std::string::npos) {
++      cc_v = "nvidia"; cc_a = "ampere";
++    } else if (p.webgl_vendor.find("AMD") != std::string::npos ||
++               p.webgl_vendor.find("ATI") != std::string::npos ||
++               p.webgl_vendor.find("Radeon") != std::string::npos) {
++      cc_v = "amd"; cc_a = "rdna2";
++    } else if (p.webgl_vendor.find("ARM") != std::string::npos ||
++               p.webgl_vendor.find("Mali") != std::string::npos) {
++      // clearcote: Android Mali persona -> ARM Valhall (Mali-G710/G68), so
++      // navigator.gpu stays coherent with the WebGL ARM string instead of
++      // falling through to "intel" (a direct contradiction).
++      cc_v = "arm"; cc_a = "valhall";
++    } else if (p.webgl_vendor.find("Qualcomm") != std::string::npos ||
++               p.webgl_vendor.find("Adreno") != std::string::npos) {
++      cc_v = "qualcomm"; cc_a = "adreno";
++    } else {
++      cc_v = "intel"; cc_a = "gen-12-lp";
++    }
++    if (p.webgpu_vendor.empty()) p.webgpu_vendor = cc_v;
++    if (p.webgpu_architecture.empty()) p.webgpu_architecture = cc_a;
++  }
++  return p;
++}
++
++const PersonaProfile& CurrentPersona() {
++  // Intentionally leaked process-lifetime singleton (no exit-time destructor),
++  // lazily initialized once per process.
++  static PersonaProfile* profile = nullptr;
++  static std::once_flag once;
++  std::call_once(once, [] {
++    profile = new PersonaProfile(DerivePersona(SeedFromCommandLine()));
++  });
++  return *profile;
++}
++
++}  // namespace ungoogled
+--- /dev/null
++++ b/components/ungoogled/persona_profile.h
+@@ -0,0 +1,241 @@
++// Copyright 2026 The ungoogled-chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef COMPONENTS_UNGOOGLED_PERSONA_PROFILE_H_
++#define COMPONENTS_UNGOOGLED_PERSONA_PROFILE_H_
++
++#include <cstdint>
++#include <map>
++#include <string>
++#include <vector>
++
++#include "base/component_export.h"
++
++namespace ungoogled {
++// clearcote: the ONE parse of --fingerprint-platform. The switch value used to
++// be re-parsed open-coded at ~13 call sites; several compared the RAW value
++// while the rest lowercased it, so --fingerprint-platform=Linux produced a
++// self-contradicting browser (Linux navigator.platform alongside Windows SAPI
++// voices and a Direct3D WebGL renderer). New call sites MUST go through
++// GetPersonaPlatform() rather than re-parsing the switch.
++enum class PersonaPlatform {
++  kUnset,  // switch absent, empty, or value unrecognized
++  kWindows,
++  kLinux,
++  kMacOS,
++  kAndroid,
++};
++
++// Parses --fingerprint-platform ONCE per process (function-local static -- the
++// command line is fixed for the process lifetime). Case-insensitive. Returns
++// kUnset when the switch is absent or its value is not one of
++// windows/linux/macos/android, matching what the open-coded parses already did
++// for an unknown value (fall through to the default branch).
++//
++// CALLER NOTE: sites that previously fell back to the HOST BUILDFLAG when the
++// switch was absent or unrecognized (dom_url.cc IsWindowsPersona(), the
++// chrome_content_renderer_client.cc web-share block, font_cache.cc) MUST map
++// kUnset back to the host build explicitly, or an unflagged launch silently
++// changes behaviour.
++COMPONENT_EXPORT(UNGOOGLED) PersonaPlatform GetPersonaPlatform();
++
++// Canonical lowercase name: "windows"/"linux"/"macos"/"android"; "" for kUnset.
++COMPONENT_EXPORT(UNGOOGLED) const char* PersonaPlatformName(PersonaPlatform p);
++
++// A seed-derived, internally-COHERENT Windows browser persona.
++//
++// One uint64 seed (the existing --fingerprint switch) selects one believable
++// Windows machine: every field here is drawn TOGETHER so the combination is one
++// a real device actually shows -- e.g. hardware_concurrency and device_memory_gb
++// come from a single hardware tier (no 20-core CPU with 16 GB RAM), and the
++// WebGL renderer string matches the GPU vendor. Same seed => identical persona
++// across the browser process and every renderer in the session (the seed is
++// forwarded to all child processes), so no surface can contradict another.
++//
++// OS-family divergence is a supported, deliberate axis: --fingerprint-platform
++// selects windows/linux/macos/android, and DerivePersona() fixes up the OS-
++// specific fields (WebGL renderer, voices, media devices, and -- for android --
++// screen/DPR/touch/pointer/mobile) so the whole persona stays coherent for the
++// claimed OS. The struct defaults are Windows-shaped; other platforms override.
++struct COMPONENT_EXPORT(UNGOOGLED) PersonaProfile {
++  // SplitMix64-mixed seed, kept so downstream per-seed routines can mix it in.
++  uint64_t persona_seed = 0;
++
++  // ---- Identity ----
++  unsigned chrome_major_version = 150;
++  std::string chrome_full_version;  // e.g. "150.0.7871.114"
++
++  // ---- Hardware (one tier: cores <-> RAM correlated) ----
++  unsigned hardware_concurrency = 8;  // logical cores (navigator.hardwareConcurrency)
++  // True system RAM in GB (4..64). NOTE: navigator.deviceMemory is spec-clamped
++  // to a max of 8, so the getter reports min(8, this); the full value is kept
++  // for future Sec-CH-Device-Memory / side-channel coherence work.
++  float device_memory_gb = 8.0f;
++
++  // performance.memory.jsHeapSizeLimit. Real 64-bit desktop Chrome reports a
++  // fixed, non-round limit (~4192 MiB); an exact power of two looks synthetic.
++  // Constant on desktop (not host-RAM-scaled); overridable from a profile.
++  uint64_t js_heap_size_limit = 4395630592ULL;
++
++  // ---- Screen / window ----
++  int screen_width = 1920;
++  int screen_height = 1080;
++  int avail_screen_width = 1920;
++  int avail_screen_height = 1040;  // minus a realistic Windows taskbar
++  unsigned color_depth = 24;
++  double device_pixel_ratio = 1.0;
++
++  // ---- Mobile / touch / orientation (Android persona). Desktop-safe defaults
++  // so windows/linux/macos are entirely unaffected. ----
++  bool mobile = false;               // Mobile UA token + UA-CH mobile bit + web-prefs
++  int max_touch_points = 0;          // navigator.maxTouchPoints (5 on phones)
++  bool pointer_coarse = false;       // CSS (pointer/any-pointer:coarse) when true
++  bool hover_none = false;           // CSS (hover/any-hover:none) when true
++  const char* orientation_type = "landscape-primary";  // "portrait-primary" on phones
++  int orientation_angle = 0;         // screen.orientation.angle
++  bool dynamic_range_high = false;   // CSS (dynamic-range:high) / DeviceSupportsHDR
++  // UA-CH high-entropy identity for the Android persona, carried here so the
++  // reported model / platformVersion stay ATOMIC with the WebGL renderer chosen
++  // from the same device row. Empty on desktop personas.
++  std::string android_model;
++  std::string android_platform_version;
++
++  // ---- WebGL (Windows + ANGLE/D3D11) ----
++  std::string webgl_vendor;    // e.g. "Google Inc. (Intel)"
++  std::string webgl_renderer;  // ANGLE renderer string
++  // --disable-gpu-fingerprint: present the machine's REAL GPU (renderer/vendor strings, the
++  // getParameter table, and the supported-extension list) instead of this persona GPU, and
++  // skip the WebGL readback noise -- so the GPU identity matches the actually-rendered pixels.
++  bool webgl_real = false;
++  // clearcote: the GPU-STRING-ONLY half of webgl_real, set by --disable-gpu-string-spoof and
++  // implied by webgl_real. Read ONLY by the UNMASKED_VENDOR/RENDERER getParameter cases; the
++  // limit table, extension list, precision formats and readPixels farble all keep checking
++  // webgl_real, so the string can go real without dragging the rest of the GPU surface with it.
++  bool webgl_real_strings = false;
++  // Canonical Win11 + ANGLE parameter limits (for future getParameter wiring).
++  int webgl_max_texture_size = 16384;
++  int webgl_max_cube_map_texture_size = 16384;
++  int webgl_max_renderbuffer_size = 16384;
++  int webgl_max_viewport_dim = 32767;
++  int webgl_max_vertex_uniform_vectors = 4096;
++  int webgl_max_fragment_uniform_vectors = 1024;
++  int webgl_max_varying_vectors = 30;
++  int webgl_max_combined_texture_image_units = 32;
++
++  // ---- Audio (Windows WASAPI defaults) ----
++  float audio_sample_rate = 48000.0f;
++  double audio_base_latency = 0.01;
++  double audio_output_latency = 0.015;
++
++  // clearcote: WebGL2 getParameter limits (canonical ANGLE/D3D11, Win desktop).
++  int webgl_max_3d_texture_size = 2048;
++  int webgl_max_array_texture_layers = 2048;
++  int webgl_max_draw_buffers = 8;
++  int webgl_max_color_attachments = 8;
++  int webgl_max_samples = 8;
++  int webgl_max_vertex_uniform_blocks = 14;
++  int webgl_max_fragment_uniform_blocks = 14;
++  int webgl_max_combined_uniform_blocks = 24;
++  int webgl_max_uniform_buffer_bindings = 24;
++  float webgl_max_texture_lod_bias = 2.0f;
++  int webgl_max_vertex_uniform_components = 16384;
++  int webgl_max_fragment_uniform_components = 4096;
++
++  // speechSynthesis.getVoices(): a real Windows Chrome exposes SAPI voices;
++  // an empty list is a headless tell. Default-populated in DerivePersona,
++  // overridable from an imported profile.
++  struct Voice {
++    std::string voice_uri;
++    std::string name;
++    std::string lang;
++    bool local_service = true;
++    bool is_default = false;
++  };
++  std::vector<Voice> voices;
++
++  // measureText font enumeration: the family names reported present. Default-
++  // empty (the canonical platform set is used); an imported profile fills it.
++  std::vector<std::string> fonts;
++
++  // ---- WebGL full getParameter table (driver/GPU-dependent; defaults are
++  // common Intel-class desktop values; overridable from an imported profile) ----
++  int webgl_aliased_line_width_range_min = 1;
++  int webgl_aliased_line_width_range_max = 1;
++  int webgl_aliased_point_size_range_min = 1;
++  int webgl_aliased_point_size_range_max = 1024;
++  int webgl_red_bits = 8;
++  int webgl_green_bits = 8;
++  int webgl_blue_bits = 8;
++  int webgl_alpha_bits = 8;
++  int webgl_depth_bits = 24;
++  int webgl_stencil_bits = 8;
++  int webgl_subpixel_bits = 4;
++  int webgl_sample_buffers = 1;
++  int webgl_samples = 4;
++  float webgl_max_texture_max_anisotropy = 16.0f;
++  // getSupportedExtensions list (varies by driver); empty => report the real set.
++  std::vector<std::string> webgl_extensions;
++
++  // CSS @media color-gamut: "srgb" (default), "p3", or "rec2020".
++  std::string css_color_gamut = "srgb";
++
++  // ---- WebGPU adapter.limits (GPUSupportedLimits). Keys are the JS limit
++  // names (e.g. "maxTextureDimension2D"); values override the host GPU's
++  // reported limits so they stay coherent with the spoofed WebGL GPU. Filled
++  // with a canonical desktop table by DerivePersona; an imported profile's
++  // webgpu.limits overrides individual entries.
++  std::map<std::string, uint64_t> webgpu_limits;
++
++  // ---- WebGPU adapter identity (GPUAdapterInfo.vendor / .architecture),
++  // kept coherent with the spoofed WebGL GPU so navigator.gpu can't contradict
++  // the WebGL UNMASKED vendor. Lowercase per the WebGPU spec ("intel"/"nvidia"/
++  // "amd"; "gen-12-lp"/"ampere"/"rdna2"). Derived from the final webgl_vendor in
++  // DerivePersona; an imported profile (webgpu.vendor/.architecture) or
++  // --fingerprint-webgpu-vendor/-architecture overrides.
++  std::string webgpu_vendor;
++  std::string webgpu_architecture;
++
++  // ---- MediaCapabilities.decodingInfo() per codec family. Key is the codec
++  // family ("h264","vp8","vp9","av1","hevc"); the triple overrides the host's
++  // real {supported, smooth, powerEfficient} so playback support reads coherently
++  // with the spoofed WebGL/WebGPU GPU tier regardless of the build host's actual
++  // decode hardware. Default-populated by DerivePersona; an imported profile's
++  // mediaCapabilities/codecs dict overrides individual entries.
++  struct MediaCodecSupport {
++    bool supported = true;
++    bool smooth = true;
++    bool power_efficient = true;
++  };
++  std::map<std::string, MediaCodecSupport> media_codecs;
++
++  // ---- enumerateDevices() persona device list. Real Windows always exposes
++  // at least one audioinput + audiooutput (empty id/label pre-permission); an
++  // empty list reads as a headless server -- a tell. Each entry carries a RAW
++  // device_id/group_id (stable, seed-derived); the browser-process per-origin
++  // HMAC salt (TranslateMediaDeviceInfo) hashes them per site and blanks labels
++  // pre-grant, so we store raw strings + plain labels here. The literal
++  // "default"/"communications" ids pass through unhashed (Chrome's convention).
++  struct MediaDevice {
++    std::string kind;  // "audioinput" | "audiooutput" | "videoinput"
++    std::string label;
++    std::string device_id;
++    std::string group_id;
++  };
++  std::vector<MediaDevice> media_devices;
++};
++
++// Derives a coherent Windows persona from a seed. Same seed => same persona.
++// Pools are weighted to common Chrome-on-Windows distributions; the hardware
++// tier keeps (cores, RAM) to combinations that exist in the wild.
++COMPONENT_EXPORT(UNGOOGLED) PersonaProfile DerivePersona(uint64_t seed);
++
++// Process-wide singleton persona for this session. The first call reads the
++// --fingerprint switch (numeric, or FNV-1a-hashed if non-numeric -- matching
++// the per-site seed parse so browser + renderers agree) and derives the
++// persona; later calls return the same one. Thread-safe (std::call_once).
++COMPONENT_EXPORT(UNGOOGLED) const PersonaProfile& CurrentPersona();
++
++}  // namespace ungoogled
++
++#endif  // COMPONENTS_UNGOOGLED_PERSONA_PROFILE_H_
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -20,6 +20,7 @@
+ #include "base/check_deref.h"
+ #include "base/check_op.h"
+ #include "base/command_line.h"
++#include "components/ungoogled/persona_profile.h"
+ #include "base/containers/fixed_flat_map.h"
+ #include "base/containers/fixed_flat_set.h"
+ #include "base/containers/to_vector.h"
+@@ -5035,6 +5036,33 @@
+   web_prefs->is_indigo_onboarding =
+       indigo::IndigoOnboardingDialog::IsOnboardingWebContents(web_contents);
+ #endif
++
++  // clearcote: Android persona mobile-layout path. When the persona is mobile
++  // (--fingerprint-platform=android sets CurrentPersona().mobile), turn on
++  // Chromium's mobile viewport + touch/pointer web-prefs so page layout,
++  // (pointer:coarse)/(hover:none), and viewport handling match the Android
++  // UA/JS surface. Applied last so it wins over the desktop defaults above.
++  // NOTE: the fork computes no viewport itself -- for layout to fully match the
++  // persona the launcher must ALSO pass a phone-sized --window-size (see report);
++  // this block sets the *preferences*, not the window geometry.
++  if (ungoogled::CurrentPersona().mobile) {
++    const ungoogled::PersonaProfile& cc_p = ungoogled::CurrentPersona();
++    web_prefs->viewport_enabled = true;
++    web_prefs->viewport_meta_enabled = true;
++    web_prefs->viewport_style = blink::mojom::ViewportStyle::kMobile;
++    web_prefs->shrinks_viewport_contents_to_fit = true;
++    web_prefs->main_frame_resizes_are_orientation_changes = true;
++    web_prefs->double_tap_to_zoom_enabled = true;
++    web_prefs->touch_event_feature_detection_enabled = true;
++    web_prefs->pointer_events_max_touch_points = cc_p.max_touch_points;
++    web_prefs->primary_pointer_type =
++        blink::mojom::PointerType::kPointerCoarseType;
++    web_prefs->available_pointer_types =
++        static_cast<int>(blink::mojom::PointerType::kPointerCoarseType);
++    web_prefs->primary_hover_type = blink::mojom::HoverType::kHoverNone;
++    web_prefs->available_hover_types =
++        static_cast<int>(blink::mojom::HoverType::kHoverNone);
++  }
+ }
+ 
+ bool ChromeContentBrowserClientParts::OverrideWebPreferencesAfterNavigation(
+--- a/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
++++ b/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
+@@ -20,6 +20,7 @@
+ 
+ #include "third_party/blink/renderer/modules/plugins/dom_plugin_array.h"
+ 
++#include "components/ungoogled/persona_profile.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+@@ -135,6 +136,13 @@
+ }
+ 
+ bool DOMPluginArray::IsPdfViewerAvailable() {
++  // clearcote: a mobile (Chrome-Android) persona ships no PDF-viewer plugin, so
++  // navigator.plugins and navigator.mimeTypes are empty and pdfViewerEnabled is
++  // false. This one gate cascades to all three surfaces (the constructor skips
++  // populating dom_plugins_, GetFixedMimeTypeArray() returns empty, and
++  // NavigatorPlugins::pdfViewerEnabled reads this).
++  if (ungoogled::CurrentPersona().mobile)
++    return false;
+   auto* data = GetPluginData();
+   if (!data)
+     return false;
+--- a/third_party/blink/renderer/modules/screen_orientation/screen_orientation.cc
++++ b/third_party/blink/renderer/modules/screen_orientation/screen_orientation.cc
+@@ -16,6 +16,7 @@
+ #include "third_party/blink/renderer/modules/event_target_modules.h"
+ #include "third_party/blink/renderer/modules/screen_orientation/lock_orientation_callback.h"
+ #include "third_party/blink/renderer/modules/screen_orientation/screen_orientation_controller.h"
++#include "components/ungoogled/persona_profile.h"
+ #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+ #include "third_party/blink/renderer/platform/wtf/assertions.h"
+ 
+@@ -88,10 +89,19 @@
+ }
+ 
+ V8OrientationType ScreenOrientation::type() const {
++  // clearcote: a mobile persona (--fingerprint-platform=android) reports portrait-primary, coherent
++  // with its portrait screen; desktop personas keep the real orientation.
++  if (ungoogled::CurrentPersona().mobile) {
++    return V8OrientationType(V8OrientationType::Enum::kPortraitPrimary);
++  }
+   return V8OrientationType(OrientationTypeToV8Enum(type_));
+ }
+ 
+ uint16_t ScreenOrientation::angle() const {
++  // clearcote: portrait-primary is angle 0 on a mobile persona.
++  if (ungoogled::CurrentPersona().mobile) {
++    return 0;
++  }
+   return angle_;
+ }
+ 

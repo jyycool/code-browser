@@ -1,0 +1,966 @@
+// launch() on an Intel Mac: run the Clearcote Docker image and connect to it.
+//
+// The native macOS builds (the PRO build and the open macOS pin) are Apple Silicon only. Rather than
+// fail on an Intel Mac, launch() starts the published
+// Clearcote image (teamflatearth/clearcote:sdk-<this SDK's version>, a linux/amd64 image Docker Desktop
+// runs on Intel and Apple silicon alike), waits for its CDP endpoint, connects with Playwright and
+// resolves to the same Playwright Browser a local launch does. close() disconnects and stops the
+// container; nothing is left running.
+//
+// When it applies:
+//   - `docker: false` (or CLEARCOTE_DOCKER=0) turns it off: launch() runs a local binary, which on macOS
+//     means the native build (Apple Silicon: PRO with a licence key, the open pin without) or `executablePath`.
+//   - `docker: true` (or CLEARCOTE_DOCKER=1) turns it on on any OS that has Docker.
+//   - Unset: on for an Intel Mac, unless the caller named a binary (executablePath / CLEARCOTE_BINARY). An
+//     Apple Silicon Mac runs a native build instead: PRO with a licence key, the open macOS pin (Chromium
+//     150, v0.1.0-pre.24) without.
+//   - CLEARCOTE_TEST_ONLY_ASSUME_MACOS=1 makes this module treat the host as macOS, so the real Docker
+//     path can be exercised end to end on a Linux or Windows machine. It is not an option.
+//
+// The container is configured through the image's own CC_* variables (docker/serve.py), so only the
+// options the image understands are accepted; anything else throws naming it. Values travel in the
+// docker CLI's environment (`-e NAME` without a value), never on its command line. The licence key and
+// the proxy URL are not passed as variables at all: they are copied in as a file serve.py reads once and
+// deletes, so `docker inspect` does not show them (anyone who can reach the Docker daemon can still read a
+// running container's files and memory). The CDP port is published on 127.0.0.1 only.
+//
+// What an image understands is read from its serve-protocol label before a container is created. An image
+// older than sdk-0.40.0 has none: it gets the key and proxy as plain variables, with a warning. Whatever the
+// image, launch() checks the container's log once the browser answers and refuses -- stopping and removing the
+// container -- unless it runs the licensed engine when a key was given and the proxy when one was given.
+//
+// Nothing outlives its owner: the container is created with --rm, stops itself once no CDP client has been
+// connected for 30 s after its CDP first answers (CLEARCOTE_DOCKER_IDLE_EXIT), and the next launch removes
+// any whose owner process is certainly gone (sweepStale). close() stops it at once and resolves once Docker
+// has removed it (waiting up to 15 s for that).
+//
+// Chrome's sandbox: an image of serve protocol 3 runs Chrome with its sandbox when the container allows the
+// user, PID and network namespaces the sandbox makes, and Docker's default seccomp profile does not. Such an
+// image is started with --security-opt seccomp=docker-seccomp.json (shipped in this package: Docker's default
+// profile of moby/profiles seccomp v0.2.3 plus those two calls; docker/seccomp.json in the repository) on an x86_64
+// Docker. An older image is not, since its Chrome runs with --no-sandbox whatever it gets, and neither is a Docker
+// on another CPU, where the image runs emulated (seccompArgs). A Docker that refuses the profile, at create or at
+// start, gets the container again without it.
+// Mirrors _docker.py in the Python SDK.
+
+import { execFile, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import { randomBytes } from "node:crypto";
+import { homedir, hostname } from "node:os";
+import { delimiter, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright-core";
+import type { Browser } from "playwright-core";
+import { installColorSchemeDefaultConnected } from "./colorscheme.js";
+import { applyGeoipMode, dropAutoWebrtcIp, geoipMode, type GeoFillable } from "./geoip.js";
+import { installHumanize, installHumanizeOnContext } from "./humanize.js";
+import { RUNTIME_BINDINGS_SWITCH, STOCK_RUNTIME_SWITCH, runtimeBindingsWanted, stockRuntimeWanted } from "./launchopts.js";
+import { resolveLicenseKey } from "./license.js";
+import { nativeMacosSupported } from "./release.js";
+
+export const DEFAULT_REPOSITORY = "teamflatearth/clearcote";
+export const TEST_ONLY_ASSUME_MACOS = "CLEARCOTE_TEST_ONLY_ASSUME_MACOS";
+const LABEL = "com.clearcotelabs.sdk-launch=1";
+// Who started a container: sweepStale() removes the ones whose owner process is gone.
+const OWNER_HOST_LABEL = "com.clearcotelabs.owner-host";
+const OWNER_TOKEN_LABEL = "com.clearcotelabs.owner-token";
+// The largest pid an owner record can name: no system has larger ones, and process.kill() throws
+// ERR_INVALID_ARG_TYPE beyond it (which pidAlive() would read as "gone").
+const PID_MAX = 2 ** 31 - 1;
+// The image's serve protocol (docker/serve.py's SERVE_PROTOCOL, carried as this image label). 2: takes
+// CC_SECRETS_FILE and CC_IDLE_EXIT_SECONDS and logs a serve-state line. An image without the label is older.
+const PROTOCOL_LABEL = "com.clearcotelabs.serve-protocol";
+export const SERVE_PROTOCOL = 2;
+const FIRST_PROTOCOL_TAG = "sdk-0.40.0"; // the first published image that speaks it
+// A container stops itself once no CDP client has been connected for this long (serve.py's
+// CC_IDLE_EXIT_SECONDS). CLEARCOTE_DOCKER_IDLE_EXIT overrides it; 0 turns it off.
+const DEFAULT_IDLE_EXIT_S = 30;
+const DEFAULT_CACHE_VOLUME = "clearcote-cache";
+// The licence key and the proxy URL (it may carry a password) reach the container as this file, copied in
+// with `docker cp` and deleted by serve.py once read, not as -e variables `docker inspect` would show.
+const SECRET_ENV = ["CLEARCOTE_LICENSE_KEY", "CC_PROXY"];
+const SECRETS_FILE = "/tmp/clearcote-secrets.json";
+const IMAGE_UID = 10001; // the image's user (cc)
+// An image of this serve protocol runs Chrome's sandbox when the container allows it, so it is started with this
+// seccomp profile: Docker's default plus the namespace calls the sandbox makes (docker/seccomp.json).
+export const SANDBOX_PROTOCOL = 3;
+// An image of this serve protocol fills an unset CC_WEBRTC_IP from the egress itself (docker/webrtc_ip.py), as geoip
+// does here, and takes CC_WEBRTC_IP=off to leave it unset: what this side passes when its own geoip is off. An older
+// image would put "off" on chrome's line as an address, so it never gets it.
+export const WEBRTC_IP_PROTOCOL = 4;
+export const SECCOMP_PROFILE = fileURLToPath(new URL("../docker-seccomp.json", import.meta.url));
+const SECCOMP_REFUSED = /seccomp/i;
+const X86_64 = ["x86_64", "amd64"]; // the daemon architectures that run the linux/amd64 image natively
+const TRUTHY = ["1", "true", "yes", "on"];
+const FALSY = ["0", "false", "no", "off"];
+// The image starts a virtual display, Chromium and (with a licence) fetches the licensed engine on its
+// first run: well past Playwright's 30 s connect default, so the wait for CDP gets its own budget.
+const READY_TIMEOUT_MS = 180_000;
+const CONNECT_TIMEOUT_MS = 120_000;
+const INSTALL_URL = "https://docs.docker.com/desktop/setup/install/mac-install/";
+const OFF_HINT = "To launch without Docker, pass docker: false (or set CLEARCOTE_DOCKER=0) and executablePath to a compatible Clearcote binary.";
+
+const SDK_VERSION: string = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version as string;
+  } catch {
+    return "unknown";
+  }
+})();
+
+/** launch() needs Docker on this host (a Mac without the native PRO build) and it is missing or not running. */
+export class DockerUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DockerUnavailableError";
+  }
+}
+
+/** The Docker options of launch(). */
+export interface DockerOption {
+  /** Run Clearcote in its Docker image. Unset: on macOS, unless executablePath / CLEARCOTE_BINARY names a
+   * binary or a licence key on an Apple Silicon Mac selects the native PRO build. false (or CLEARCOTE_DOCKER=0) turns it off;
+   * true uses the image on any OS. */
+  docker?: boolean;
+  /** The image to run. Default CLEARCOTE_DOCKER_IMAGE, else teamflatearth/clearcote:sdk-<SDK version>. */
+  dockerImage?: string;
+}
+
+// launch() option -> the image's CC_* variable.
+const STR_ENV: Record<string, string> = {
+  fingerprint: "CC_FINGERPRINT", platform: "CC_PLATFORM", platformVersion: "CC_PLATFORM_VERSION",
+  brand: "CC_BRAND", brandVersion: "CC_BRAND_VERSION", gpuVendor: "CC_GPU_VENDOR", gpuRenderer: "CC_GPU_RENDERER",
+  timezone: "CC_TIMEZONE", acceptLanguage: "CC_ACCEPT_LANGUAGE", webrtcIp: "CC_WEBRTC_IP", webrtcMdns: "CC_WEBRTC_MDNS",
+  tlsProfile: "CC_TLS_PROFILE", version: "CC_VERSION",
+};
+const INT_ENV: Record<string, string> = {
+  hardwareConcurrency: "CC_HARDWARE_CONCURRENCY", deviceMemory: "CC_DEVICE_MEMORY", colorDepth: "CC_COLOR_DEPTH",
+  maxTouchPoints: "CC_MAX_TOUCH_POINTS", storageQuota: "CC_STORAGE_QUOTA",
+};
+const FLOAT_ENV: Record<string, string> = { devicePixelRatio: "CC_DEVICE_PIXEL_RATIO" };
+const BOOL_ENV: Record<string, string> = {
+  lightStealth: "CC_LIGHT_STEALTH", disableGpuFingerprint: "CC_DISABLE_GPU_FINGERPRINT",
+  fingerprintNoise: "CC_FINGERPRINT_NOISE", canvasNoise: "CC_CANVAS_NOISE", gpuStringSpoof: "CC_GPU_STRING_SPOOF",
+  flatAreaNoise: "CC_FLAT_AREA_NOISE", webglReadMargin: "CC_WEBGL_READ_MARGIN",
+};
+const SPECIAL = ["location", "fingerprintProfile", "headless", "proxy", "args", "licenseKey", "licenseApiBase", "personaEnv", "stockRuntime", "runtimeBindings", "geoip"];
+const SDK_SIDE = ["timeout", "slowMo", "humanize", "showCursor", "quiet", "docker", "dockerImage", "ephemeralProfile"];
+export const DOCKER_ACCEPTED: readonly string[] = [
+  ...Object.keys(STR_ENV), ...Object.keys(INT_ENV), ...Object.keys(FLOAT_ENV), ...Object.keys(BOOL_ENV), ...SPECIAL, ...SDK_SIDE,
+];
+
+export function hostIsMacos(): boolean {
+  return process.platform === "darwin" || (process.env[TEST_ONLY_ASSUME_MACOS] ?? "").trim() === "1";
+}
+
+/** Whether this launch runs in the Clearcote Docker image (see the header). */
+export function dockerRequested(docker: unknown, options: Record<string, unknown> = {}): boolean {
+  if (docker !== undefined && docker !== null) {
+    if (typeof docker === "string") return TRUTHY.includes(docker.trim().toLowerCase()); // "0" from a config file is off
+    return !!docker;
+  }
+  if (options.executablePath) return false; // the caller named a binary: theirs to run
+  const env = (process.env.CLEARCOTE_DOCKER ?? "").trim().toLowerCase();
+  if (FALSY.includes(env)) return false;
+  if (TRUTHY.includes(env)) return true;
+  if (process.env.CLEARCOTE_BINARY) return false;
+  if (!hostIsMacos()) return false;
+  // An Apple Silicon Mac runs a native build: the PRO one with a licence key, the open macOS pin
+  // (release.ts MACOS) without. Neither has an Intel build, so an Intel Mac keeps the image.
+  return !nativeMacosHost();
+}
+
+/**
+ * Whether this host runs a native macOS build: a real Apple Silicon Mac (not the test-only assume-macOS
+ * switch, which exists to exercise the Docker path).
+ */
+export function nativeMacosHost(): boolean {
+  return nativeMacosSupported(process.platform);
+}
+
+export function defaultImage(): string {
+  return process.env.CLEARCOTE_DOCKER_IMAGE || `${DEFAULT_REPOSITORY}:sdk-${SDK_VERSION}`;
+}
+
+/** A proxy's username or password escaped for its URL as the Python and .NET SDKs do it (quote(safe="") and
+ * Uri.EscapeDataString): everything but A-Z a-z 0-9 - . _ ~. encodeURIComponent alone leaves ! ' ( ) * as they are. */
+const escapeLogin = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+
+function proxyUrl(proxy: unknown): string {
+  if (typeof proxy === "string") return proxy;
+  const p = proxy as { server?: string; username?: string; password?: string } | null;
+  if (!p || !p.server) throw new TypeError("proxy must be a URL or { server, username?, password? }");
+  const i = p.server.indexOf("://");
+  const scheme = i < 0 ? "http" : p.server.slice(0, i);
+  let rest = i < 0 ? p.server : p.server.slice(i + 3);
+  if (p.username || p.password) rest = `${escapeLogin(p.username ?? "")}:${escapeLogin(p.password ?? "")}@${rest}`;
+  return `${scheme}://${rest}`;
+}
+
+/** The CC_* (and licence) variables the image is started with. Throws naming the first option the
+ * image cannot take. */
+/**
+ * `{ CC_WEBRTC_IP: "off" }` when geoip is off and no WebRTC IP was given, for an image that would otherwise fill it
+ * from the egress itself (WEBRTC_IP_PROTOCOL): geoip: false means no lookup and no filled-in WebRTC IP, in the
+ * container as in a launch here. Else nothing.
+ */
+export function webrtcIpOffEnv(protocol: number, geoipOff: boolean, env: Record<string, string>): Record<string, string> {
+  return protocol >= WEBRTC_IP_PROTOCOL && geoipOff && env.CC_WEBRTC_IP === undefined ? { CC_WEBRTC_IP: "off" } : {};
+}
+
+export function containerEnv(options: Record<string, unknown>): Record<string, string> {
+  // widevine: false: the opt-out of the licensed LOCAL default; the container has no default to turn off, so it is
+  // accepted and dropped (widevine: true is still refused).
+  const unknown = Object.keys(options)
+    .filter((k) => !DOCKER_ACCEPTED.includes(k) && options[k] !== undefined && options[k] !== null && !(k === "widevine" && options[k] === false))
+    .sort();
+  if (unknown.length) {
+    const takes = DOCKER_ACCEPTED.filter((k) => !SDK_SIDE.includes(k)).sort().join(", ");
+    throw new TypeError(`${unknown[0]} is not available when launch() runs Clearcote in Docker (there is no native macOS build here). The container takes: ${takes}. ${OFF_HINT}`);
+  }
+  const env: Record<string, string> = {};
+  const has = (k: string) => options[k] !== undefined && options[k] !== null;
+  for (const [k, name] of Object.entries(STR_ENV)) {
+    if (!has(k)) continue;
+    if (typeof options[k] === "boolean") throw new TypeError(`${k}: ${options[k]} is not available when launch() runs Clearcote in Docker`);
+    env[name] = String(options[k]);
+  }
+  for (const [k, name] of Object.entries(INT_ENV)) if (has(k)) env[name] = String(Math.trunc(Number(options[k])));
+  for (const [k, name] of Object.entries(FLOAT_ENV)) if (has(k)) env[name] = String(Number(options[k]));
+  for (const [k, name] of Object.entries(BOOL_ENV)) if (has(k)) env[name] = options[k] ? "1" : "0"; // false is a value
+  if (has("location")) env.CC_LOCATION = Array.isArray(options.location) ? options.location.join(",") : String(options.location);
+  if (has("fingerprintProfile")) {
+    const prof = options.fingerprintProfile;
+    if (typeof prof === "object") env.CC_FINGERPRINT_PROFILE = JSON.stringify(prof);
+    else if (typeof prof === "string" && existsSync(prof) && statSync(prof).isFile()) env.CC_FINGERPRINT_PROFILE = readFileSync(prof, "utf8"); // a path on THIS machine
+    else env.CC_FINGERPRINT_PROFILE = String(prof);
+  }
+  if (options.headless === true) env.CC_HEADLESS = "1"; // unset or false: the image's default, headed on its own display
+  if (options.proxy) env.CC_PROXY = proxyUrl(options.proxy);
+  const args = [...((options.args as string[] | undefined) ?? [])];
+  const bad = args.find((a) => !String(a) || /\s/.test(String(a)));
+  if (bad !== undefined) throw new TypeError(`args ${JSON.stringify(bad)}: an argument with whitespace cannot be passed to the Docker image`);
+  // stockRuntime (engine r32+) goes in with the other engine switches; the image's entrypoint keeps it only on an
+  // engine that has it, as a launch here does (docker/serve.py).
+  if (stockRuntimeWanted(options.stockRuntime) && !args.map(String).includes(STOCK_RUNTIME_SWITCH)) args.push(STOCK_RUNTIME_SWITCH);
+  // runtimeBindings (engine r54+) the same way; the entrypoint drops it where stockRuntime already restores it.
+  if (runtimeBindingsWanted(options.runtimeBindings) && !args.map(String).includes(RUNTIME_BINDINGS_SWITCH)) args.push(RUNTIME_BINDINGS_SWITCH);
+  if (args.length) env.CC_EXTRA_ARGS = args.join(" ");
+  const key = resolveLicenseKey(options.licenseKey as string | undefined); // as a local launch: option > env > saved key
+  if (key) env.CLEARCOTE_LICENSE_KEY = key;
+  if (options.licenseApiBase) env.CLEARCOTE_LICENSE_API = String(options.licenseApiBase);
+  // Engine patch 1021 (personaenv.ts): the image's entrypoint takes the persona off its chrome's command line by
+  // itself, on an engine that has the switch, and reads the same opt-out a launch here does.
+  if (has("personaEnv")) env.CLEARCOTE_PERSONA_ENV = options.personaEnv ? "1" : "0";
+  return env;
+}
+
+// ── the docker CLI ─────────────────────────────────────────────────────────────────────────────────
+
+export interface CliResult { code: number; stdout: string; stderr: string }
+
+/** A starting container's log, kept in memory (it is created with --rm: once stopped, its log is gone). The
+ * lines saying what the entrypoint applied (serve-state, engine, proxy) are kept apart in `marks`, whatever
+ * Chrome logs after them. */
+export interface LogTail { text(waitMs?: number): Promise<string>; waitMarks(pattern: RegExp, waitMs?: number): Promise<string[]>; stop(): void }
+
+const MARK = /\[clearcote\] (serve-state |engine: |proxy: )/;
+
+function findOnPath(name: string): string | null {
+  const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) {
+      const p = join(dir, name + ext.toLowerCase());
+      try { if (statSync(p).isFile()) return p; } catch { /* not here */ }
+    }
+  }
+  return null;
+}
+
+function followLogs(exe: string, id: string): LogTail {
+  const lines: string[] = [];
+  const marks: string[] = [];
+  let buf = "";
+  let child: ReturnType<typeof spawn> | null = null;
+  let done: Promise<void> = Promise.resolve();
+  try {
+    child = spawn(exe, ["logs", "--follow", id], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const onData = (c: Buffer) => {
+      buf += c.toString("utf8");
+      const parts = buf.split(/\r?\n/);
+      buf = parts.pop() ?? "";
+      lines.push(...parts);
+      marks.push(...parts.filter((l) => MARK.test(l)));
+      if (lines.length > 40) lines.splice(0, lines.length - 40);
+    };
+    child.stdout!.on("data", onData);
+    child.stderr!.on("data", onData);
+    done = new Promise((r) => { child!.once("close", () => r()); child!.once("error", () => r()); });
+  } catch { /* no log, then */ }
+  return {
+    async text(waitMs = 3000) {
+      // the container is gone: the follower ends with its last line
+      await Promise.race([done, new Promise((r) => setTimeout(r, waitMs))]);
+      return [...lines, buf].filter(Boolean).join("\n");
+    },
+    async waitMarks(pattern, waitMs = 10_000) {
+      const deadline = Date.now() + waitMs;
+      while (Date.now() < deadline && !marks.some((m) => pattern.test(m))) await new Promise((r) => setTimeout(r, 50));
+      return [...marks];
+    },
+    stop() { if (child && child.exitCode === null) child.kill(); },
+  };
+}
+
+/** The docker CLI. Seams: tests replace `which`, `run` and `followLogs`. */
+export const dockerCli = {
+  which: (): string | null => findOnPath("docker"),
+  run: (argv: string[], env?: Record<string, string>, timeoutMs = 120_000, input?: Buffer): Promise<CliResult> =>
+    new Promise((resolve) => {
+      const child = execFile(argv[0], argv.slice(1), { env: env ? { ...process.env, ...env } : process.env, timeout: timeoutMs, maxBuffer: 16 << 20, windowsHide: true },
+        (error, stdout, stderr) => {
+          const e = error as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null;
+          const code = !e ? 0 : typeof e.code === "number" ? e.code : e.killed ? 124 : 127;
+          resolve({ code, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") || (e && !stderr ? e.message : "") });
+        });
+      if (input !== undefined) child.stdin?.end(input);
+    }),
+  followLogs,
+};
+
+const firstLine = (t: string): string => (t ?? "").split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? "";
+
+/** The docker executable, or DockerUnavailableError saying what to do. */
+/** The docker executable and the daemon's CPU architecture as `docker info` reports it ("x86_64", "aarch64", or ""
+ * when it does not say), from one `docker info` (it takes about a second on Docker Desktop), or
+ * DockerUnavailableError saying what to do. */
+export async function dockerInfo(): Promise<{ exe: string; arch: string }> {
+  const exe = dockerCli.which();
+  if (!exe) {
+    throw new DockerUnavailableError(
+      `Clearcote has no native macOS build here (that needs a licence key and an Apple Silicon Mac), so on macOS launch() runs it in Docker, but the \`docker\` command was not found. Install Docker Desktop (${INSTALL_URL}), start it, and try again. ${OFF_HINT}`);
+  }
+  const r = await dockerCli.run([exe, "info", "--format", "{{.ServerVersion}} {{.Architecture}}"], undefined, 30_000);
+  if (r.code !== 0) {
+    throw new DockerUnavailableError(
+      `Clearcote has no native macOS build here (that needs a licence key and an Apple Silicon Mac), so on macOS launch() runs it in Docker, but Docker is not running (\`docker info\`: ${firstLine(r.stderr) || `exit ${r.code}`}). Start Docker Desktop and try again. ${OFF_HINT}`);
+  }
+  return { exe, arch: r.stdout.trim().split(/\s+/)[1] ?? "" };
+}
+
+/** The docker executable, or DockerUnavailableError saying what to do. */
+export async function checkDocker(): Promise<string> {
+  return (await dockerInfo()).exe;
+}
+
+const warned = new Set<string>(); // the warnings this process has given once already
+function warnOnce(key: string, message: string, quiet: boolean): void {
+  if (quiet || warned.has(key)) return;
+  warned.add(key);
+  process.stderr.write(`${message}\n`);
+}
+/** Forget the warnings given once (for tests). */
+export function resetWarnings(): void { warned.clear(); }
+
+/** How long a launched container waits with no CDP client before it stops itself: CLEARCOTE_DOCKER_IDLE_EXIT
+ * (seconds, 0 = never), default 30. */
+export function idleExitSeconds(): number {
+  const raw = (process.env.CLEARCOTE_DOCKER_IDLE_EXIT ?? "").trim();
+  if (!raw) return DEFAULT_IDLE_EXIT_S;
+  if (!/^\d+$/.test(raw)) throw new TypeError(`CLEARCOTE_DOCKER_IDLE_EXIT=${JSON.stringify(raw)} is not a whole number of seconds`);
+  return Number(raw);
+}
+
+/** The named volume a licensed container keeps its engine in (shared, so it downloads once):
+ * CLEARCOTE_DOCKER_CACHE_VOLUME, default clearcote-cache. */
+export function cacheVolume(): string {
+  return (process.env.CLEARCOTE_DOCKER_CACHE_VOLUME ?? "").trim() || DEFAULT_CACHE_VOLUME;
+}
+
+export function pidAlive(pid: number): boolean {
+  if (!(pid > 0)) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM"; // exists, but not ours to signal
+  }
+}
+
+// ── who owns a container ───────────────────────────────────────────────────────────────────────────
+// A container carries a random per-process token (OWNER_TOKEN_LABEL); the owner writes a record under
+// ~/.clearcote/docker-owners/<token>.json saying which process it is: pid, a start marker that changes when
+// the pid is reused, its host name and (Linux) its PID namespace and boot id. A sweeper only judges a record it
+// can verify completely: one in its own home, written on this host, from this boot and PID namespace -- every
+// one of those fields as this process would write it, so a record written on another OS into a shared home (no
+// namespace or boot id), in a container given the Docker socket (another namespace), next to Windows in WSL2,
+// or on another machine is left alone, and so is a pid that is not a positive 32-bit number. When in doubt,
+// nothing is removed: the container's idle exit still stops it. The record format is shared by the Python, Node
+// and .NET SDKs, so any of them can sweep any other's containers.
+
+const readText = (path: string): string | null => {
+  try { return readFileSync(path, "utf8").trim(); } catch { return null; }
+};
+/** What this host says about processes: /proc where there is one, `ps` elsewhere. Seams: tests replace members. */
+export const hostProbe = {
+  platform: (): string => process.platform,
+  readText,
+  bootId: (): string | null => readText("/proc/sys/kernel/random/boot_id"),
+  pidNamespace: (): string | null => {
+    try { return readlinkSync("/proc/self/ns/pid"); } catch { return null; }
+  },
+  spawnSync: spawnSync as typeof spawnSync,
+};
+const bootId = () => hostProbe.bootId();
+const pidNamespace = () => hostProbe.pidNamespace();
+
+/** `ps -o lstart=` prints local time, in the locale's words. Pinned, so an owner and a sweeper that run with
+ * different TZ / LANG settings (or one script that changes TZ between launches) read the same string for the
+ * same process. Without it a sweeper in another time zone took a live owner for a reused pid. */
+export const PS_ENV = { TZ: "UTC0", LC_ALL: "C" } as const;
+
+/** A marker that differs once `pid` belongs to another process (it was reused), or null when it cannot be
+ * read here. Linux: the start time from /proc; macOS: `ps -o lstart=` in UTC and the C locale; Windows: not
+ * readable from Node (null: the pid alone is then trusted, which only ever keeps a container). The same
+ * strings in all three SDKs. */
+export function processStart(pid: number): string | null {
+  const stat = hostProbe.readText(`/proc/${pid}/stat`);
+  if (stat) {
+    const f = stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/);
+    return f[19] ? `linux:${f[19]}` : null;
+  }
+  if (hostProbe.platform() === "win32") return null;
+  try {
+    const r = hostProbe.spawnSync("ps", ["-o", "lstart=", "-p", String(pid)],
+      { encoding: "utf8", timeout: 10_000, env: { ...process.env, ...PS_ENV } });
+    const out = String(r.stdout ?? "").split(/\s+/).filter(Boolean).join(" ");
+    return r.status === 0 && out ? `ps-utc:${out}` : null;
+  } catch {
+    return null;
+  }
+}
+
+const ownersDir = () => join(homedir(), ".clearcote", "docker-owners");
+let ownerTokenValue: string | null = null;
+
+/** This process's owner token, recording it (once) under ~/.clearcote/docker-owners/. */
+export function ownerToken(): string {
+  if (ownerTokenValue) return ownerTokenValue;
+  const token = randomBytes(16).toString("hex");
+  const record = { token, pid: process.pid, start: processStart(process.pid), pidns: pidNamespace(), boot: bootId(), host: hostname(), sdk: "node" };
+  const path = join(ownersDir(), `${token}.json`);
+  try {
+    mkdirSync(ownersDir(), { recursive: true });
+    writeFileSync(path, JSON.stringify(record));
+    process.once("exit", () => { try { rmSync(path, { force: true }); } catch { /* best-effort */ } });
+  } catch { /* no record: other launches leave its containers alone, and idle exit still ends them */ }
+  ownerTokenValue = token;
+  return token;
+}
+
+/** Forget this process's token (tests: a new HOME gets a new record). */
+export function resetOwnerToken(): void { ownerTokenValue = null; }
+
+type OwnerRecord = { pid?: unknown; start?: string | null; pidns?: string | null; boot?: string | null; host?: unknown };
+
+/** The fields an owner record from this process would carry besides its pid and start marker. */
+export const ownerHere = () => ({ host: hostname(), boot: bootId(), pidns: pidNamespace() });
+
+const markerKind = (m: unknown) => (typeof m === "string" && m.includes(":") ? m.slice(0, m.indexOf(":")) : null);
+
+/** true or false for the owner a record describes, or null when that cannot be told for certain here: a record
+ * whose host, boot id or PID namespace is not exactly what this process would record (missing ones included),
+ * or whose pid is not a positive 32-bit integer (PID_MAX at most). A pid that is alive with a start marker of the
+ * same kind but another value was reused (false); one whose marker cannot be compared counts as alive. */
+export function ownerAlive(rec: OwnerRecord): boolean | null {
+  const here = ownerHere();
+  if (!here.host || typeof rec.host !== "string" || rec.host.toLowerCase() !== here.host.toLowerCase()) return null;
+  if ((rec.boot ?? null) !== here.boot || (rec.pidns ?? null) !== here.pidns) return null;
+  if (typeof rec.pid !== "number" || !Number.isInteger(rec.pid) || rec.pid <= 0 || rec.pid > PID_MAX) return null;
+  if (!pidAlive(rec.pid)) return false;
+  if (rec.start) {
+    const now = processStart(rec.pid);
+    if (now && markerKind(now) === markerKind(rec.start) && now !== rec.start) return false; // the pid was reused
+  }
+  return true;
+}
+
+function loadRecord(path: string): OwnerRecord | null {
+  try {
+    const rec = JSON.parse(readFileSync(path, "utf8"));
+    return rec && typeof rec === "object" ? (rec as OwnerRecord) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stop and remove containers an earlier launch left behind whose owner process is certainly gone (killed,
+ * crashed): their token's record is in this home, from this boot and PID namespace, and its process no longer
+ * exists. They would stop on their own after the idle period; this frees their licence seat now. Anything else
+ * -- live owners, owners in another namespace or on another machine, containers without a token -- is left
+ * alone. Resolves to the ids removed.
+ */
+export async function sweepStale(exe: string): Promise<string[]> {
+  const fmt = `{{.ID}}\t{{.Label "${OWNER_TOKEN_LABEL}"}}`;
+  const r = await dockerCli.run([exe, "ps", "-a", "--filter", `label=${LABEL}`, "--format", fmt], undefined, 30_000);
+  const stale: string[] = [];
+  const dead = new Set<string>();
+  for (const line of r.code === 0 ? r.stdout.split(/\r?\n/) : []) {
+    const parts = line.trim().split("\t");
+    if (parts.length !== 2 || !/^[0-9a-f]{32}$/.test(parts[1])) continue; // no owner token (an older SDK): not ours to judge
+    const path = join(ownersDir(), `${parts[1]}.json`);
+    const rec = loadRecord(path);
+    if (rec && ownerAlive(rec) === false) {
+      stale.push(parts[0]);
+      dead.add(path);
+    }
+  }
+  if (stale.length) {
+    await dockerCli.run([exe, "stop", "--time", "10", ...stale], undefined, 120_000);
+    await dockerCli.run([exe, "rm", "-f", "-v", ...stale], undefined, 60_000);
+  }
+  try { // the records of owners that are certainly gone
+    for (const name of readdirSync(ownersDir())) {
+      const path = join(ownersDir(), name);
+      const rec = name.endsWith(".json") ? loadRecord(path) : null;
+      if (dead.has(path) || (rec && ownerAlive(rec) === false)) rmSync(path, { force: true });
+    }
+  } catch { /* no records */ }
+  return stale;
+}
+
+const live = new Map<string, string>(); // container id -> docker executable, for the exit-time sweep
+let sweepInstalled = false;
+
+/** How long removeContainer waits for the container to be gone, and how often it looks. A seam: tests shorten it. */
+export const removal = { waitMs: 15_000, pollMs: 250 };
+
+/** Waits, for up to `removal.waitMs`, until `docker ps -a` no longer lists the container. False only when it is
+ * still listed once the wait is up; a docker CLI that does not answer ends the wait. Never throws. */
+async function waitGone(exe: string, id: string): Promise<boolean> {
+  const deadline = Date.now() + removal.waitMs;
+  for (;;) {
+    const r = await dockerCli.run([exe, "ps", "-a", "-q", "--no-trunc", "--filter", `id=${id}`], undefined, Math.max(deadline - Date.now(), 1000));
+    if (r.code !== 0 || !r.stdout.trim()) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((res) => setTimeout(res, removal.pollMs));
+  }
+}
+
+export async function removeContainer(exe: string, id: string): Promise<void> {
+  // stop first: SIGTERM lets the image release a licence seat. The container was created with --rm, so
+  // stopping it removes it and its anonymous volume (the image declares VOLUME /opt/xdg-cache: ~0.5 GB);
+  // rm -f -v is for a container that did not go away. A named volume is never removed.
+  await dockerCli.run([exe, "stop", "--time", "10", id], undefined, 60_000);
+  await dockerCli.run([exe, "rm", "-f", "-v", id], undefined, 60_000);
+  // The daemon's own --rm removal starts once the container has stopped and runs on after `docker stop`
+  // returns; `docker rm` meanwhile answers "removal ... already in progress" at once. Wait for it to finish,
+  // so that close() resolving means the container is gone. A container still there after the wait (its
+  // removal failed: Docker marks it Dead) gets one more rm -f -v, which takes the volume too.
+  if (!(await waitGone(exe, id))) await dockerCli.run([exe, "rm", "-f", "-v", id], undefined, 60_000);
+  live.delete(id);
+}
+
+function installSweep(): void {
+  if (sweepInstalled) return;
+  sweepInstalled = true;
+  // A normal exit removes what a caller never closed ("exit" handlers must be synchronous). Ctrl-C, a kill
+  // or a crash never runs this: the container's idle exit and the next launch's sweepStale cover those.
+  process.once("exit", () => {
+    for (const [id, exe] of live) {
+      try { spawnSync(exe, ["rm", "-f", "-v", id], { timeout: 30_000, windowsHide: true }); } catch { /* best-effort */ }
+    }
+  });
+}
+
+function cdpReady(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get({ host: "127.0.0.1", port, path: "/json/version", timeout: 2000 }, (res) => {
+      let body = "";
+      res.on("data", (c) => (body += c));
+      res.on("end", () => resolve(res.statusCode === 200 && body.includes("webSocketDebuggerUrl")));
+    });
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => resolve(false));
+  });
+}
+
+async function publishedPort(exe: string, id: string): Promise<number> {
+  const r = await dockerCli.run([exe, "port", id, "9222/tcp"], undefined, 30_000);
+  for (const line of r.stdout.split(/\r?\n/)) {
+    const m = /:(\d+)\s*$/.exec(line.trim());
+    if (m) return Number(m[1]);
+  }
+  throw new Error(`could not read the container's published CDP port (${firstLine(r.stderr) || JSON.stringify(r.stdout)})`);
+}
+
+async function waitReady(exe: string, id: string, port: number, budgetMs: number, logs: LogTail): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    if (await cdpReady(port)) return;
+    const st = await dockerCli.run([exe, "inspect", "-f", "{{.State.Running}}", id], undefined, 30_000);
+    if (st.code !== 0 || st.stdout.trim() !== "true") { // stopped (and, with --rm, already gone)
+      throw new Error(`the Clearcote container stopped before its browser came up:\n${(await logs.text()).trim() || "(it left no log)"}`);
+    }
+    if (Date.now() >= deadline) throw new Error(`the Clearcote container's CDP endpoint did not answer within ${Math.round(budgetMs / 1000)} s`);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+const VOLUME_INIT_RACE = /volumes\/[^/\s]+\/_data\S*: (?:file exists|no such file)/i;
+// A tag that is not there: Docker 29 says `failed to resolve reference "docker.io/...:tag": ...: not found`;
+// older ones `manifest unknown` / `manifest for ... not found`. Docker 29 reports a registry it cannot reach with
+// the same "failed to resolve reference" opening, so that phrase alone proves nothing: the network wordings are
+// looked for first.
+const NOT_PUBLISHED = /manifest unknown|manifest for .* not found|not found: manifest|pull access denied|repository does not exist|: not found\s*$/im;
+const REGISTRY_UNREACHABLE = /dial tcp|no such host|i\/o timeout|connection refused|connection reset|network is unreachable|no route to host|TLS handshake timeout|context deadline exceeded|failed to do request|Client\.Timeout|temporary failure in name resolution|server misbehaving/i;
+
+function imageFailed(image: string, code: number, stderr: string, what = "docker pull"): Error {
+  const detail = stderr.trim() || `exit ${code}`;
+  if (REGISTRY_UNREACHABLE.test(detail)) {
+    return new Error(`could not download the Clearcote image ${image}: the registry did not answer (${firstLine(detail)}). Check this machine's network (and any proxy Docker itself needs), or set CLEARCOTE_DOCKER_IMAGE / dockerImage to an image that is already here (\`docker images ${DEFAULT_REPOSITORY}\`).`);
+  }
+  if (NOT_PUBLISHED.test(detail)) {
+    const why = image === `${DEFAULT_REPOSITORY}:sdk-${SDK_VERSION}`
+      ? `Each image is published a few minutes after its SDK release (it is built from the PyPI package of the same version), so a brand-new SDK can be ahead of its image: try again in a few minutes. To launch meanwhile, set CLEARCOTE_DOCKER_IMAGE to an earlier tag of ${DEFAULT_REPOSITORY} (${DEFAULT_REPOSITORY}:latest is the newest published one). An image older than ${FIRST_PROTOCOL_TAG} still works, but the licence key and the proxy reach it as container variables that \`docker inspect\` shows, and it does not stop on its own if this program dies; launch() says so when that happens.`
+      : "Check the name, or unset CLEARCOTE_DOCKER_IMAGE / dockerImage to use the default.";
+    return new Error(`the Clearcote image ${image} is not available (${firstLine(detail)}). ${why}`);
+  }
+  return new Error(`\`${what} ${image}\` failed: ${detail}\n(set CLEARCOTE_DOCKER_IMAGE or dockerImage to use another image)`);
+}
+
+/** The serve protocol `image` speaks (its PROTOCOL_LABEL; 0 for an image without it), pulling the image first
+ * when it is not here. Known before a container exists, so the settings a container gets are always ones its
+ * entrypoint understands. */
+export async function imageProtocol(exe: string, image: string, quiet = false): Promise<number> {
+  const fmt = "{{json .Config.Labels}}";
+  let r = await dockerCli.run([exe, "image", "inspect", "--format", fmt, image], undefined, 60_000);
+  if (r.code !== 0) {
+    if (!quiet) process.stderr.write(`[clearcote] downloading the Clearcote Docker image ${image}\n`);
+    const pull = await dockerCli.run([exe, "pull", "--platform", "linux/amd64", image], undefined, 1_800_000);
+    if (pull.code !== 0) throw imageFailed(image, pull.code, pull.stderr);
+    r = await dockerCli.run([exe, "image", "inspect", "--format", fmt, image], undefined, 60_000);
+    if (r.code !== 0) throw imageFailed(image, r.code, r.stderr, "docker image inspect");
+  }
+  try {
+    const labels = JSON.parse(r.stdout.trim() || "null") ?? {};
+    const n = parseInt(String(labels[PROTOCOL_LABEL] ?? "0"), 10);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function proxyHostPort(url: string | null | undefined): [string | null, number | null] {
+  if (!url) return [null, null];
+  try {
+    const u = new URL(url.includes("://") ? url : `http://${url}`);
+    return [u.hostname.toLowerCase().replace(/^\[|\]$/g, ""), u.port ? Number(u.port) : null];
+  } catch {
+    return [null, null];
+  }
+}
+
+/** [scheme, whether the proxy URL carries a username or password, whether they are percent-escaped], read from the
+ * URL as written, as the Python SDK reads it: the userinfo is what comes before the last '@' of the authority. (The
+ * URL parser escapes a space, '^' or an inner '@' itself, which made a login written without escapes look escaped.) */
+function proxyLogin(url: string): [string, boolean, boolean] {
+  const i = url.indexOf("://");
+  const rest = i < 0 ? url : url.slice(i + 3);
+  const authority = rest.split(/[/?#]/, 1)[0];
+  const at = authority.lastIndexOf("@");
+  const info = at < 0 ? "" : authority.slice(0, at);
+  return [i < 0 ? "http" : url.slice(0, i).toLowerCase(), info !== "" && info !== ":", info.includes("%")];
+}
+
+/** Why an image older than FIRST_PROTOCOL_TAG cannot take this proxy, or null. Its entrypoint drops the password
+ * of an http(s) proxy (Chrome is then challenged and nothing answers: every request fails), and hands a SOCKS5
+ * password to an engine switch only the licensed engine has -- as written in the URL, without decoding it, so a
+ * username or password with characters that have to be escaped there arrives wrong. */
+export function legacyProxyRefusal(image: string, proxyUrlValue: string | null | undefined, licensed: boolean): string | null {
+  if (!proxyUrlValue) return null;
+  const [scheme, creds, escaped] = proxyLogin(proxyUrlValue);
+  if (!creds || (scheme.startsWith("socks5") && licensed && !escaped)) return null;
+  const what = scheme.startsWith("http") ? "an HTTP proxy that needs a password"
+    : !licensed ? "a SOCKS5 proxy that needs a password without a licence key (its open engine cannot log in)"
+      : "a SOCKS5 proxy that needs a password with characters a URL has to escape (it would send them escaped)";
+  return `the Clearcote image ${image} predates ${FIRST_PROTOCOL_TAG} and cannot use ${what}: every request through it would fail. Use ${DEFAULT_REPOSITORY}:${FIRST_PROTOCOL_TAG} or newer (the default image is), or a proxy that does not need a password.`;
+}
+
+/** What the container did not apply that was asked for (empty when all is well), from the lines its
+ * entrypoint logged: serve-state (protocol 2) or, for an older image, its engine and proxy lines. */
+export function verifyApplied(marks: string[], protocol: number, expect: { licensed: boolean; proxy?: string | null }): string[] {
+  const problems: string[] = [];
+  let engine: string | null;
+  let proxy: string | null;
+  let proxyAuth: unknown = null;
+  if (protocol >= 2) {
+    let state: { engine?: string; proxy?: string | null; proxy_auth?: unknown } | null = null;
+    for (const line of marks) {
+      const i = line.indexOf("serve-state ");
+      if (i >= 0) { try { state = JSON.parse(line.slice(i + "serve-state ".length)); } catch { state = null; } }
+    }
+    if (!state || typeof state !== "object") return ["it did not report what it applied (no serve-state line)"];
+    engine = state.engine ?? null;
+    proxy = state.proxy ?? null;
+    proxyAuth = state.proxy_auth ?? null;
+  } else {
+    const engineLine = marks.find((m) => m.includes("] engine: ")) ?? "";
+    engine = engineLine.includes("(licensed)") && engineLine.includes("/pro-") ? "licensed" : engineLine ? "open" : null;
+    const proxyLine = marks.find((m) => m.includes("] proxy: "));
+    proxy = proxyLine ? proxyLine.slice(proxyLine.indexOf("] proxy: ") + "] proxy: ".length).trim() : null;
+  }
+  if (expect.licensed && engine !== "licensed") {
+    problems.push(engine ? "a licence key was given, but it runs the open engine" : "a licence key was given, but it did not say which engine it runs");
+  }
+  if (expect.proxy) {
+    const [wh, wp] = proxyHostPort(expect.proxy);
+    const [gh, gp] = proxyHostPort(proxy);
+    if (!proxy || gh !== wh || (wp && gp && wp !== gp)) {
+      problems.push(proxy ? `it applied a different proxy (${proxy})` : "a proxy was given, but it did not apply it (its traffic would leave from the container's own address)");
+    } else if (protocol >= 2 && proxyLogin(expect.proxy)[1] && proxyAuth !== "engine" && proxyAuth !== "relay") {
+      problems.push("the proxy needs a password, but it did not say it can log in to it (every request through it would fail)");
+    }
+  }
+  return problems;
+}
+
+/** A ustar archive of one file, as `docker cp -` reads it. */
+export function tarOneFile(name: string, data: Buffer, opts: { uid: number; gid: number; mode: number }): Buffer {
+  const header = Buffer.alloc(512, 0);
+  const put = (s: string, off: number, len: number) => header.write(s, off, len, "ascii");
+  const oct = (n: number, len: number) => n.toString(8).padStart(len - 1, "0") + "\0";
+  put(name, 0, 100);
+  put(oct(opts.mode, 8), 100, 8);
+  put(oct(opts.uid, 8), 108, 8);
+  put(oct(opts.gid, 8), 116, 8);
+  put(oct(data.length, 12), 124, 12);
+  put(oct(Math.floor(Date.now() / 1000), 12), 136, 12);
+  put("        ", 148, 8); // checksum is computed with this field as spaces
+  put("0", 156, 1); // a regular file
+  put("ustar\0", 257, 6);
+  put("00", 263, 2);
+  let sum = 0;
+  for (const b of header) sum += b;
+  put(sum.toString(8).padStart(6, "0") + "\0 ", 148, 8);
+  const pad = Buffer.alloc((512 - (data.length % 512)) % 512, 0);
+  return Buffer.concat([header, data, pad, Buffer.alloc(1024, 0)]);
+}
+
+export interface DockerContainer { id: string; image: string; endpoint: string; serveProtocol: number }
+
+/** The docker create options that let Chrome's sandbox run in an image of `protocol`: the seccomp profile for an
+ * image that uses it (SANDBOX_PROTOCOL), nothing for an older one, whose Chrome runs with --no-sandbox anyway and
+ * so keeps Docker's stricter default. */
+export function seccompArgs(protocol: number, arch: string): string[] {
+  // Nothing either on a daemon that is not x86_64. The image is linux/amd64, so there it runs emulated (Docker Desktop
+  // on Apple silicon: aarch64). Under qemu the namespace calls fail and the container falls back; under Rosetta they
+  // may succeed while Chrome's x86_64 seccomp-bpf filter meets the emulator's own syscalls, and tabs could crash
+  // instead. Untested: run the live sandbox tests on Apple silicon with Rosetta on and with it off before passing the
+  // profile there.
+  return protocol >= SANDBOX_PROTOCOL && X86_64.includes(arch) && existsSync(SECCOMP_PROFILE)
+    ? ["--security-opt", `seccomp=${SECCOMP_PROFILE}`] : [];
+}
+
+/** Docker would not run the container with the seccomp profile: at `docker create`, or at `docker start`, which is
+ * where Docker 29 first loads it (a profile its runtime cannot apply, a kernel without seccomp). */
+class ProfileRefused extends Error {}
+
+/** `docker create` (again while Docker's own volume initialisation races), the secrets copied in, `docker start` ->
+ * the running container's id. Leaves nothing behind when it rejects; rejects with ProfileRefused when the seccomp
+ * options `profile` (in `argv`) are what Docker refused, at create or at start. */
+async function createStarted(exe: string, argv: string[], env: Record<string, string>, secrets: Record<string, string>,
+  image: string, profile: string[]): Promise<string> {
+  let r = await dockerCli.run(argv, env, 1_800_000);
+  // Two launches creating their first container on a NEW shared volume at once collide in Docker's own volume
+  // initialisation ("failed to mkdir .../volumes/<name>/_data/...: file exists"); the loser succeeds a moment
+  // later, once the volume has been filled.
+  for (let attempt = 1; attempt < 4 && r.code !== 0 && VOLUME_INIT_RACE.test(r.stderr); attempt++) {
+    await new Promise((res) => setTimeout(res, 1000 * attempt));
+    r = await dockerCli.run(argv, env, 1_800_000);
+  }
+  const id = r.stdout.trim().split(/\r?\n/).pop()?.trim() ?? "";
+  if (r.code !== 0 || !id) {
+    if (profile.length && SECCOMP_REFUSED.test(r.stderr)) throw new ProfileRefused(firstLine(r.stderr));
+    throw imageFailed(image, r.code, r.stderr, "docker create");
+  }
+  live.set(id, exe);
+  installSweep();
+  try {
+    if (Object.keys(secrets).length) {
+      const tar = tarOneFile(SECRETS_FILE.split("/").pop()!, Buffer.from(JSON.stringify(secrets), "utf8"), { uid: IMAGE_UID, gid: IMAGE_UID, mode: 0o600 });
+      const cp = await dockerCli.run([exe, "cp", "-", `${id}:${SECRETS_FILE.slice(0, SECRETS_FILE.lastIndexOf("/"))}`], undefined, 60_000, tar);
+      if (cp.code !== 0) throw new Error(`could not copy the licence/proxy settings into the container: ${firstLine(cp.stderr)}`);
+    }
+    const st = await dockerCli.run([exe, "start", id], undefined, 120_000);
+    if (st.code !== 0 && profile.length && SECCOMP_REFUSED.test(st.stderr)) throw new ProfileRefused(firstLine(st.stderr));
+    if (st.code !== 0) throw new Error(`\`docker start\` failed: ${st.stderr.trim() || `exit ${st.code}`}`);
+  } catch (e) {
+    await removeContainer(exe, id);
+    throw e;
+  }
+  return id;
+}
+
+/**
+ * Start the image and wait for its CDP endpoint. Nothing is left running when this rejects.
+ *
+ * What the image does with its settings is known first (imageProtocol). An image of this SDK's protocol gets
+ * --rm, an idle exit (it stops once no CDP client has been connected for idleExitSeconds(), counted from when
+ * its CDP answers) and the licence key and proxy URL as a file copied in, not as -e variables `docker inspect`
+ * would show. An older image gets plain variables -- they still work -- and a warning that they are visible
+ * and that it will not stop on its own -- and is refused, before it starts, a proxy password it cannot answer
+ * (legacyProxyRefusal). Either way, once the browser answers, the container's own log must show the licensed
+ * engine when a key was given and the proxy when one was given, logged in to when it needs a password
+ * (verifyApplied); otherwise it is stopped and removed and launch() rejects: a browser on the open engine, one
+ * sending traffic direct, or one whose every request the proxy turns away is never handed back in their place. The container carries this process's owner token for sweepStale().
+ */
+/** What geoip fills, and the container takes as CC_TIMEZONE / CC_ACCEPT_LANGUAGE / CC_LOCATION / CC_WEBRTC_IP. */
+const GEOIP_FILLED = ["timezone", "acceptLanguage", "location", "webrtcIp"] as const;
+
+/**
+ * `geoip: true` on the Docker path: resolve the proxy's exit region HERE, before any container starts,
+ * and hand the container what it filled (timezone, acceptLanguage, location, webrtcIp -> the CC_*
+ * variables of the same name). The same {@link applyGeoip} as a native launch, so it fails closed the
+ * same way: GeoipError and no container when the region is unresolvable; an explicit timezone AND
+ * acceptLanguage warn and launch. Without geoip the container's entrypoint builds the persona as a
+ * native launch does: Accept-Language defaults to en-US and the timezone follows its primary tag
+ * (en-US -> America/New_York). Removes `geoip` from `options`.
+ */
+export async function applyGeoipBeforeStart(options: Record<string, unknown>): Promise<void> {
+  const mode = geoipMode(options.geoip as boolean | undefined);  // on by default, as a native launch
+  delete options.geoip;
+  if (mode === "off") return;
+  const fp: GeoFillable = {};
+  for (const k of GEOIP_FILLED) if (options[k] != null) (fp as Record<string, unknown>)[k] = options[k];
+  const applied = await applyGeoipMode(fp, options.proxy, mode, !!options.quiet);
+  // no key = the image's open build, which has no WebRTC UDP egress block (see dropAutoWebrtcIp)
+  dropAutoWebrtcIp(fp, applied, options.proxy, !!resolveLicenseKey(options.licenseKey as string | undefined));
+  Object.assign(options, fp);
+}
+
+export async function startContainer(options: Record<string, unknown>): Promise<DockerContainer & { exe: string }> {
+  const geoipOff = geoipMode(options.geoip as boolean | undefined) === "off";
+  await applyGeoipBeforeStart(options);  // geoip: true -> the region first; GeoipError starts nothing
+  const env = containerEnv(options);
+  const idle = idleExitSeconds();
+  const { exe, arch } = await dockerInfo();
+  await sweepStale(exe);
+  const image = (options.dockerImage as string | undefined) || defaultImage();
+  const protocol = await imageProtocol(exe, image, !!options.quiet);
+  Object.assign(env, webrtcIpOffEnv(protocol, geoipOff, env));
+  const secrets: Record<string, string> = {};
+  for (const k of SECRET_ENV) if (env[k] !== undefined) { secrets[k] = env[k]; delete env[k]; }
+  const expect = { licensed: secrets.CLEARCOTE_LICENSE_KEY !== undefined, proxy: secrets.CC_PROXY ?? null };
+  if (protocol >= SERVE_PROTOCOL) {
+    if (idle) env.CC_IDLE_EXIT_SECONDS = String(idle);
+    if (Object.keys(secrets).length) env.CC_SECRETS_FILE = SECRETS_FILE;
+  } else {
+    const refusal = legacyProxyRefusal(image, expect.proxy, expect.licensed);
+    if (refusal) throw new Error(refusal);
+    if (!options.quiet) {
+      process.stderr.write(`[clearcote] warning: the image ${image} predates ${FIRST_PROTOCOL_TAG}: `
+        + (Object.keys(secrets).length ? "its licence key and proxy are passed as container variables, which `docker inspect` shows, and " : "")
+        + `it will not stop on its own if this program dies (close() still stops it). Use ${DEFAULT_REPOSITORY}:${FIRST_PROTOCOL_TAG} or newer.\n`);
+    }
+    Object.assign(env, secrets); // plain variables: names on the command line, values in the CLI's environment
+    for (const k of Object.keys(secrets)) delete secrets[k];
+  }
+  const argv = [exe, "create", "--rm", "--platform", "linux/amd64", "--shm-size", "1g", "-p", "127.0.0.1::9222",
+    "--label", LABEL, "--label", `${OWNER_HOST_LABEL}=${hostname()}`, "--label", `${OWNER_TOKEN_LABEL}=${ownerToken()}`];
+  const seccomp = seccompArgs(protocol, arch);
+  if (protocol >= SANDBOX_PROTOCOL && !arch) {
+    warnOnce("arch", "[clearcote] warning: `docker info` did not say which CPU Docker runs on, so the container runs Chrome without its sandbox.", !!options.quiet);
+  }
+  argv.push(...seccomp);
+  for (const name of Object.keys(env).sort()) argv.push("-e", name); // the value comes from the CLI's environment
+  if (expect.licensed) argv.push("-v", `${cacheVolume()}:/opt/xdg-cache`); // the licensed engine downloads once
+  argv.push(image);
+  if (!options.quiet) process.stderr.write(`[clearcote] no native macOS build here (it needs a licence key and Apple Silicon): starting the Clearcote Docker image ${image}\n`);
+  let id: string;
+  try {
+    id = await createStarted(exe, argv, env, secrets, image, seccomp);
+  } catch (e) {
+    if (!(e instanceof ProfileRefused)) throw e;
+    // A Docker that cannot use the seccomp profile: the container again, without it. Its Chrome then runs with
+    // --no-sandbox, as it did before the profile existed.
+    if (!options.quiet) process.stderr.write(`[clearcote] warning: Docker refused the seccomp profile (${e.message}); the container runs Chrome without its sandbox.\n`);
+    id = await createStarted(exe, argv.filter((a) => !seccomp.includes(a)), env, secrets, image, []);
+  }
+  let logs: LogTail | null = null;
+  try {
+    logs = dockerCli.followLogs(exe, id);
+    const port = await publishedPort(exe, id);
+    const timeout = options.timeout as number | undefined;
+    await waitReady(exe, id, port, timeout ? Math.max(timeout, 1000) : READY_TIMEOUT_MS, logs);
+    if (protocol >= SERVE_PROTOCOL || expect.licensed || expect.proxy) {
+      const wanted = protocol >= SERVE_PROTOCOL ? /serve-state / : expect.proxy ? /\] proxy: / : /\] engine: /;
+      const problems = verifyApplied(await logs.waitMarks(wanted), protocol, expect);
+      if (problems.length) {
+        throw new Error(`the Clearcote container (${image}) did not apply what launch() asked for: ${problems.join("; ")}. It was stopped and removed.`);
+      }
+    }
+    return { id, image, endpoint: `http://127.0.0.1:${port}`, serveProtocol: protocol, exe };
+  } catch (e) {
+    await removeContainer(exe, id);
+    throw e;
+  } finally {
+    logs?.stop();
+  }
+}
+
+function defaultNoViewport(browser: Browser): void {
+  const origNewPage = browser.newPage.bind(browser);
+  (browser as { newPage: unknown }).newPage = (o: Record<string, unknown> = {}) =>
+    origNewPage(("viewport" in o ? o : { ...o, viewport: null }) as Parameters<typeof origNewPage>[0]);
+  const origNewContext = browser.newContext.bind(browser);
+  (browser as { newContext: unknown }).newContext = (o: Record<string, unknown> = {}) =>
+    origNewContext(("viewport" in o ? o : { ...o, viewport: null }) as Parameters<typeof origNewContext>[0]);
+}
+
+/** `launch()` on macOS (see the header): the Playwright Browser of a Clearcote container, which also
+ * carries `dockerContainer` ({ id, image, endpoint }). close() disconnects and stops the container. */
+export async function launchDocker(options: Record<string, unknown>): Promise<Browser> {
+  const container = await startContainer(options);
+  // The browser in the container uses the proxy; Playwright's request API runs here, over CDP, with no
+  // proxy of its own (./reqproxy.ts), so it connects from this machine.
+  if (options.proxy && !options.quiet && !process.env.CLEARCOTE_NO_WARN)
+    console.warn("clearcote: with docker, context.request / page.request do not use the proxy and connect from this machine's IP; make API calls inside the page (page.evaluate(() => fetch(...))) instead.");
+  let disconnect: (() => Promise<void>) | null = null;
+  try {
+    const connect: Record<string, unknown> = { timeout: CONNECT_TIMEOUT_MS };
+    for (const k of ["timeout", "slowMo"]) if (options[k] != null) connect[k] = options[k];
+    const browser = await chromium.connectOverCDP(container.endpoint, connect as { timeout?: number; slowMo?: number });
+    const origClose = browser.close.bind(browser);
+    disconnect = () => origClose();
+    const info: DockerContainer = { id: container.id, image: container.image, endpoint: container.endpoint, serveProtocol: container.serveProtocol };
+    Object.defineProperty(browser, "dockerContainer", { value: info, enumerable: false, configurable: true });
+    (browser as { close: unknown }).close = async (...args: Parameters<Browser["close"]>) => {
+      try {
+        return await origClose(...args);
+      } finally {
+        await removeContainer(container.exe, container.id);
+      }
+    };
+    // The window is real (on the image's virtual display, sized to the persona's screen): an emulated
+    // viewport on top of it is the impossible-window tell a local launch avoids.
+    defaultNoViewport(browser);
+    // Playwright emulates prefers-color-scheme: light in every context it manages, a connected one
+    // included: measured (2026-10-21, fingerprint audit), every persona seed reported light through
+    // Docker while the same engine launched natively reports dark on about one seed in three. The
+    // same default as the native launch, here without its engine gate: an engine too old to decide
+    // the scheme from the persona shows the container's (light) host theme either way.
+    await installColorSchemeDefaultConnected(browser);
+    const humanize = { humanize: options.humanize as boolean | undefined, showCursor: options.showCursor as boolean | undefined, seed: options.fingerprint as string | number | undefined };
+    for (const ctx of browser.contexts()) installHumanizeOnContext(ctx, humanize, browser);
+    installHumanize(browser, humanize);
+    return browser;
+  } catch (e) {
+    if (disconnect) await disconnect().catch(() => {});
+    await removeContainer(container.exe, container.id);
+    throw e;
+  }
+}

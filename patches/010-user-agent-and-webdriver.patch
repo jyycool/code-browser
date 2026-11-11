@@ -1,0 +1,654 @@
+diff -u --recursive a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+--- a/components/embedder_support/user_agent_utils.cc	2026-07-20 15:12:24.873716537 +0000
++++ b/components/embedder_support/user_agent_utils.cc	2026-07-20 15:12:24.981717018 +0000
+@@ -30,6 +30,7 @@
+ #include "components/embedder_support/switches.h"
+ #include "components/policy/core/common/policy_pref_names.h"
+ #include "components/prefs/pref_service.h"
++#include "components/ungoogled/ungoogled_switches.h"
+ #include "components/version_info/version_info.h"
+ #include "net/http/http_util.h"
+ #include "third_party/blink/public/common/features.h"
+@@ -217,8 +218,32 @@
+ // depending on the Reduce User-Agent reduction phase features.
+ std::string GetUserAgentInternal() {
+   std::string product = GetProductAndVersion();
+-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(kHeadless)) {
+-    product.insert(0, "Headless");
++  // clearcote: make the UA string Chrome version follow the fingerprint brand-version / persona,
++  // so navigator.userAgent reduced major matches Sec-CH-UA (which already follows it). Without
++  // this the reduced UA keeps reporting the real Chromium major.
++  {
++    bool ua_reduced = base::FeatureList::IsEnabled(
++        blink::features::kReduceUserAgentMinorVersion);
++    std::string fp_ua_version = blink::GetFingerprintUserAgentVersion(ua_reduced);
++    if (!fp_ua_version.empty()) {
++      size_t slash = product.find('/');
++      if (slash != std::string::npos)
++        product = product.substr(0, slash + 1) + fp_ua_version;
++    }
++  }
++
++  // clearcote: the persona Android UA carries the "Mobile" product token so the
++  // tail is "Chrome/<MAJOR>.0.0.0 Mobile Safari/537.36". The built-in
++  // IS_ANDROID||IS_IOS path below is dead code on the desktop binaries, so this
++  // is appended switch-driven when --fingerprint-platform=android.
++  {
++    const base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
++    if (cl->HasSwitch(switches::kFingerprintPlatform) &&
++        base::ToLowerASCII(
++            cl->GetSwitchValueASCII(switches::kFingerprintPlatform)) ==
++            "android") {
++      product += " Mobile";
++    }
+   }
+ 
+ #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+@@ -227,9 +252,12 @@
+   }
+ #endif
+ 
+-  return ShouldSendUserAgentUnifiedPlatform()
++  std::string user_agent = ShouldSendUserAgentUnifiedPlatform()
+              ? BuildUnifiedPlatformUserAgentFromProduct(product)
+              : BuildUserAgentFromProduct(product);
++  // Append fingerprint brand info to User-Agent.
++  user_agent += blink::GetUserAgentFingerprintBrandInfo();
++  return user_agent;
+ }
+ 
+ // Generate random order list based on the input size and seed.
+@@ -281,6 +309,21 @@
+ }
+ 
+ std::string GetUserAgentPlatform() {
++const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++if (command_line->HasSwitch(switches::kFingerprintPlatform)) {
++  std::string platform_value = base::ToLowerASCII(command_line->GetSwitchValueASCII(switches::kFingerprintPlatform));
++
++  // 判断自定义平台
++  if (platform_value == "windows") {
++    return "";
++  } else if (platform_value == "linux") {
++    return "X11; ";
++  } else if (platform_value == "macos") {
++    return "Macintosh; ";
++  } else if (platform_value == "android") {
++    return "Linux; ";
++  }
++}
+ #if BUILDFLAG(IS_WIN)
+   return "";
+ #elif BUILDFLAG(IS_MAC)
+@@ -301,6 +344,21 @@
+ }
+ 
+ std::string GetUnifiedPlatform() {
++const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++if (command_line->HasSwitch(switches::kFingerprintPlatform)) {
++  std::string platform_value = base::ToLowerASCII(command_line->GetSwitchValueASCII(switches::kFingerprintPlatform));
++
++  if (platform_value == "windows") {
++    return "Windows NT 10.0; Win64; x64";
++  } else if (platform_value == "linux") {
++    return "X11; Linux x86_64";
++  } else if (platform_value == "macos") {
++    return "Macintosh; Intel Mac OS X 10_15_7";
++  } else if (platform_value == "android") {
++    // Frozen Android UA token (Chrome's reduced form), NOT a legacy model UA.
++    return "Linux; Android 10; K";
++  }
++}
+ #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS)
+   // This constant is only used on Android (desktop) and Linux.
+   constexpr char kUnifiedPlatformChromeOSX64[] = "X11; CrOS x86_64 14541.0.0";
+diff -u --recursive a/content/browser/client_hints/client_hints.cc b/content/browser/client_hints/client_hints.cc
+--- a/content/browser/client_hints/client_hints.cc	2026-07-20 15:12:24.889716608 +0000
++++ b/content/browser/client_hints/client_hints.cc	2026-07-20 15:12:24.985717035 +0000
+@@ -710,6 +710,8 @@
+     if (!ua_metadata.has_value())
+       ua_metadata = delegate->GetUserAgentMetadata();
+ 
++    UpdateUserAgentMetadataFingerprint(&ua_metadata.value());
++
+     // The `Sec-CH-UA` client hint is attached to all outgoing requests. This is
+     // (intentionally) different than other client hints.
+     // It's barred behind ShouldAddClientHints to make sure it's controlled by
+diff -u --recursive a/third_party/blink/common/user_agent/user_agent_metadata.cc b/third_party/blink/common/user_agent/user_agent_metadata.cc
+--- a/third_party/blink/common/user_agent/user_agent_metadata.cc	2026-07-20 15:12:24.905716679 +0000
++++ b/third_party/blink/common/user_agent/user_agent_metadata.cc	2026-07-20 15:12:24.985717035 +0000
+@@ -6,8 +6,14 @@
+ 
+ #include <algorithm>
+ 
++#include "base/command_line.h"
+ #include "base/containers/span.h"
+ #include "base/pickle.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_util.h"
++#include "components/ungoogled/fingerprint_data.h"
++#include "components/ungoogled/persona_profile.h"
++#include "components/ungoogled/ungoogled_switches.h"
+ #include "net/http/structured_headers.h"
+ #include "third_party/blink/public/common/features.h"
+ 
+@@ -24,6 +30,74 @@
+     blink::kXRFormFactor,      blink::kEInkFormFactor,
+     blink::kWatchFormFactor};
+ 
++// GREASE characters for brand name generation
++constexpr const char* kGreasyChars[] = {
++    " ", "(", ":", "-", ".", "/", ")", ";", "=", "?", "_"
++};
++constexpr const char* kGreasedVersions[] = {"8", "99", "24"};
++
++std::vector<size_t> GetRandomOrder(int seed, size_t size) {
++  if (size == 2u) {
++    return {static_cast<size_t>(seed % 2), static_cast<size_t>((seed + 1) % 2)};
++  } else if (size == 3u) {
++    static constexpr size_t orders[][3] = {
++        {0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}
++    };
++    return {orders[seed % 6][0], orders[seed % 6][1], orders[seed % 6][2]};
++  } else {
++    static constexpr size_t orders[][4] = {
++        {0, 1, 2, 3}, {0, 1, 3, 2}, {0, 2, 1, 3}, {0, 2, 3, 1},
++        {0, 3, 1, 2}, {0, 3, 2, 1}, {1, 0, 2, 3}, {1, 0, 3, 2},
++        {1, 2, 0, 3}, {1, 2, 3, 0}, {1, 3, 0, 2}, {1, 3, 2, 0},
++        {2, 0, 1, 3}, {2, 0, 3, 1}, {2, 1, 0, 3}, {2, 1, 3, 0},
++        {2, 3, 0, 1}, {2, 3, 1, 0}, {3, 0, 1, 2}, {3, 0, 2, 1},
++        {3, 1, 0, 2}, {3, 1, 2, 0}, {3, 2, 0, 1}, {3, 2, 1, 0}
++    };
++    return {orders[seed % 24][0], orders[seed % 24][1],
++            orders[seed % 24][2], orders[seed % 24][3]};
++  }
++}
++
++blink::UserAgentBrandList ShuffleBrandList(
++    blink::UserAgentBrandList brands, int seed) {
++  std::vector<size_t> order = GetRandomOrder(seed, brands.size());
++  blink::UserAgentBrandList shuffled(brands.size());
++  for (size_t i = 0; i < order.size(); i++) {
++    shuffled[order[i]] = brands[i];
++  }
++  return shuffled;
++}
++
++blink::UserAgentBrandVersion GetGreasedBrandVersion(
++    int seed, bool full_version) {
++  std::string brand = std::string("Not") +
++      kGreasyChars[seed % std::size(kGreasyChars)] + "A" +
++      kGreasyChars[(seed + 1) % std::size(kGreasyChars)] + "Brand";
++  std::string version = kGreasedVersions[seed % std::size(kGreasedVersions)];
++  if (full_version) {
++    version += ".0.0.0";
++  }
++  return {brand, version};
++}
++
++blink::UserAgentBrandList GenerateBrandList(
++    int seed,
++    std::optional<std::string> chrome_brand,
++    const std::string& version,
++    bool full_version,
++    std::optional<blink::UserAgentBrandVersion> additional_brand) {
++  blink::UserAgentBrandList brands;
++  brands.push_back(GetGreasedBrandVersion(seed, full_version));
++  brands.push_back({"Chromium", version});
++  if (chrome_brand.has_value()) {
++    brands.push_back({chrome_brand.value(), version});
++  }
++  if (additional_brand.has_value()) {
++    brands.push_back(additional_brand.value());
++  }
++  return ShuffleBrandList(brands, seed);
++}
++
+ }  // namespace
+ 
+ UserAgentBrandVersion::UserAgentBrandVersion(const std::string& ua_brand,
+@@ -232,4 +306,251 @@
+          a.ua_metadata_override == b.ua_metadata_override;
+ }
+ 
++// Get Chromium version based on brand and seed
++// Priority:
++// 1. If brand is Chrome with custom version -> return custom version
++// 2. If brand is not Chrome (Edge/Opera/Vivaldi) -> return latest version
++// 3. If has fingerprint seed -> return kChromiumVersions[seed % size]
++// 4. Otherwise -> return first version in array
++std::string GetChromiumVersion() {
++  using namespace ungoogled::fingerprint;
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++  if (command_line->HasSwitch(switches::kFingerprintBrand)) {
++    std::string brand = base::ToLowerASCII(
++        command_line->GetSwitchValueASCII(switches::kFingerprintBrand));
++    // 1. Chrome with custom version
++    if (brand == "chrome" && command_line->HasSwitch(switches::kFingerprintBrandVersion)) {
++      return command_line->GetSwitchValueASCII(switches::kFingerprintBrandVersion);
++    }
++    // 2. Non-Chrome brand (Edge/Opera/Vivaldi) -> use latest Chromium version
++    if (brand != "chrome" && !brand.empty()) {
++      return kChromiumVersions[0];
++    }
++  }
++
++  // 3. Check if has fingerprint seed
++  if (command_line->HasSwitch(switches::kFingerprint)) {
++    int seed = 0;
++    base::StringToInt(
++        command_line->GetSwitchValueASCII(switches::kFingerprint), &seed);
++    return kChromiumVersions[seed % std::size(kChromiumVersions)];
++  }
++
++  // 4. Return first version
++  return kChromiumVersions[0];
++}
++
++// Helper to extract major version from full version string
++std::string GetMajorVersion(const std::string& full_version) {
++  size_t pos = full_version.find('.');
++  return pos != std::string::npos ? full_version.substr(0, pos) : full_version;
++}
++
++// Reduce any version string to the Chrome/Edge UA-reduction form: "<major>.0.0.0".
++// Real Chrome/Edge always emit a reduced UA token (e.g. Chrome/149.0.0.0, Edg/149.0.0.0)
++// regardless of the true build number.
++std::string ReducedUAVersion(const std::string& full_version) {
++  return GetMajorVersion(full_version) + ".0.0.0";
++}
++
++// Resolve a brand's full (4-part) version for the Sec-CH-UA-Full-Version-List.
++//   empty              -> the brand's default full build
++//   full "a.b.c.d"     -> used as-is (already a real build)
++//   bare major "149"   -> the default build when its major matches, else "<major>.0.0.0"
++// The low-entropy Sec-CH-UA hint uses the major of this value; only the full-version-list
++// and the deprecated uaFullVersion carry the full build.
++std::string ResolveFullVersion(const std::string& custom,
++                               const std::string& default_full) {
++  if (custom.empty())
++    return default_full;
++  int dots = 0;
++  for (char c : custom)
++    if (c == '.')
++      ++dots;
++  if (dots >= 3)
++    return custom;
++  if (GetMajorVersion(custom) == GetMajorVersion(default_full))
++    return default_full;
++  return GetMajorVersion(custom) + ".0.0.0";
++}
++
++// 获取平台版本，基于 fingerprint seed 随机化
++std::string GetPlatformVersion(const std::string& platform) {
++  using namespace ungoogled::fingerprint;
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++  // 自定义版本优先
++  if (command_line->HasSwitch(switches::kFingerprintPlatformVersion)) {
++    return command_line->GetSwitchValueASCII(switches::kFingerprintPlatformVersion);
++  }
++
++  int seed = 0;
++  if (command_line->HasSwitch(switches::kFingerprint)) {
++    base::StringToInt(
++        command_line->GetSwitchValueASCII(switches::kFingerprint), &seed);
++  }
++
++  if (platform == "windows") {
++    return kWindowsVersions[seed % std::size(kWindowsVersions)];
++  } else if (platform == "linux") {
++    return kLinuxVersions[seed % std::size(kLinuxVersions)];
++  } else if (platform == "macos") {
++    return kMacOSVersions[seed % std::size(kMacOSVersions)];
++  } else if (platform == "android") {
++    // Atomic with the persona-selected device (all v1 devices are Android 14);
++    // fall back to the shared table default if the persona is unset.
++    const std::string& v = ungoogled::CurrentPersona().android_platform_version;
++    return v.empty() ? kAndroidVersions[0] : v;
++  }
++
++  return "";
++}
++
++void UpdateUserAgentMetadataFingerprint(blink::UserAgentMetadata* metadata) {
++  if (!metadata)
++    return;
++
++  using namespace ungoogled::fingerprint;
++
++  std::string chromium_version = GetChromiumVersion();
++  std::string chromium_major = GetMajorVersion(chromium_version);
++  int seed = 0;
++  base::StringToInt(chromium_major, &seed);
++
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++  // Default: only Chromium (no additional brand)
++  std::optional<std::string> chrome_brand = std::nullopt;
++  std::optional<blink::UserAgentBrandVersion> additional_brand_major = std::nullopt;
++  std::optional<blink::UserAgentBrandVersion> additional_brand_full = std::nullopt;
++
++  if (command_line->HasSwitch(switches::kFingerprintBrand)) {
++    std::string brand_name = base::ToLowerASCII(
++        command_line->GetSwitchValueASCII(switches::kFingerprintBrand));
++    std::string custom_version = command_line->HasSwitch(switches::kFingerprintBrandVersion)
++        ? command_line->GetSwitchValueASCII(switches::kFingerprintBrandVersion) : "";
++
++    if (brand_name == "chrome") {
++      chrome_brand = kChromeDisplayName;
++    } else if (brand_name == "edge") {
++      // Low-entropy Sec-CH-UA uses the major; the full-version-list needs a full build.
++      std::string edge_full = ResolveFullVersion(custom_version, kEdgeDefaultVersion);
++      additional_brand_major = {kEdgeDisplayName, GetMajorVersion(edge_full)};
++      additional_brand_full = {kEdgeDisplayName, edge_full};
++    } else if (brand_name == "opera") {
++      std::string opera_version = custom_version.empty() ? kOperaDefaultVersion : custom_version;
++      additional_brand_major = {kOperaDisplayName, GetMajorVersion(opera_version)};
++      additional_brand_full = {kOperaDisplayName, opera_version};
++    } else if (brand_name == "vivaldi") {
++      std::string vivaldi_version = custom_version.empty() ? kVivaldiDefaultVersion : custom_version;
++      additional_brand_major = {kVivaldiDisplayName, GetMajorVersion(vivaldi_version)};
++      additional_brand_full = {kVivaldiDisplayName, vivaldi_version};
++    }
++  }
++
++  metadata->brand_version_list = GenerateBrandList(
++      seed, chrome_brand, chromium_major, false, additional_brand_major);
++
++  metadata->brand_full_version_list = GenerateBrandList(
++      seed, chrome_brand, chromium_version, true, additional_brand_full);
++
++  if (additional_brand_full.has_value()) {
++    metadata->full_version = additional_brand_full->version;
++  } else {
++    metadata->full_version = chromium_version;
++  }
++
++  // Handle platform information. ONE case-insensitive parse of
++  // --fingerprint-platform (ungoogled::GetPersonaPlatform); kUnset means the
++  // switch is absent or unrecognized -- same fallthrough as before.
++  const ungoogled::PersonaPlatform platform_value =
++      ungoogled::GetPersonaPlatform();
++  if (platform_value != ungoogled::PersonaPlatform::kUnset) {
++    if (platform_value == ungoogled::PersonaPlatform::kWindows) {
++      metadata->platform = kWindowsPlatform;
++      metadata->platform_version = GetPlatformVersion("windows");
++      metadata->architecture = kX86Architecture;
++      metadata->bitness = "64";
++      metadata->wow64 = false;
++      metadata->model = "";
++    } else if (platform_value == ungoogled::PersonaPlatform::kLinux) {
++      metadata->platform = kLinuxPlatform;
++      metadata->platform_version = GetPlatformVersion("linux");
++      metadata->architecture = kX86Architecture;
++      metadata->bitness = "64";
++      metadata->wow64 = false;
++      metadata->model = "";
++    } else if (platform_value == ungoogled::PersonaPlatform::kMacOS) {
++      metadata->platform = kMacOSPlatform;
++      metadata->platform_version = GetPlatformVersion("macos");
++      metadata->architecture = kArmArchitecture;
++      metadata->bitness = "64";
++      metadata->wow64 = false;
++      metadata->model = "";
++    } else if (platform_value == ungoogled::PersonaPlatform::kAndroid) {
++      // clearcote: the SINGLE source for the mobile bit. Setting metadata->mobile
++      // here also flips Sec-CH-UA-Mobile (client_hints.cc) and
++      // navigator.userAgentData.mobile (navigator_ua.cc), which both run through
++      // this override. ARM-Android reports empty architecture + bitness and a
++      // non-empty model; the model is atomic with the WebGL renderer (same
++      // persona device row).
++      metadata->platform = kAndroidPlatform;
++      metadata->platform_version = GetPlatformVersion("android");
++      metadata->architecture = "";
++      metadata->bitness = "";
++      metadata->wow64 = false;
++      const std::string& android_model =
++          ungoogled::CurrentPersona().android_model;
++      metadata->model = android_model.empty() ? "Pixel 7" : android_model;
++      metadata->form_factors = {std::string(blink::kMobileFormFactor)};
++      metadata->mobile = true;
++    }
++  }
++}
++
++std::string GetUserAgentFingerprintBrandInfo() {
++  using namespace ungoogled::fingerprint;
++
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++  if (!command_line->HasSwitch(switches::kFingerprintBrand)) {
++    return "";
++  }
++
++  std::string brand = base::ToLowerASCII(
++      command_line->GetSwitchValueASCII(switches::kFingerprintBrand));
++  std::string version = command_line->HasSwitch(switches::kFingerprintBrandVersion)
++      ? command_line->GetSwitchValueASCII(switches::kFingerprintBrandVersion)
++      : "";
++
++  if (brand == "chrome") {
++    return "";
++  } else if (brand == "edge") {
++    return std::string(kEdgeUASuffix) +
++           (version.empty() ? kEdgeUAVersion : ReducedUAVersion(version));
++  } else if (brand == "opera") {
++    return std::string(kOperaUASuffix) + (version.empty() ? kOperaUAVersion : version);
++  } else if (brand == "vivaldi") {
++    return std::string(kVivaldiUASuffix) + (version.empty() ? kVivaldiUAVersion : version);
++  } else if (!brand.empty()) {
++    return " " + brand + "/" + (version.empty() ? brand : version);
++  }
++
++  return "";
++}
++
++std::string GetFingerprintUserAgentVersion(bool reduced) {
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++  if (!command_line->HasSwitch(switches::kFingerprint) &&
++      !command_line->HasSwitch(switches::kFingerprintBrand) &&
++      !command_line->HasSwitch(switches::kFingerprintBrandVersion)) {
++    return "";
++  }
++  std::string version = GetChromiumVersion();
++  if (version.empty())
++    return "";
++  return reduced ? (GetMajorVersion(version) + ".0.0.0") : version;
++}
++
+ }  // namespace blink
+diff -u --recursive a/third_party/blink/common/user_agent/user_agent_metadata.cc.edgebak b/third_party/blink/common/user_agent/user_agent_metadata.cc.edgebak
+--- a/third_party/blink/public/common/user_agent/user_agent_metadata.h	2026-07-20 15:12:24.941716839 +0000
++++ b/third_party/blink/public/common/user_agent/user_agent_metadata.h	2026-07-20 15:12:24.985717035 +0000
+@@ -106,6 +106,11 @@
+ bool BLINK_COMMON_EXPORT operator==(const UserAgentOverride& a,
+                                     const UserAgentOverride& b);
+ 
++
++void UpdateUserAgentMetadataFingerprint(UserAgentMetadata* metadata);
++
++std::string GetUserAgentFingerprintBrandInfo();
++std::string GetFingerprintUserAgentVersion(bool reduced);
+ }  // namespace blink
+ 
+ #endif  // THIRD_PARTY_BLINK_PUBLIC_COMMON_USER_AGENT_USER_AGENT_METADATA_H_
+diff -u --recursive a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.cc	2026-07-20 15:12:24.945716857 +0000
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc	2026-07-20 15:12:24.993717071 +0000
+@@ -4,10 +4,16 @@
+ 
+ #include "third_party/blink/renderer/core/execution_context/navigator_base.h"
+ 
++#include "base/command_line.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/feature_list.h"
++#include "components/ungoogled/ungoogled_switches.h"
++#include "components/ungoogled/farble_seed.h"
++#include "components/ungoogled/persona_profile.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
++#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+@@ -24,6 +30,21 @@
+ namespace {
+ 
+ String GetReducedNavigatorPlatform() {
++const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++if (command_line->HasSwitch(switches::kFingerprintPlatform)) {
++  std::string custom_platform = base::ToLowerASCII(command_line->GetSwitchValueASCII(switches::kFingerprintPlatform));
++
++  if (custom_platform == "windows") {
++    return "Win32";
++  } else if (custom_platform == "linux") {
++    return "Linux x86_64";
++  } else if (custom_platform == "macos") {
++    return "MacIntel";
++  } else if (custom_platform == "android") {
++    return "Linux armv8l";
++  }
++}
+ #if BUILDFLAG(IS_ANDROID)
+   return "Linux armv81";
+ #elif BUILDFLAG(IS_MAC)
+@@ -72,8 +93,35 @@
+ unsigned int NavigatorBase::hardwareConcurrency() const {
+   if (base::FeatureList::IsEnabled(blink::features::kReducedSystemInfo))
+     return 2;
+-  unsigned int hardware_concurrency =
+-      NavigatorConcurrentHardware::hardwareConcurrency();
++
++  // clark-timing-fix: resolve the persona/override ONCE (per-context-static)
++  // and cache it, so subsequent reads are a single member load at native-
++  // getter speed. The previous code ran a CommandLine switch lookup + string
++  // parse on EVERY access, which V8 cannot inline and produces a measurable
++  // per-getter timing signature versus genuine Chrome.
++  unsigned int hardware_concurrency = cached_hardware_concurrency_;
++  if (hardware_concurrency == 0) {
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++
++    hardware_concurrency = NavigatorConcurrentHardware::hardwareConcurrency();
++
++    unsigned override_concurrency = 0;
++    bool has_override =
++        command_line->HasSwitch(switches::kFingerprintHardwareConcurrency) &&
++        base::StringToUint(
++            command_line->GetSwitchValueASCII(
++                switches::kFingerprintHardwareConcurrency),
++            &override_concurrency) &&
++        override_concurrency > 0;
++
++    if (has_override) {
++      hardware_concurrency = override_concurrency;
++    } else if (command_line->HasSwitch(switches::kFingerprint)) {
++      hardware_concurrency = ungoogled::CurrentPersona().hardware_concurrency;
++    }
++    cached_hardware_concurrency_ = hardware_concurrency;
++  }
+ 
+   probe::ApplyHardwareConcurrencyOverride(
+       probe::ToCoreProbeSink(GetExecutionContext()), hardware_concurrency);
+diff -u --recursive a/third_party/blink/renderer/core/execution_context/navigator_base.h b/third_party/blink/renderer/core/execution_context/navigator_base.h
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.h	2026-07-20 15:12:24.977716999 +0000
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.h	2026-07-20 15:12:25.001717106 +0000
+@@ -59,6 +59,15 @@
+  protected:
+   ExecutionContext* GetUAExecutionContext() const override;
+   UserAgentMetadata GetUserAgentMetadata() const override;
++
++ private:
++  // clark-timing-fix: hardwareConcurrency() is per-context-static (the
++  // persona/override never change for a document). Resolve once, cache here,
++  // then serve subsequent reads as a single member load -- native-getter
++  // speed -- instead of a CommandLine switch lookup + string parse on every
++  // access (which V8 cannot inline; it creates a measurable per-getter
++  // timing signature vs genuine Chrome). 0 = not yet resolved.
++  mutable unsigned int cached_hardware_concurrency_ = 0;
+ };
+ 
+ }  // namespace blink
+diff -u --recursive a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+--- a/third_party/blink/renderer/core/frame/navigator.cc	2026-07-20 15:12:24.949716875 +0000
++++ b/third_party/blink/renderer/core/frame/navigator.cc	2026-07-20 15:12:24.985717035 +0000
+@@ -21,6 +21,9 @@
+  *  MA 02110-1301, USA
+  */
+ 
++#include "base/command_line.h"
++#include "base/strings/string_util.h"
++#include "components/ungoogled/ungoogled_switches.h"
+ #include "third_party/blink/renderer/core/frame/navigator.h"
+ 
+ #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
+@@ -56,6 +59,22 @@
+ }
+ 
+ String Navigator::platform() const {
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++
++  if (command_line->HasSwitch(switches::kFingerprintPlatform)) {
++    std::string custom_platform = base::ToLowerASCII(command_line->GetSwitchValueASCII(switches::kFingerprintPlatform));
++
++    if (custom_platform == "windows") {
++      return "Win32";
++    } else if (custom_platform == "linux") {
++      return "Linux x86_64";
++    } else if (custom_platform == "macos") {
++      return "MacIntel";
++    } else if (custom_platform == "android") {
++      return "Linux armv8l";
++    }
++  }
++
+   // TODO(955620): Consider changing devtools overrides to only allow overriding
+   // the platform with a frozen platform to distinguish between
+   // mobile and desktop when ReduceUserAgent is enabled.
+@@ -98,9 +117,6 @@
+ }
+ 
+ bool Navigator::webdriver() const {
+-  if (RuntimeEnabledFeatures::AutomationControlledEnabled())
+-    return true;
+-
+   bool automation_enabled = false;
+   probe::ApplyAutomationOverride(GetExecutionContext(), automation_enabled);
+   return automation_enabled;
+diff -u --recursive a/third_party/blink/renderer/core/frame/navigator_ua.cc b/third_party/blink/renderer/core/frame/navigator_ua.cc
+--- a/third_party/blink/renderer/core/frame/navigator_ua.cc	2026-07-20 15:12:24.965716946 +0000
++++ b/third_party/blink/renderer/core/frame/navigator_ua.cc	2026-07-20 15:12:24.985717035 +0000
+@@ -19,6 +19,9 @@
+     return ua_data;
+ 
+   UserAgentMetadata metadata = GetUserAgentMetadata();
++
++  UpdateUserAgentMetadataFingerprint(&metadata);
++
+   ua_data->SetBrandVersionList(metadata.brand_version_list);
+   ua_data->SetMobile(metadata.mobile);
+   ua_data->SetPlatform(String::FromUtf8(metadata.platform),
+diff -u --recursive a/third_party/blink/renderer/core/loader/frame_fetch_context.cc b/third_party/blink/renderer/core/loader/frame_fetch_context.cc
+--- a/third_party/blink/renderer/core/loader/frame_fetch_context.cc	2026-07-20 15:12:24.969716964 +0000
++++ b/third_party/blink/renderer/core/loader/frame_fetch_context.cc	2026-07-20 15:12:24.985717035 +0000
+@@ -43,6 +43,7 @@
+ #include "base/memory/scoped_refptr.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
++#include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+ #include "build/build_config.h"
+ #include "mojo/public/cpp/bindings/associated_remote.h"
+ #include "net/http/structured_headers.h"
+@@ -733,6 +734,8 @@
+ 
+   // Only send User Agent hints if the info is available
+   if (ua) {
++    UpdateUserAgentMetadataFingerprint(&ua.value());
++
+     bool ua_changed = !last_ua_ || *last_ua_ != *ua;
+     if (ua_changed) {
+       last_ua_ = *ua;

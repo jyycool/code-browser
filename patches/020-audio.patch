@@ -1,0 +1,124 @@
+--- a/third_party/blink/renderer/modules/webaudio/audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/audio_context.cc
+@@ -36,6 +36,7 @@
+ #include "third_party/blink/renderer/core/html/media/html_media_element.h"
+ #include "third_party/blink/renderer/core/inspector/console_message.h"
+ #include "third_party/blink/renderer/core/page/page.h"
++#include "components/ungoogled/persona_profile.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/core/timing/dom_window_performance.h"
+ #include "third_party/blink/renderer/core/timing/window_performance.h"
+@@ -424,7 +425,11 @@
+       WebAudioLatencyHint::AudioContextLatencyCategory::kLastValue);
+ 
+   // This value can be `nullopt` when there's no user-provided options.
+-  std::optional<float> sample_rate;
++  // Coherence: when the page does not request an explicit rate, default to
++  // the persona's Windows WASAPI sample rate so the Linux build host's audio
++  // backend rate cannot leak. An explicitly requested rate is still honoured,
++  // matching real Chrome behaviour.
++  std::optional<float> sample_rate = ungoogled::CurrentPersona().audio_sample_rate;
+   if (context_options->hasSampleRate()) {
+     sample_rate = context_options->sampleRate();
+   }
+@@ -1150,17 +1155,23 @@
+   DCHECK_CALLED_ON_VALID_SEQUENCE(main_thread_sequence_checker_);
+   DCHECK(destination());
+ 
+-  return base_latency_;
++  // Coherence: real base_latency_ is derived from the host audio backend
++  // (frames-per-buffer / rate) and would expose the Linux build host. Report
++  // the persona's Windows WASAPI baseLatency instead.
++  return ungoogled::CurrentPersona().audio_base_latency;
+ }
+ 
+ double AudioContext::outputLatency() const {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(main_thread_sequence_checker_);
+   DCHECK(destination());
+ 
+-  DeferredTaskHandler::GraphAutoLocker locker(GetDeferredTaskHandler());
+-
++  // Coherence: hardware_output_latency comes from the host audio service and
++  // would expose the Linux build host. Substitute the persona's Windows WASAPI
++  // outputLatency, but STILL pass it through the same permission-dependent
++  // quantizer real Chrome uses (8ms with no mic permission, 1ms when granted)
++  // so the reported value always lands on the grid genuine Chrome can produce.
+   double factor = GetOutputLatencyQuantizingFactor();
+-  return std::round(output_position_.hardware_output_latency / factor) * factor;
++  return std::round(ungoogled::CurrentPersona().audio_output_latency / factor) * factor;
+ }
+ 
+ AudioPlaybackStats* AudioContext::playbackStats() {
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -25,9 +25,11 @@
+ 
+ #include "third_party/blink/renderer/modules/webaudio/offline_audio_context.h"
+ 
++#include "base/command_line.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "media/base/audio_glitch_info.h"
++#include "components/ungoogled/ungoogled_switches.h"
+ #include "third_party/blink/public/platform/platform.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_offline_audio_context_options.h"
+@@ -173,6 +175,44 @@
+                                    render_quantum_frames, exception_state);
+ }
+ 
++// 生成基于指纹的帧数调整值（1到noise_limit之间）
++uint32_t getNoiseData(uint32_t number_of_frames) {
++    // 获取命令行参数
++    const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++    if (command_line->HasSwitch(switches::kFingerprint)) {
++        std::string fingerprint_str = command_line->GetSwitchValueASCII(switches::kFingerprint);
++        if (!fingerprint_str.empty()) {
++            // 组合指纹字符串、帧数和常量"audio"
++            std::string combined = fingerprint_str + std::to_string(number_of_frames) + "audio";
++            uint32_t hash = std::hash<std::string>{}(combined);
++
++            // 计算1%的number_of_frames
++            uint32_t one_percent = number_of_frames / 100;
++            if (one_percent < 1) one_percent = 1;  // 确保至少为1
++
++            constexpr uint32_t MAX_NOISE = 1000;
++            uint32_t noise_limit = std::min(one_percent, MAX_NOISE);
++            return (hash % noise_limit) + 1;
++        }
++    }
++    return 0;
++}
++
++// 生成基于指纹的采样率噪声（范围 ±0.01）
++float getSampleRateNoise(float sample_rate, const std::string& fingerprint_str) {
++    const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++    if (command_line->HasSwitch(switches::kFingerprint)) {
++        if (!fingerprint_str.empty()) {
++            std::string combined = fingerprint_str + std::to_string(static_cast<int>(sample_rate)) + "samplerate";
++            uint32_t hash = std::hash<std::string>{}(combined);
++            // 生成 ±0.01 范围的噪声
++            float noise = ((static_cast<float>(hash % 10000) / 10000.0f) - 0.5f) * 0.02f;
++            return noise;
++        }
++    }
++    return 0.0f;
++}
++
+ OfflineAudioContext::OfflineAudioContext(LocalDOMWindow* window,
+                                          unsigned number_of_channels,
+                                          uint32_t number_of_frames,
+@@ -182,9 +222,13 @@
+     : BaseAudioContext(window,
+                        ContextType::kOfflineContext,
+                        render_quantum_frames),
++      // total_render_frames_(number_of_frames + getNoiseData(number_of_frames)) {
+       total_render_frames_(number_of_frames) {
++  // clearcoat: do NOT farble the OfflineAudioContext sample rate. A non-standard
++  // rate (e.g. 44099.99 instead of 44100) is itself a detectable tell; the
++  // rendered samples are left exactly as stock Blink produces them.
+   destination_node_ = OfflineAudioDestinationNode::Create(
+-      this, number_of_channels, number_of_frames, sample_rate);
++      this, number_of_channels, total_render_frames_, sample_rate);
+   Initialize();
+ }

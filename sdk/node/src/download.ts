@@ -1,0 +1,1869 @@
+// Resolve the Clearcote browser binary: use an explicit path / env override if given, otherwise
+// download a release, verify it, extract it to a per-version cache, and return chrome.exe.
+//
+// Two modes:
+//   • pinned (default)     — download the exact release baked into this SDK and verify its zip +
+//                            chrome.exe against the SHA-256 hashes shipped in release.ts. The hash
+//                            IS the trust anchor: you audit it once, in the package you installed.
+//   • autoUpdate (opt-in)  — resolve the NEWEST GitHub release at runtime, verify the zip against
+//                            that release's published SHA256SUMS.txt, and — when a `gpg` binary is
+//                            available — verify SHA256SUMS.txt.asc against the pinned signing-key
+//                            fingerprint. Lets you stay current without bumping the SDK. Falls back
+//                            to the pinned release if GitHub is unreachable.
+// A hash mismatch (either mode) is always a hard failure and the partial download is deleted.
+
+import { execFile, spawnSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { chmodSync, closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { setTimeout as sleep } from "node:timers/promises";
+import { promisify } from "node:util";
+import { Worker } from "node:worker_threads";
+import extract from "extract-zip";
+import { RELEASE, REPO, SIGNING_KEY_FPR, platformRelease, proPlatformKey, CATALOG_URL, CATALOG_FALLBACK, type ReleaseInfo, type Catalog, type CatalogBuild } from "./release.js";
+import { licenseUserAgent } from "./license.js";
+
+/**
+ * Read every file under `dir` so on-access antivirus finishes scanning the freshly-extracted,
+ * unsigned binaries BEFORE the browser is launched. Windows-only concern: launching a just-extracted
+ * chrome.exe can race the real-time AV scan of chrome_elf.dll (the SxS assembly member the exe's
+ * manifest depends on) — surfacing as "spawn UNKNOWN" / "side-by-side configuration is incorrect",
+ * which Windows then caches against the path so every later launch from it keeps failing. Forcing a
+ * sequential read here makes the scan happen up front and closes the race. Best-effort, safe anywhere.
+ */
+export function warmFiles(dir: string): void {
+  const buf = Buffer.allocUnsafe(1 << 20);
+  const walk = (d: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      const p = path.join(d, ent.name);
+      if (ent.isDirectory()) {
+        walk(p);
+        continue;
+      }
+      try {
+        const fd = openSync(p, "r");
+        try {
+          while (readSync(fd, buf, 0, buf.length, null) > 0) {
+            /* discard — the read forces the AV scan */
+          }
+        } finally {
+          closeSync(fd);
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+  };
+  walk(dir);
+}
+
+export interface DownloadOptions {
+  /** Override the cache directory (default: per-OS user cache dir). */
+  cacheDir?: string;
+  /** Suppress progress logging. */
+  quiet?: boolean;
+  /**
+   * Opt in to resolving and downloading the LATEST GitHub release instead of the version pinned
+   * into this SDK, so you don't have to upgrade the package for every browser build. Verified
+   * against the release's own SHA256SUMS.txt (+ GPG signature when `gpg` is installed). Falls back
+   * to the pinned release if GitHub can't be reached. Default: false.
+   * Also enabled by setting the env var `CLEARCOTE_AUTO_UPDATE=1`.
+   */
+  autoUpdate?: boolean;
+  /**
+   * Select a specific browser build from the version catalog: a bare major (`"150"`), an exact
+   * version (`"150.0.7871.115"`), or `"latest"`. Validated against the catalog before download.
+   * PRO-tier versions require a license key. Pin a specific PRO rebuild with `"150.0.7871.114-r7"`
+   * (or bare `"r7"`), which also requires a license. Also set via `CLEARCOTE_BROWSER_VERSION`.
+   */
+  version?: string;
+  /**
+   * PRO release channel: `"stable"` (default) or `"preview"`. Preview selects the newest build
+   * available for this platform — a newer preview when one exists, otherwise stable. An exact
+   * version pin overrides the channel. Also set via `CLEARCOTE_RELEASE_CHANNEL`.
+   */
+  releaseChannel?: ReleaseChannel;
+}
+
+/** A resolved release to fetch — either the pinned {@link RELEASE} or one discovered at runtime. */
+interface ResolvedRelease extends ReleaseInfo {
+  /** True when discovered via the GitHub API (un-pinned) rather than baked into the SDK. */
+  unpinned: boolean;
+  /** URL of SHA256SUMS.txt.asc (auto-update only) for optional GPG verification. */
+  ascUrl?: string;
+  /** URL of the public signing key (auto-update only). */
+  keyUrl?: string;
+}
+
+function launchIntegrity(rel: ResolvedRelease): LaunchIntegrity | undefined {
+  if (!rel.exeSha256) return undefined;
+  return { binary: rel.binary || "chrome.exe", binarySha256: rel.exeSha256,
+           chromeDllSha256: rel.chromeDllSha256 };
+}
+
+function log(quiet: boolean | undefined, msg: string): void {
+  if (!quiet) process.stderr.write(`[clearcote] ${msg}\n`);
+}
+
+export function autoUpdateRequested(opt: boolean | undefined): boolean {
+  if (opt !== undefined) return opt;
+  const env = process.env.CLEARCOTE_AUTO_UPDATE;
+  return env === "1" || env === "true";
+}
+
+/** Per-OS cache root for downloaded browsers (CLEARCOTE_CACHE overrides). */
+export function defaultCacheRoot(): string {
+  if (process.env.CLEARCOTE_CACHE) return process.env.CLEARCOTE_CACHE;
+  if (process.platform === "win32") {
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "clearcote", "Cache");
+  }
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Caches", "clearcote");
+  }
+  return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "clearcote");
+}
+
+/**
+ * `<X>.app/Contents/MacOS/<name>` at the top of `dir` (or one folder down), else null. The macOS build
+ * is a bundle: the executable is `Chromium.app/Contents/MacOS/Chromium`, and the same tree holds
+ * `Chromium Framework` and the `Chromium Helper*` apps. Looking for the bundle's own executable first
+ * means a name search can never land on one of those.
+ */
+function appBinary(dir: string, name: string): string | null {
+  let tops: string[];
+  try {
+    tops = readdirSync(dir).sort();
+  } catch {
+    return null;
+  }
+  for (const parent of [dir, ...tops.filter((t) => !t.endsWith(".app")).map((t) => path.join(dir, t))]) {
+    let entries: string[];
+    try {
+      entries = parent === dir ? tops : readdirSync(parent).sort();
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (!e.endsWith(".app")) continue;
+      const exe = path.join(parent, e, "Contents", "MacOS", name);
+      try {
+        if (statSync(exe).isFile()) return exe;
+      } catch {
+        /* not this bundle */
+      }
+    }
+  }
+  return null;
+}
+
+function findFile(dir: string, name: string): string | null {
+  const app = appBinary(dir, name);
+  if (app) return app;
+  const stack = [dir];
+  while (stack.length) {
+    const cur = stack.pop() as string;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const full = path.join(cur, e.name);
+      // never descend into a macOS framework: it holds the helper apps, never the browser itself
+      if (e.isDirectory()) { if (!e.name.endsWith(".framework")) stack.push(full); }
+      else if (e.name.toLowerCase() === name.toLowerCase()) return full;
+    }
+  }
+  return null;
+}
+
+function sha256File(file: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    createReadStream(file)
+      .on("error", reject)
+      .on("data", (d) => hash.update(d))
+      .on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+/** Synchronous on purpose: callers run this immediately before returning a launchable path. */
+function sha256FileSync(file: string): string {
+  const fd = openSync(file, "r");
+  const hash = createHash("sha256");
+  const buf = Buffer.allocUnsafe(1 << 20);
+  try {
+    for (;;) {
+      const n = readSync(fd, buf, 0, buf.length, null);
+      if (!n) break;
+      hash.update(buf.subarray(0, n));
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return hash.digest("hex");
+}
+
+const SDK_VERSION: string = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version as string;
+  } catch {
+    return "unknown";
+  }
+})();
+/** Sent on the archive download, so a server log can tell which SDK fetched a build (it used to say "node"). */
+export const DOWNLOAD_USER_AGENT = `clearcote-sdk/${SDK_VERSION} (node)`;
+
+/** An archive download the server refused; `retryAfterSec` is its Retry-After, when it sent one. */
+export class DownloadHttpError extends Error {
+  constructor(message: string, readonly status: number, readonly retryAfterSec: number | null) {
+    super(message);
+  }
+}
+
+/** Seconds from a Retry-After header (delta-seconds or an HTTP date); null when absent or unreadable. */
+export function retryAfterSeconds(value: string | null | undefined, now: number = Date.now()): number | null {
+  const v = (value ?? "").trim();
+  if (!v) return null;
+  if (/^\d+$/.test(v)) return Number(v);
+  const at = Date.parse(v);
+  return Number.isNaN(at) ? null : Math.max(0, Math.ceil((at - now) / 1000));
+}
+
+export async function downloadTo(url: string, dest: string, expectedSize: number, quiet: boolean | undefined): Promise<void> {
+  // Idle-timeout the stream: a 60s timer reset on every chunk aborts a stalled connection (no data
+  // for 60s) without capping the total time of the large (~242 MB) binary download.
+  const ctrl = new AbortController();
+  const IDLE_MS = 60_000;
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const bump = () => {
+    if (idle) clearTimeout(idle);
+    idle = setTimeout(() => ctrl.abort(new Error("clearcote download stalled (no data for 60s)")), IDLE_MS);
+  };
+  bump();
+  try {
+    const res = await fetch(url, { redirect: "follow", headers: { "User-Agent": DOWNLOAD_USER_AGENT }, signal: ctrl.signal });
+    if (!res.ok || !res.body) {
+      throw new DownloadHttpError(`Clearcote download failed: HTTP ${res.status} ${res.statusText} for ${url}`,
+        res.status, retryAfterSeconds(res.headers.get("retry-after")));
+    }
+    const total = Number(res.headers.get("content-length")) || expectedSize;
+    let seen = 0;
+    let lastPct = -1;
+    const progress = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bump(); // data arrived -> reset the idle deadline
+        seen += chunk.byteLength;
+        const pct = total ? Math.floor((seen / total) * 100) : 0;
+        if (!quiet && pct !== lastPct && pct % 5 === 0) {
+          lastPct = pct;
+          process.stderr.write(`\r[clearcote] downloading ${pct}% (${(seen / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB)`);
+        }
+        controller.enqueue(chunk);
+      },
+    });
+    await pipeline(Readable.fromWeb(res.body.pipeThrough(progress) as any), createWriteStream(dest));
+    if (!quiet) process.stderr.write("\n");
+  } finally {
+    if (idle) clearTimeout(idle);
+  }
+}
+
+async function fetchText(url: string): Promise<string> {
+  // 30s total timeout for small API/text fetches so a stalled connection fails fast.
+  const res = await fetch(url, { redirect: "follow", headers: { "User-Agent": "clearcote-sdk" }, signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return res.text();
+}
+
+async function fetchToFile(url: string, dest: string): Promise<void> {
+  writeFileSync(dest, await fetchText(url));
+}
+
+/** Pull the archive + inner-binary hashes out of a SHA256SUMS.txt body. */
+function parseSums(text: string, assetName: string, binary: string): { zip?: string; exe?: string } {
+  const out: { zip?: string; exe?: string } = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const m = raw.trim().match(/^([0-9a-fA-F]{64})\s+[*]?(.+)$/);
+    if (!m) continue;
+    const base = m[2].split(/[\\/]/).pop();
+    if (base === assetName) out.zip = m[1].toLowerCase();
+    else if (base === binary) out.exe = m[1].toLowerCase();
+  }
+  return out;
+}
+
+/** Escape a string for safe interpolation into a RegExp. */
+function reEscape(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Resolve the newest non-draft GitHub release with THIS platform's asset + SHA256SUMS.txt. */
+async function resolveLatest(quiet: boolean | undefined): Promise<ResolvedRelease | null> {
+  const pin = platformRelease();
+  if (!pin) return null; // unsupported OS -> nothing to auto-resolve
+  const { assetGlob: glob, binary, os: pinOs, archive } = pin;
+  const assetRe = new RegExp(`^clearcote-.*-${reEscape(glob)}\\.(?:zip|tar\\.xz)$`);
+  const verRe = new RegExp(`^clearcote-(.+)-${reEscape(glob)}\\.(?:zip|tar\\.xz)$`);
+  let list: any[];
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
+      redirect: "follow",
+      headers: { "User-Agent": "clearcote-sdk", Accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`GitHub API HTTP ${res.status}`);
+    list = (await res.json()) as any[];
+  } catch (e) {
+    log(quiet, `auto-update: couldn't reach GitHub (${(e as Error).message}); using pinned ${RELEASE.tag}`);
+    return null;
+  }
+  const releases = list
+    .filter((r) => r && !r.draft)
+    .sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || "")));
+  for (const r of releases) {
+    const assets: any[] = r.assets || [];
+    const asset = assets.find((a) => assetRe.test(a.name));
+    const sums = assets.find((a) => a.name === "SHA256SUMS.txt");
+    if (!asset || !sums) continue;
+    let parsed: { zip?: string; exe?: string };
+    try {
+      parsed = parseSums(await fetchText(sums.browser_download_url), asset.name, binary);
+    } catch {
+      continue;
+    }
+    if (!parsed.zip) continue;
+    const m = asset.name.match(verRe);
+    return {
+      tag: r.tag_name,
+      version: m ? m[1] : r.tag_name,
+      asset: asset.name,
+      url: asset.browser_download_url,
+      sha256: parsed.zip,
+      exeSha256: parsed.exe || "",
+      size: asset.size || 0,
+      os: pinOs,
+      archive,
+      binary,
+      assetGlob: glob,
+      unpinned: true,
+      ascUrl: assets.find((a) => a.name === "SHA256SUMS.txt.asc")?.browser_download_url,
+      keyUrl: assets.find((a) => a.name === "clearcote-signing-key.asc")?.browser_download_url,
+    };
+  }
+  return null;
+}
+
+function hasGpg(): boolean {
+  try {
+    return spawnSync("gpg", ["--version"], { stdio: "ignore" }).status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Best-effort GPG check for an auto-resolved release: import the published key into a throwaway
+ * keyring, confirm its fingerprint equals the pinned one, then verify SHA256SUMS.txt.asc.
+ * Returns "ok" | "skipped" (no gpg / no signature) | "failed". A "failed" result is treated as a
+ * hard error by the caller; "skipped" proceeds (integrity is still guaranteed by the SHA-256 check).
+ */
+async function gpgVerifyAsync(
+  rel: ResolvedRelease,
+  sumsBody: string,
+  tmp: string,
+  quiet: boolean | undefined,
+): Promise<"ok" | "skipped" | "failed"> {
+  if (!rel.ascUrl || !rel.keyUrl) return "skipped";
+  if (!hasGpg()) {
+    log(quiet, "auto-update: gpg not found — skipping signature check (zip is still SHA-256-verified)");
+    return "skipped";
+  }
+  const home = mkdtempSync(path.join(tmp, "ccgpg-"));
+  const keyPath = path.join(home, "key.asc");
+  const sumsPath = path.join(home, "SHA256SUMS.txt");
+  const ascPath = path.join(home, "SHA256SUMS.txt.asc");
+  const gpg = (args: string[]) => spawnSync("gpg", ["--homedir", home, "--batch", ...args], { encoding: "utf8" });
+  try {
+    writeFileSync(sumsPath, sumsBody);
+    await fetchToFile(rel.keyUrl, keyPath);
+    await fetchToFile(rel.ascUrl, ascPath);
+    if (gpg(["--import", keyPath]).status !== 0) return "failed";
+    const shown = gpg(["--with-colons", "--fingerprint"]);
+    const fprs = (shown.stdout || "")
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("fpr:"))
+      .map((l) => l.split(":")[9]);
+    if (!fprs.includes(SIGNING_KEY_FPR)) {
+      log(quiet, `auto-update: signing key fingerprint mismatch (expected ${SIGNING_KEY_FPR})`);
+      return "failed";
+    }
+    const verified = gpg(["--verify", ascPath, sumsPath]);
+    return verified.status === 0 ? "ok" : "failed";
+  } catch {
+    return "failed";
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+export const MANIFEST = ".manifest.json";
+
+// Files Chromium cannot start without. A tree missing any of these does not fail at launch with a
+// usable error — it CHECK-crashes inside the browser process before Playwright can attach, e.g. a
+// missing icudtl.dat dies with "Invalid file descriptor to ICU data received" / "Check failed:
+// result" and exit code 0xC0000003. Cheap to stat, so this list is checked on EVERY resolve; the
+// full manifest (below) is checked once per process.
+const CRITICAL_WIN = ["chrome.exe", "chrome.dll", "chrome_elf.dll", "icudtl.dat", "snapshot_blob.bin", "resources.pak"];
+const CRITICAL_OTHER = ["icudtl.dat", "snapshot_blob.bin", "resources.pak"];
+// The macOS PRO build is a Chromium.app bundle: the payload sits inside the framework, reached through
+// its Versions/Current symlink (which the ditto extraction keeps).
+const CRITICAL_MAC = [
+  "Chromium.app/Contents/MacOS/Chromium", "Chromium.app/Contents/Info.plist",
+  "Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/Current/Chromium Framework",
+];
+
+const criticalNames = (): string[] =>
+  process.platform === "win32" ? CRITICAL_WIN : process.platform === "darwin" ? CRITICAL_MAC : CRITICAL_OTHER;
+
+const scanned = new Set<string>(); // browser dirs whose full manifest already verified this process
+
+/**
+ * Snapshot every extracted file's size next to the tree, so a LATER launch can tell a healthy
+ * install from one that antivirus, a full disk, or an interrupted copy has since eaten.
+ */
+export function writeManifest(base: string, browserDir: string): void {
+  const files: Record<string, number> = {};
+  const walk = (d: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      const p = path.join(d, ent.name);
+      if (ent.isDirectory()) {
+        walk(p);
+        continue;
+      }
+      try {
+        files[path.relative(browserDir, p).split(path.sep).join("/")] = statSync(p).size;
+      } catch {
+        /* best-effort */
+      }
+    }
+  };
+  walk(browserDir);
+  // Written to a temporary file and renamed into place, so no reader ever sees half a manifest.
+  const final = path.join(base, MANIFEST);
+  const tmp = `${final}.tmp-${randomBytes(4).toString("hex")}`;
+  try {
+    writeFileSync(tmp, JSON.stringify({ files }));
+    for (let attempt = 0; ; attempt++) {
+      try {
+        renameSync(tmp, final);
+        return;
+      } catch (e) {
+        // Windows: a reader has the old one open this instant
+        if (process.platform !== "win32" || attempt >= 9 || errCode(e) !== "EPERM") throw e;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      }
+    }
+  } catch {
+    rmSync(tmp, { force: true }); // a manifest is an optimisation, never a reason to fail an install
+  }
+}
+
+/** Return `"<file> — <problem>"` for every missing / truncated entry. */
+function checkNames(browserDir: string, names: string[], sizes?: Record<string, number>): string[] {
+  const problems: string[] = [];
+  for (const name of names) {
+    const p = path.join(browserDir, ...name.split("/"));
+    let got: number;
+    try {
+      got = statSync(p).size;
+    } catch {
+      problems.push(`${name} — missing`);
+      continue;
+    }
+    const want = sizes?.[name];
+    if (want !== undefined && got !== want) problems.push(`${name} — ${got.toLocaleString("en-US")} bytes, expected ${want.toLocaleString("en-US")}`);
+    else if (want === undefined && got === 0) problems.push(`${name} — empty (0 bytes)`);
+  }
+  return problems;
+}
+
+/**
+ * Check an extracted browser tree; returns a list of problems ([] when healthy).
+ *
+ * Always checks the critical files (a few stats). When `base` holds a manifest written at install
+ * time, also checks every recorded file's exact size — once per process per tree by default, since
+ * a full tree is ~700 files; pass `full: true` to force it.
+ */
+export interface LaunchIntegrity {
+  binary: string;
+  binarySha256: string;
+  chromeDllSha256?: string;
+}
+
+export function verifyInstall(browserDir: string, base?: string, full?: boolean, integrity?: LaunchIntegrity): string[] {
+  const problems = checkNames(browserDir, criticalNames());
+  if (problems.length) return problems;
+
+  // Never memoise protected-code hashes. Size checks detect damaged installs; these hashes detect
+  // same-size edits to the launcher or, on Windows, the DLL that contains the browser implementation.
+  if (integrity?.binarySha256) {
+    const binary = findFile(browserDir, integrity.binary);
+    if (!binary) problems.push(`${integrity.binary} — missing`);
+    else if (sha256FileSync(binary).toLowerCase() !== integrity.binarySha256.toLowerCase())
+      problems.push(`${integrity.binary} — SHA-256 mismatch`);
+  }
+  if (integrity?.chromeDllSha256 && process.platform === "win32") {
+    const dll = findFile(browserDir, "chrome.dll");
+    if (!dll) problems.push("chrome.dll — missing");
+    else if (sha256FileSync(dll).toLowerCase() !== integrity.chromeDllSha256.toLowerCase())
+      problems.push("chrome.dll — SHA-256 mismatch");
+  }
+  if (problems.length) return problems;
+
+  const manifest = path.join(base ?? path.dirname(browserDir), MANIFEST);
+  const key = path.resolve(browserDir).toLowerCase();
+  if (full === false || (full === undefined && scanned.has(key)) || !existsSync(manifest)) return problems;
+  let sizes: Record<string, number>;
+  try {
+    sizes = (JSON.parse(readFileSync(manifest, "utf8")) as { files?: Record<string, number> }).files ?? {};
+  } catch {
+    return problems;
+  }
+  const found = checkNames(browserDir, Object.keys(sizes), sizes);
+  if (!found.length) scanned.add(key);
+  return found;
+}
+
+/**
+ * The message a user actually needs when the tree is damaged: what is wrong, and how to fix it —
+ * instead of the browser CHECK-crashing during startup with an ICU stack trace.
+ */
+export function brokenInstallError(browserDir: string, problems: string[], repairable = true): Error {
+  const shown = problems.slice(0, 8).map((p) => `    ${p}`).join("\n");
+  const more = problems.length > 8 ? `\n    ... and ${problems.length - 8} more` : "";
+  const fix = repairable
+    ? `Delete the folder and let Clearcote re-download it:\n    ${path.dirname(browserDir)}\n`
+    : "Re-create this browser directory from a complete copy (or unset CLEARCOTE_BINARY /\nexecutablePath and let Clearcote download and verify its own build).\n";
+  return new Error(
+    `Clearcote browser install is incomplete or corrupted:\n    ${browserDir}\n${shown}${more}\n\n` +
+      "The browser cannot start without these files — it would crash during startup with an\n" +
+      "ICU / 'Check failed' error before Playwright can attach.\n\n" +
+      `${fix}\n` +
+      "Common causes: antivirus quarantined a file, the disk filled up mid-install, or the\n" +
+      "directory was copied by something that did not finish (e.g. a bundled app copying it out\n" +
+      "of a packaged-app temp dir). Excluding the Clearcote cache directory from real-time\n" +
+      "antivirus scanning prevents a repeat.",
+  );
+}
+
+/**
+ * Validate the tree around a caller-supplied binary (`executablePath` / `CLEARCOTE_BINARY` — e.g. a
+ * browser bundled into a packaged app). Throws with a clear message when it is damaged.
+ *
+ * Deliberately lenient about LAYOUT, strict about COMPLETENESS: a caller may point at something
+ * that is not a flat Chromium tree at all (installed Google Chrome keeps its DLLs in a versioned
+ * subfolder), and refusing to launch that would be a false alarm. So the check only engages once
+ * the directory looks flat — at least one non-binary payload file sits next to the exe — and then
+ * every other payload file is required. That is exactly the damaged-copy case.
+ */
+export function checkInstall(exe: string | undefined): void {
+  if (!exe || !existsSync(exe)) return; // the launcher reports a missing binary better than we can
+  const browserDir = path.dirname(path.resolve(exe));
+  const payload = criticalNames().filter((n) => !n.toLowerCase().startsWith("chrome.ex"));
+  if (!payload.some((n) => existsSync(path.join(browserDir, n)))) return; // not a flat tree — nothing to assert
+  const problems = verifyInstall(browserDir);
+  if (problems.length) throw brokenInstallError(browserDir, problems, false);
+}
+
+/**
+ * The cached browser path for an install base, or null when absent or damaged.
+ *
+ * A damaged tree returns null (after wiping it) so the caller re-downloads: the `.verified` marker
+ * only records that the archive hashed correctly AT INSTALL TIME, and files can be eaten later.
+ */
+export function cachedBinary(base: string, binary: string, quiet?: boolean, repair = true, full?: boolean,
+                             integrity?: LaunchIntegrity): string | null {
+  if (!existsSync(path.join(base, ".verified"))) return null;
+  const browserDir = path.join(base, "browser");
+  const cached = findFile(browserDir, binary);
+  // The binary itself can be gone too: antivirus quarantine, or browser/ deleted by hand.
+  const problems = cached ? verifyInstall(browserDir, base, full, integrity) : [`${binary} — missing`];
+  if (cached && !problems.length) return cached;
+  // `repair` also moves the damaged tree out of the way; false when not holding the install lock, so
+  // only the process that will re-install touches it.
+  if (!repair) return null;
+  log(quiet, `cached browser is damaged (${problems[0]}) — re-downloading`);
+  // Moved aside first: if a running browser still holds its files, this stops here with "close it", with the
+  // tree still marked, instead of leaving an unmarked tree that no later install can move.
+  moveAside(base, browserDir);
+  for (const marker of [".verified", MANIFEST]) rmSync(path.join(base, marker), { force: true });
+  return null;
+}
+
+// Install lock. One protocol, the same in Python (download.py), Node (download.ts) and .NET
+// (Download.cs) -- change all three together. Any mix of processes installing one build into
+// <cache>/<tag> takes turns:
+//  1. The lock is the file <tag>/.install-lock, created with O_CREAT|O_EXCL (atomic on every OS and in
+//     all three languages; Node has no flock). It holds JSON: pid, start, host, boot, pidns, nonce, sdk,
+//     created. "start" is the process start time where the SDK can read it ("linux:" from /proc; "win:"
+//     the creation time, Python and .NET), else null; "created" is when the lock was written (ms, Unix).
+//  2. The holder touches the file (mtime) every 5 s while it works, from a thread of its own.
+//  3. Waiters poll every 0.25 s. A record from this machine (same host, boot id and PID namespace) is stale
+//     when its pid is dead, when that pid now belongs to a newer process (another start time; on Windows
+//     created after the lock), or -- only without a boot id (Windows, macOS) -- when it was written before
+//     the machine last started. A pid confirmed to be the holder is never stale, however old its heartbeat.
+//     When that cannot be confirmed, and for any other lock: stale once it (mtime + content) has not changed
+//     for 120 s by the waiter's own clock -- 10 s when not valid JSON or its mtime is over 15 min old -- so
+//     clocks that disagree do not matter. A stale lock is broken while holding <tag>/.install-lock.break
+//     (also O_EXCL; a breaker unchanged for 30 s by the waiter's own clock is removed): if the lock is still
+//     exactly what was judged stale, delete it; then delete the breaker.
+//  4. The holder re-checks the cache and uses a verified build if one is there now; a tree marked
+//     .verified that fails the check (files or the binary gone) is moved aside by the holder and only then
+//     unmarked -- if its files are in use, the install stops at once ("close it and try again"). Otherwise
+//     it downloads and extracts into <tag>/.tmp-<nonce>/. Then, only while the lock is still its own: it
+//     uses a tree that appeared meanwhile and passes the full check, else moves browser/ aside
+//     (<tag>/.trash-*; after taking over a holder not confirmed dead, it waits within the install wait while
+//     that tree is still in use), moves its tree to <tag>/browser, checks the lock and writes .manifest.json
+//     (temporary file, then rename), checks the lock once more and only then writes .verified. A tree that
+//     passes the check is never moved or written over by an install. Leftovers (.tmp-*, .trash-*, a breaker
+//     unchanged throughout the install) are swept.
+//  5. Release deletes the lock only while it still holds our nonce. Waiting gives up after 30 min with an
+//     error that names the holder (pid, host) and the lock file.
+export const INSTALL_LOCK = ".install-lock";
+
+/** Install-lock timings in ms (see the protocol above). Tests may shorten them. */
+export const installLockTiming = {
+  pollMs: 250, heartbeatMs: 5_000, staleMs: 120_000, unreadableMs: 10_000, ancientMs: 15 * 60_000, breakerStaleMs: 30_000, waitMs: 30 * 60_000,
+  inUsePollMs: 1_000,
+};
+
+/** Test seam: called right before an install writes .verified. Left empty in production. */
+export const installTestHooks: {
+  beforeVerified?: () => void;
+  heartbeatWorkerSource?: string;
+  /** Called before each rename of a browser tree; may throw, as a rename of a tree in use does. */
+  beforeRename?: (src: string, dst: string) => void;
+} = {};
+
+const BOOT_MARGIN_MS = 5 * 60_000; // the clock can still be corrected in the first minutes after a start
+
+type LockRecord = { pid?: unknown; start?: unknown; host?: unknown; boot?: unknown; pidns?: unknown; nonce?: unknown; sdk?: unknown; created?: unknown };
+type LockRead =
+  | { state: "gone" | "busy"; rec: null; mtimeMs: 0; raw: null }
+  | { state: "ok" | "invalid"; rec: LockRecord | null; mtimeMs: number; raw: string };
+
+const errCode = (e: unknown): string | undefined => (e as NodeJS.ErrnoException)?.code;
+
+function bootId(): string | null {
+  try {
+    return readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function pidNamespace(): string | null {
+  try {
+    return readlinkSync("/proc/self/ns/pid");
+  } catch {
+    return null;
+  }
+}
+
+/** When this machine last started (ms, Unix time), or null. */
+function bootTimeMs(): number | null {
+  try {
+    const line = readFileSync("/proc/stat", "utf8").split("\n").find((l) => l.startsWith("btime "));
+    if (line) return Number(line.split(/\s+/)[1]) * 1000;
+  } catch {
+    /* not Linux */
+  }
+  const up = os.uptime();
+  return up > 0 ? Date.now() - up * 1000 : null;
+}
+
+/** A marker that differs once `pid` belongs to another process: its start time from /proc (Linux). */
+function processStart(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const f = stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/);
+    return f[19] ? `linux:${f[19]}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0); // signal 0: an existence check, also on Windows
+    return true;
+  } catch (e) {
+    return errCode(e) === "EPERM"; // exists, but not ours to signal
+  }
+}
+
+function readLock(p: string): LockRead {
+  let mtimeMs: number;
+  let raw: string;
+  try {
+    mtimeMs = statSync(p).mtimeMs;
+    raw = readFileSync(p, "utf8");
+  } catch (e) {
+    return { state: errCode(e) === "ENOENT" ? "gone" : "busy", rec: null, mtimeMs: 0, raw: null };
+  }
+  try {
+    const rec = JSON.parse(raw) as unknown;
+    if (rec && typeof rec === "object" && !Array.isArray(rec)) return { state: "ok", rec: rec as LockRecord, mtimeMs, raw };
+  } catch {
+    /* not (yet) valid JSON */
+  }
+  return { state: "invalid", rec: null, mtimeMs, raw };
+}
+
+/** What a waiter compares to tell whether the lock changed since it last looked. */
+const lockKey = (s: LockRead): string => `${s.state}\u0000${s.mtimeMs}\u0000${s.raw ?? ""}`;
+
+/** The record is from this machine (same host, boot id and PID namespace) and names a usable pid. */
+function fromHere(rec: LockRecord): rec is LockRecord & { pid: number } {
+  const { pid, host } = rec;
+  return (
+    typeof host === "string" && host.toLowerCase() === os.hostname().toLowerCase() &&
+    (rec.boot ?? null) === bootId() && (rec.pidns ?? null) === pidNamespace() &&
+    typeof pid === "number" && Number.isInteger(pid) && pid > 0 && pid < 2 ** 31
+  );
+}
+
+/** For a record from this machine: "gone", "alive" (certainly still the holder) or "unknown". Node cannot
+ * read another process's start time on Windows, so there a live pid is always "unknown". */
+function ownerState(rec: LockRecord & { pid: number }): "gone" | "alive" | "unknown" {
+  const created = typeof rec.created === "number" ? rec.created : null;
+  const boot = bootTimeMs();
+  // written before this machine last started (a boot id, where there is one, tells that already)
+  if ((rec.boot ?? null) === null && created !== null && boot !== null && created < boot - BOOT_MARGIN_MS) return "gone";
+  if (!pidAlive(rec.pid)) return "gone";
+  const now = processStart(rec.pid);
+  if (now?.startsWith("linux:")) {
+    if (typeof rec.start === "string" && rec.start.startsWith("linux:")) return now === rec.start ? "alive" : "gone";
+    return "unknown";
+  }
+  return "unknown";
+}
+
+/** `unchangedForMs`: how long the lock has stayed exactly as it is, by this process's own clock. */
+function lockStale(rec: LockRecord | null, mtimeMs: number, unchangedForMs: number): boolean {
+  if (rec && fromHere(rec)) {
+    const state = ownerState(rec);
+    if (state !== "unknown") return state === "gone";
+  }
+  const quick = !rec || Date.now() - mtimeMs > installLockTiming.ancientMs;
+  return unchangedForMs >= (quick ? Math.min(installLockTiming.staleMs, installLockTiming.unreadableMs) : installLockTiming.staleMs);
+}
+
+function fileKey(p: string): string | null {
+  try {
+    const st = statSync(p);
+    return `${st.mtimeMs}\u0000${st.size}`;
+  } catch {
+    return null;
+  }
+}
+
+type BreakerWatch = { key: string | null; at: number };
+
+/** A breaker is held for milliseconds: one that stays exactly the same for the breaker window, by this
+ * process's own clock, was left by a process that died holding it. Its timestamp alone proves nothing. */
+function clearStaleBreaker(breaker: string, watch: BreakerWatch): void {
+  const key = fileKey(breaker);
+  const now = performance.now();
+  if (key === null || key !== watch.key) {
+    watch.key = key;
+    watch.at = now;
+  } else if (now - watch.at >= installLockTiming.breakerStaleMs) {
+    rmSync(breaker, { force: true });
+    watch.key = null;
+  }
+}
+
+/** Delete the lock if it is still exactly what was judged stale, under the breaker file. True when the lock is gone afterwards. */
+function breakStaleLock(p: string, judged: string, watch: BreakerWatch): boolean {
+  const breaker = `${p}.break`;
+  try {
+    closeSync(openSync(breaker, "wx"));
+  } catch {
+    try {
+      clearStaleBreaker(breaker, watch);
+    } catch {
+      /* gone meanwhile */
+    }
+    return false;
+  }
+  try {
+    const s = readLock(p);
+    if (lockKey(s) === judged) {
+      unlinkSync(p);
+      return true;
+    }
+    return s.state === "gone";
+  } catch {
+    return false;
+  } finally {
+    rmSync(breaker, { force: true });
+  }
+}
+
+const SDK_NAMES: Record<string, string> = { python: "Python", node: "Node", dotnet: ".NET" };
+
+function lockHolder(rec: LockRecord | null): string {
+  if (!rec || !rec.pid) return "a process that left no details";
+  const sdk = SDK_NAMES[String(rec.sdk)] ?? String(rec.sdk ?? "unknown");
+  return `process ${String(rec.pid)} on ${typeof rec.host === "string" && rec.host ? rec.host : "an unknown machine"} (Clearcote ${sdk} SDK)`;
+}
+
+function waitWords(ms: number): string {
+  const [n, unit] = ms < 120_000 ? [Math.max(1, Math.round(ms / 1000)), "second"] : [Math.round(ms / 60_000), "minute"];
+  return `${n} ${unit}${n === 1 ? "" : "s"}`;
+}
+
+/** The install lock while this process holds it. */
+export interface InstallLock {
+  readonly path: string;
+  readonly nonce: string;
+  /** False once the lock file no longer carries our nonce (another process took the lock over). */
+  held(): boolean;
+  /** Touch the lock file now (the heartbeat does this every few seconds too). */
+  beat(): void;
+  /** Taken over from a holder that was not confirmed dead (it may still hold its files for a while). */
+  readonly tookOver: boolean;
+  release(): Promise<void>;
+}
+
+// The heartbeat runs in a worker thread, so a long synchronous step on the main thread (reading the whole
+// tree on Windows, extraction, a large delete) cannot stop it.
+const HEARTBEAT_WORKER = `
+const { workerData } = require("node:worker_threads");
+const { readFileSync, utimesSync } = require("node:fs");
+setInterval(() => {
+  try {
+    if (JSON.parse(readFileSync(workerData.path, "utf8")).nonce !== workerData.nonce) return;
+    const now = new Date();
+    utimesSync(workerData.path, now, now);
+  } catch {
+    /* next beat */
+  }
+}, workerData.everyMs);
+`;
+
+function startHeartbeat(p: string, nonce: string, beat: () => void): () => Promise<void> {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let stopped = false;
+  // A worker that cannot start, fails or exits early: beat from this thread's timer instead.
+  const fallback = (): void => {
+    if (stopped || timer) return;
+    timer = setInterval(beat, installLockTiming.heartbeatMs);
+    timer.unref();
+  };
+  let worker: Worker | undefined;
+  try {
+    const source = installTestHooks.heartbeatWorkerSource ?? HEARTBEAT_WORKER;
+    worker = new Worker(source, { eval: true, workerData: { path: p, nonce, everyMs: installLockTiming.heartbeatMs } });
+    worker.on("error", fallback);
+    worker.on("exit", fallback);
+    worker.unref();
+  } catch {
+    fallback();
+  }
+  return async () => {
+    stopped = true;
+    if (timer) clearInterval(timer);
+    await worker?.terminate().catch(() => 0);
+  };
+}
+
+function holdLock(p: string, nonce: string, tookOver: boolean): InstallLock {
+  let lost = false;
+  const held = (): boolean => {
+    if (lost) return false;
+    const s = readLock(p);
+    if (s.state !== "busy" && s.rec?.nonce !== nonce) lost = true;
+    return !lost;
+  };
+  const beat = (): void => {
+    if (!held()) return;
+    try {
+      const now = new Date();
+      utimesSync(p, now, now);
+    } catch {
+      /* next beat */
+    }
+  };
+  const stopHeartbeat = startHeartbeat(p, nonce, beat);
+  return {
+    path: p,
+    nonce,
+    held,
+    beat,
+    tookOver,
+    async release(): Promise<void> {
+      await stopHeartbeat();
+      for (let i = 0; i < 40; i++) { // another process may be reading the file this instant (Windows refuses the delete)
+        const s = readLock(p);
+        if (s.state === "gone" || (s.state !== "busy" && s.rec?.nonce !== nonce)) return;
+        if (s.state === "ok") {
+          try {
+            unlinkSync(p);
+            return;
+          } catch (e) {
+            if (errCode(e) === "ENOENT") return;
+          }
+        }
+        await sleep(50);
+      }
+    },
+  };
+}
+
+/** Wait for, then take, the install lock of build directory `base` (see the protocol above). */
+export async function acquireInstallLock(base: string, opts: { timeoutMs?: number; quiet?: boolean } = {}): Promise<InstallLock> {
+  mkdirSync(base, { recursive: true });
+  const p = path.join(base, INSTALL_LOCK);
+  const nonce = randomBytes(16).toString("hex");
+  const body = JSON.stringify({
+    pid: process.pid, start: processStart(process.pid), host: os.hostname(), boot: bootId(), pidns: pidNamespace(), nonce, sdk: "node", created: Date.now(),
+  });
+  const wait = opts.timeoutMs ?? installLockTiming.waitMs;
+  const deadline = performance.now() + wait;
+  let told = false;
+  let refused = 0;
+  let seen = ""; // the lock as last read, and since when (our clock) it has looked like that
+  let seenAt = 0;
+  const breakerWatch: BreakerWatch = { key: null, at: 0 };
+  let tookOver = false;
+  for (;;) {
+    let fd: number | null = null;
+    try {
+      fd = openSync(p, "wx");
+    } catch (e) {
+      const c = errCode(e);
+      // Windows: the previous lock file is still being deleted
+      if (c !== "EEXIST" && !(process.platform === "win32" && (c === "EPERM" || c === "EACCES" || c === "EBUSY"))) throw e;
+      if (c !== "EEXIST") refused++;
+    }
+    if (fd !== null) {
+      try {
+        writeSync(fd, body);
+      } catch (e) {
+        closeSync(fd);
+        rmSync(p, { force: true });
+        throw e;
+      }
+      closeSync(fd);
+      return holdLock(p, nonce, tookOver);
+    }
+    tookOver = false;
+    const s = readLock(p);
+    if (s.state !== "gone") refused = 0;
+    else if (refused > 40) throw new Error(`Clearcote cannot create ${p}: permission denied`); // not a race: a real error
+    const now = performance.now();
+    const key = lockKey(s);
+    if (key !== seen) {
+      seen = key;
+      seenAt = now;
+    }
+    if ((s.state === "ok" || s.state === "invalid") && lockStale(s.rec, s.mtimeMs, now - seenAt) && breakStaleLock(p, key, breakerWatch)) {
+      log(opts.quiet ?? true, `removed an abandoned install lock (${lockHolder(s.rec)})`);
+      tookOver = !(s.rec && fromHere(s.rec) && ownerState(s.rec) === "gone");
+      continue;
+    }
+    if (now >= deadline) {
+      const here = s.state === "ok" && s.rec && fromHere(s.rec) ? ownerState(s.rec) : null;
+      const note = here === "alive" ? ", which is still running" : here === "unknown" ? "; that process number may now belong to another program" : "";
+      throw new Error(
+        `Gave up after ${waitWords(wait)} waiting for another program to finish installing the Clearcote browser in\n    ${base}\n` +
+          `The other installer is ${lockHolder(s.rec)}${note}. If no Clearcote program is installing this build, delete this file and try again:\n    ${p}`,
+      );
+    }
+    if (!told && s.state === "ok") {
+      log(opts.quiet ?? true, `another program is installing this browser build (${lockHolder(s.rec)}); waiting for it`);
+      told = true;
+    }
+    await sleep(installLockTiming.pollMs);
+  }
+}
+
+/** Another process took the lock over, or changed the build meanwhile: check again under the lock. */
+class LockLost extends Error {}
+
+/** Synchronous sleep for the short Windows retries below. */
+const pause = (ms: number): void => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+
+/** Rename a directory, retrying on Windows while a scanner holds a file in the fresh tree (also the Widevine install's). */
+export function renameDir(src: string, dst: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      installTestHooks.beforeRename?.(src, dst);
+      renameSync(src, dst);
+      return;
+    } catch (e) {
+      // Windows: a scanner can hold a file in the fresh tree for a moment
+      const c = errCode(e);
+      if (process.platform !== "win32" || attempt >= 9 || !(c === "EPERM" || c === "EACCES" || c === "EBUSY")) throw e;
+      pause(200);
+    }
+  }
+}
+
+/** Move a tree that must be replaced out of the way, then delete it if nothing is using it. */
+/** A tree that must be moved aside is in use (Windows will not move a folder whose files are open). */
+class InUseError extends Error {}
+
+function moveAside(base: string, browserDir: string): void {
+  const trash = path.join(base, `.trash-${randomBytes(6).toString("hex")}`);
+  try {
+    renameDir(browserDir, trash);
+  } catch (e) {
+    if (errCode(e) === "ENOENT") return;
+    throw new InUseError(
+      `Clearcote cannot replace the browser files in\n    ${browserDir}\nbecause another program is still using them (${(e as Error).message}).\n` +
+        "Close every program that uses this Clearcote browser, then try again.",
+    );
+  }
+  try {
+    rmSync(trash, { recursive: true, force: true });
+  } catch {
+    /* what is still in use stays until the next install sweeps it */
+  }
+}
+
+/**
+ * Move an unverified browser/ aside. After taking over a holder that was not confirmed dead (it was suspended),
+ * its half-installed tree can stay in use until it resumes and finds the lock gone: wait for that, within the
+ * install wait, instead of failing. In any other case an in-use tree fails at once.
+ */
+async function moveAsideWhenFree(base: string, browserDir: string, lock: InstallLock, quiet?: boolean): Promise<void> {
+  const deadline = performance.now() + installLockTiming.waitMs;
+  let told = false;
+  for (;;) {
+    try {
+      moveAside(base, browserDir);
+      return;
+    } catch (e) {
+      if (!(e instanceof InUseError) || !lock.tookOver || performance.now() >= deadline) throw e;
+      if (!lock.held()) throw new LockLost();
+      if (!told) {
+        log(quiet, `waiting for the installer that lost the lock to let go of ${browserDir}`);
+        told = true;
+      }
+      await sleep(installLockTiming.inUsePollMs);
+    }
+  }
+}
+
+/**
+ * Remove what an install that stopped part-way left behind. Only called by the lock holder. Returns the
+ * breaker file's state now (and when, by this process's clock). Given its state at the start of the install,
+ * removes a breaker that has not changed since, once that is the breaker window or more: one left by a
+ * process killed while it broke a stale lock.
+ */
+function sweepLeftovers(base: string, asset?: string, breakerSeen?: BreakerWatch): BreakerWatch {
+  const breaker = path.join(base, `${INSTALL_LOCK}.break`);
+  const seen: BreakerWatch = { key: fileKey(breaker), at: performance.now() };
+  let names: string[] = [];
+  try {
+    names = readdirSync(base);
+  } catch {
+    return seen;
+  }
+  for (const name of names) {
+    if (name === ".incoming" || name.startsWith(".tmp-") || name.startsWith(".trash-") || name.startsWith(`${MANIFEST}.tmp-`)) {
+      try {
+        rmSync(path.join(base, name), { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+  if (breakerSeen && seen.key !== null && seen.key === breakerSeen.key && seen.at - breakerSeen.at >= installLockTiming.breakerStaleMs) {
+    try {
+      rmSync(breaker, { force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+  if (asset) {
+    try {
+      rmSync(path.join(base, asset), { force: true }); // where earlier versions downloaded the archive
+    } catch {
+      /* best-effort */
+    }
+  }
+  return seen;
+}
+
+/**
+ * Download + verify a resolved release into `base`, returning the extracted browser-binary path.
+ *
+ * Holds `base`'s install lock: a second process that missed the cache at the same moment waits, then uses
+ * the tree the first one finished instead of downloading over it.
+ */
+async function fetchAndVerify(rel: ResolvedRelease, base: string, opts: DownloadOptions): Promise<string> {
+  const binary = rel.binary || "chrome.exe";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const lock = await acquireInstallLock(base, { quiet: opts.quiet ?? false });
+    try {
+      const cached = cachedBinary(base, binary, opts.quiet, true, undefined, launchIntegrity(rel));
+      if (cached) {
+        log(opts.quiet, `installed by another process meanwhile: ${cached}`);
+        return cached;
+      }
+      try {
+        return await installLocked(rel, base, opts, lock);
+      } catch (e) {
+        if (!(e instanceof LockLost) && lock.held()) throw e;
+      }
+      log(opts.quiet, "another process took over or changed this install; checking again");
+    } finally {
+      await lock.release();
+    }
+  }
+  throw new Error(`Clearcote could not install ${rel.tag}: other processes kept taking over the install in ${base}`);
+}
+
+/**
+ * The install itself; the caller holds the install lock. Everything is written under `base/.tmp-<nonce>`
+ * first, and the finished tree is moved into place only while the lock is still ours.
+ */
+async function installLocked(rel: ResolvedRelease, base: string, opts: DownloadOptions, lock: InstallLock): Promise<string> {
+  const breakerSeen = sweepLeftovers(base, rel.asset);
+  const tmp = path.join(base, `.tmp-${lock.nonce}`);
+  mkdirSync(tmp, { recursive: true });
+  try {
+    return await installInto(rel, base, tmp, opts, lock, breakerSeen);
+  } finally {
+    await rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function installInto(
+  rel: ResolvedRelease, base: string, tmp: string, opts: DownloadOptions, lock: InstallLock, breakerSeen?: BreakerWatch,
+): Promise<string> {
+  const browserDir = path.join(base, "browser");
+  const zipPath = path.join(tmp, rel.asset);
+
+  log(opts.quiet, `fetching Clearcote ${rel.version} (${rel.tag}${rel.unpinned ? ", latest" : ""}, ~${(rel.size / 1e6).toFixed(0)} MB)`);
+  await downloadTo(rel.url, zipPath, rel.size, opts.quiet);
+
+  log(opts.quiet, "verifying SHA-256");
+  const got = await sha256File(zipPath);
+  if (got.toLowerCase() !== rel.sha256.toLowerCase()) {
+    await rm(zipPath, { force: true });
+    throw new Error(`Clearcote archive SHA-256 mismatch — refusing to use it.\n  expected ${rel.sha256}\n  got      ${got}`);
+  }
+
+  // For an auto-resolved (un-pinned) release, also confirm authenticity via the signed checksum file.
+  if (rel.unpinned && rel.ascUrl) {
+    const sumsBody = await fetchText(`https://github.com/${REPO}/releases/download/${rel.tag}/SHA256SUMS.txt`).catch(() => "");
+    if (sumsBody) {
+      const verdict = await gpgVerifyAsync(rel, sumsBody, tmp, opts.quiet);
+      if (verdict === "failed") {
+        await rm(zipPath, { force: true });
+        throw new Error(
+          `Clearcote ${rel.tag}: GPG signature verification FAILED against the pinned key ${SIGNING_KEY_FPR} — refusing to use it.`,
+        );
+      }
+      if (verdict === "ok") log(opts.quiet, `auto-update: GPG signature OK (key ${SIGNING_KEY_FPR})`);
+    }
+  }
+
+  log(opts.quiet, "extracting");
+  // Extract next to the target, then move the finished tree into place so `browser/` only ever
+  // appears once fully written (no partial tree a launch could race), and — on Windows — we can
+  // pre-scan the finished tree before any launch (below).
+  const incoming = path.join(tmp, "browser");
+  mkdirSync(incoming, { recursive: true });
+  if (rel.asset.endsWith(".tar.xz") || rel.archive === "tar.xz") {
+    // Node has no stdlib xz; the system `tar` (always present on Linux) auto-detects .xz. Async, so the
+    // lock's heartbeat keeps running during a long extraction.
+    await promisify(execFile)("tar", ["-xf", zipPath, "-C", incoming]);
+  } else if (process.platform === "darwin") {
+    await extractMacBundle(rel.asset, zipPath, incoming);
+  } else {
+    await extract(zipPath, { dir: incoming });
+  }
+  await rm(zipPath, { force: true }); // reclaim ~250 MB; keep only the extracted tree
+
+  const binaryName = rel.binary || "chrome.exe";
+  const found = findFile(incoming, binaryName);
+  if (!found) throw new Error(`Clearcote archive verified but ${binaryName} was not found inside it.`);
+  let exe = found;
+  if (rel.exeSha256) {
+    const exeHash = await sha256File(exe);
+    if (exeHash.toLowerCase() !== rel.exeSha256.toLowerCase()) {
+      throw new Error(`Clearcote ${binaryName} SHA-256 mismatch — refusing to use it.\n  expected ${rel.exeSha256}\n  got      ${exeHash}`);
+    }
+  }
+
+  if (process.platform !== "win32") {
+    // Make the launcher executable (tar preserves 0755, but be defensive) + a best-effort setuid on
+    // the sandbox helper. The setuid bit only takes effect if chrome-sandbox is root-owned; in
+    // containers/non-root, pass --no-sandbox (see docs). We never require root here.
+    try {
+      chmodSync(exe, 0o755);
+    } catch {
+      /* best-effort */
+    }
+    const sandbox = path.join(path.dirname(exe), "chrome-sandbox");
+    if (existsSync(sandbox)) {
+      try {
+        chmodSync(sandbox, 0o4755);
+      } catch {
+        /* best-effort — never require root */
+      }
+    }
+  }
+
+  // Move the tree into place only while the lock is still ours, and never over a tree that passes the full
+  // check: one that appeared since the cache check (another installer finished it) may already be running,
+  // so use it. One marked verified that fails the check is damaged, and moved aside (we hold the lock).
+  lock.beat();
+  if (!lock.held()) throw new LockLost();
+  const done = cachedBinary(base, binaryName, opts.quiet, true, true, launchIntegrity(rel));
+  if (done) {
+    log(opts.quiet, `installed by another process meanwhile: ${done}`);
+    return done;
+  }
+  if (existsSync(path.join(base, ".verified"))) throw new LockLost(); // marked verified meanwhile by another process: start over
+  rmSync(path.join(base, MANIFEST), { force: true });
+  if (existsSync(browserDir)) await moveAsideWhenFree(base, browserDir, lock, opts.quiet); // not verified: an install that stopped part-way
+  renameDir(incoming, browserDir);
+  exe = path.join(browserDir, path.relative(incoming, exe));
+
+  if (process.platform === "win32") {
+    // Pre-scan so real-time AV finishes with the freshly-extracted binaries before the first launch
+    // — closes the chrome_elf.dll scan race that otherwise poisons the path (see warmFiles).
+    warmFiles(browserDir);
+  }
+  // Record the finished tree BEFORE the .verified marker, so a launch never sees "verified" with
+  // no manifest to check it against -- and only while the lock is still ours, so a late manifest never
+  // lands on a tree the new holder is putting in place.
+  if (!lock.held()) throw new LockLost();
+  writeManifest(base, browserDir);
+  // Mark it verified only while the lock is still ours: a process that took the lock over meanwhile then
+  // finds an unverified tree it may replace, not a verified one it must leave alone.
+  installTestHooks.beforeVerified?.();
+  if (!lock.held()) throw new LockLost();
+  writeFileSync(path.join(base, ".verified"), `${rel.sha256}\n`);
+  sweepLeftovers(base, undefined, breakerSeen);
+  log(opts.quiet, `ready: ${exe}`);
+  return exe;
+}
+
+/** Test seam: the child-process runner the macOS extraction uses. */
+export const macExtractHooks = {
+  run: (file: string, args: string[]): Promise<unknown> => promisify(execFile)(file, args),
+};
+
+/**
+ * Unpack the macOS zip, which holds a `Chromium.app` bundle. The bundle needs its symlinks
+ * (`Versions/Current`, `Resources`, ...) and exec bits; extract-zip keeps neither, so it is unpacked
+ * with `ditto` (`unzip` if that is missing) and the quarantine attribute cleared: the build is
+ * unsigned, and Gatekeeper refuses a quarantined bundle.
+ */
+export async function extractMacBundle(asset: string, zipPath: string, dest: string): Promise<void> {
+  mkdirSync(dest, { recursive: true });
+  const tools: Array<[string, string[]]> = [
+    ["/usr/bin/ditto", ["-x", "-k", zipPath, dest]],
+    ["/usr/bin/unzip", ["-q", "-o", zipPath, "-d", dest]],
+  ];
+  for (const [file, args] of tools) {
+    try {
+      await macExtractHooks.run(file, args);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") continue; // that tool is not on this Mac
+      throw new Error(`Clearcote could not unpack ${asset} with ${file}: ${String((e as Error).message).slice(0, 300)}`);
+    }
+    let apps: string[] = [];
+    try {
+      apps = readdirSync(dest).filter((n) => n.endsWith(".app")).map((n) => path.join(dest, n));
+    } catch {
+      /* nothing to un-quarantine */
+    }
+    for (const app of apps.length ? apps : [dest]) {
+      await macExtractHooks.run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", app]).catch(() => undefined); // best-effort
+    }
+    return;
+  }
+  throw new Error("Clearcote needs /usr/bin/ditto or /usr/bin/unzip to unpack the macOS build.");
+}
+
+// ── Version catalog resolver ─────────────────────────────────────────────────
+// Catalog platform key for this OS (matches the /download/pro `platform` param): "windows", "linux",
+// "macos" (Apple Silicon; throws on an Intel Mac), or null.
+function platKey(): "windows" | "linux" | "macos" | null {
+  return proPlatformKey();
+}
+
+/** Compare two version strings numerically: "150.0.7871.115" > "149.0.7827.114". */
+function verCmp(a: string, b: string): number {
+  const x = (a.match(/\d+/g) || []).slice(0, 4).map(Number);
+  const y = (b.match(/\d+/g) || []).slice(0, 4).map(Number);
+  for (let i = 0; i < 4; i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+async function fetchCatalog(quiet?: boolean): Promise<Catalog> {
+  try {
+    const res = await fetch(CATALOG_URL, { redirect: "follow", headers: { "User-Agent": "clearcote-sdk" }, signal: AbortSignal.timeout(30_000) });
+    if (res.ok) {
+      const data = (await res.json()) as Catalog;
+      if (data && Array.isArray(data.builds) && data.builds.length) return data;
+    }
+  } catch (e) {
+    log(quiet, `version catalog unreachable (${(e as Error).message}); using the bundled snapshot`);
+  }
+  return CATALOG_FALLBACK;
+}
+
+function catalogAvailable(cat: Catalog, plat: "windows" | "linux" | "macos"): string {
+  return cat.builds.filter((b) => b.platforms[plat]).map((b) => `${b.version} (${b.tier || "free"})`).join(", ") || "none";
+}
+
+/** A resolved version plan: a free release to download, or a pro version to fetch via the licensed route. */
+export type VersionPlan = { kind: "free"; rel: ResolvedRelease } | { kind: "pro"; version: string };
+
+/**
+ * True when the selector pins a specific PRO REBUILD, e.g. `"r7"` or `"150.0.7871.114-r7"`.
+ * Revisions are the same Chromium version rebuilt, so they never appear in the public version
+ * catalog (`resolveVersion` would reject them) and are PRO-only. The authenticated download route
+ * (which knows `PRO_CATALOG_JSON`) resolves the revision; the SDK just recognises the shape.
+ */
+export function isProRevisionSelector(selector: string | undefined): boolean {
+  return /(?:^|-)r\d+$/i.test(String(selector || "").trim());
+}
+
+/**
+ * Resolve a version selector against the public catalog, VALIDATING that it exists (and is reachable
+ * for this tier) BEFORE any download — so a bad request fails fast with a helpful message instead of
+ * getting stuck. `selector` may be a bare major ("150"), an exact version, or "latest". Throws when
+ * the version doesn't exist for this OS, or when it's a PRO build and `hasLicense` is false.
+ */
+export async function resolveVersion(selector: string, hasLicense: boolean, quiet?: boolean, catalog?: Catalog): Promise<VersionPlan> {
+  const plat = platKey();
+  if (!plat) throw new Error("Clearcote ships Windows x64, Linux x64 and (PRO) macOS arm64 only.");
+  const cat = catalog ?? (await fetchCatalog(quiet)); // a given catalog (the bundled one): no network
+  const builds = cat.builds.filter((b) => b.platforms[plat]);
+  const sel = String(selector || "").trim();
+
+  let cands: CatalogBuild[];
+  if (/^(latest|newest)$/i.test(sel)) {
+    cands = builds.filter((b) => (b.tier || "free") === "free" || hasLicense); // newest ACCESSIBLE
+  } else if (/^\d+$/.test(sel)) {
+    cands = builds.filter((b) => String(b.major) === sel); // bare major -> newest of that major
+  } else {
+    cands = builds.filter((b) => b.version === sel); // exact version
+  }
+  if (!cands.length) {
+    throw new Error(`No Clearcote build matches version '${selector}' for ${plat}. Available: ${catalogAvailable(cat, plat)}.`);
+  }
+  const pick = cands.reduce((a, b) => (verCmp(b.version, a.version) > 0 ? b : a));
+  const tier = pick.tier || "free";
+
+  if (tier === "pro" && !hasLicense) {
+    const free = builds.filter((b) => (b.tier || "free") === "free").map((b) => b.version);
+    throw new Error(
+      `Clearcote ${pick.version} is a PRO build and isn't public yet — set a license key (CLEARCOTE_LICENSE_KEY, or pass licenseKey) to use it.\n` +
+        `  Free versions you can use without a key: ${free.join(", ") || "none"}.`,
+    );
+  }
+  if (tier === "pro") return { kind: "pro", version: pick.version };
+
+  const p = pick.platforms[plat]!;
+  if (!p.url || !p.sha256) throw new Error(`Clearcote ${pick.version} is marked free but the catalog has no download for ${plat}.`);
+  const rel: ResolvedRelease = {
+    tag: pick.tag || `v-${pick.version}`,
+    version: pick.version,
+    asset: p.asset || `clearcote-${pick.version}-${plat}-x64.${p.archive === "zip" ? "zip" : "tar.xz"}`,
+    url: p.url,
+    sha256: p.sha256,
+    exeSha256: p.exeSha256 || "",
+    size: p.size || 0,
+    os: process.platform,
+    archive: p.archive,
+    binary: p.binary,
+    assetGlob: `${plat}-x64`,
+    unpinned: false, // catalog sha256 is the trust anchor -> sha256-only verify, like a pin
+  };
+  return { kind: "free", rel };
+}
+
+/** Best-effort resolved browser build (version string) this launch will run, for lease TELEMETRY
+ * only. Never throws. An exact "X.Y.Z.W" selector is returned as-is (no network); a bare major /
+ * "latest" / empty is resolved against the catalog (empty -> newest usable, matching the binary
+ * path). Any failure falls back to the pinned {@link RELEASE} version. */
+export async function resolvedEngineVersion(
+  selector: string | undefined,
+  hasLicense: boolean,
+  quiet = true,
+): Promise<string> {
+  try {
+    const sel = String(selector || "").trim();
+    if (/^\d+(?:\.\d+){3}$/.test(sel)) return sel; // exact build -> no catalog round-trip
+    if (isProRevisionSelector(sel)) {
+      // "150.0.7871.114-r7" -> the version; bare "r7" -> the pinned baseline version.
+      const m = /^(\d+(?:\.\d+){3})-r\d+$/i.exec(sel);
+      return m ? m[1] : String(RELEASE.version);
+    }
+    const plan = await resolveVersion(sel || "latest", hasLicense, quiet);
+    return plan.kind === "pro" ? plan.version : plan.rel.version;
+  } catch {
+    return String(RELEASE.version);
+  }
+}
+
+/** Resolve a version selector to a downloaded, verified binary path (free from GitHub, pro via the licensed route). */
+export async function ensureVersion(
+  selector: string,
+  opts: { licenseKey?: string; apiBase?: string; cacheDir?: string; quiet?: boolean; releaseChannel?: string } = {},
+): Promise<string> {
+  // Validated up front, and passed on every PRO path: a pinned version with channel "preview" must
+  // still ask the server for preview builds.
+  const releaseChannel = resolveReleaseChannel(opts.releaseChannel);
+  // A PRO revision pin ("r7" / "150.0.7871.114-r7") isn't in the public catalog — it's a licensed
+  // rebuild. Route it straight to the PRO download (which resolves the revision) before validating.
+  if (isProRevisionSelector(selector)) {
+    if (!opts.licenseKey) {
+      throw new Error(
+        `Clearcote '${selector}' is a PRO revision — set a license key (CLEARCOTE_LICENSE_KEY, or pass licenseKey) to pin it.`,
+      );
+    }
+    return proEnsureBinary(opts.licenseKey, { apiBase: opts.apiBase, cacheDir: opts.cacheDir, quiet: opts.quiet, version: selector, releaseChannel });
+  }
+  const plan = await resolveVersion(selector, !!opts.licenseKey, opts.quiet);
+  if (plan.kind === "pro") {
+    return proEnsureBinary(opts.licenseKey as string, { apiBase: opts.apiBase, cacheDir: opts.cacheDir, quiet: opts.quiet, version: plan.version, releaseChannel });
+  }
+  const base = path.join(opts.cacheDir || defaultCacheRoot(), plan.rel.tag);
+  {
+    const cached = cachedBinary(base, plan.rel.binary || "chrome", opts.quiet, false, undefined, launchIntegrity(plan.rel));
+    if (cached) return cached;
+  }
+  return fetchAndVerify(plan.rel, base, { cacheDir: opts.cacheDir, quiet: opts.quiet });
+}
+
+/** Release channel for PRO builds: "stable" (default) or "preview". */
+export type ReleaseChannel = "stable" | "preview";
+
+/**
+ * Resolve the release channel: explicit option > CLEARCOTE_RELEASE_CHANNEL > "stable".
+ * Unknown values throw, so a typo never silently selects a different build.
+ */
+export function resolveReleaseChannel(explicit?: string, env: Record<string, string | undefined> = process.env): ReleaseChannel {
+  const raw = (explicit ?? env.CLEARCOTE_RELEASE_CHANNEL ?? "").trim().toLowerCase();
+  if (!raw || raw === "stable") return "stable";
+  if (raw === "preview") return "preview";
+  throw new Error(`Unknown release channel '${explicit ?? env.CLEARCOTE_RELEASE_CHANNEL}'. Use "stable" or "preview".`);
+}
+
+/** The PRO download URL for a platform, version selector and channel. */
+export function proDownloadUrl(baseUrl: string, plat: "windows" | "linux" | "macos", version?: string, channel: ReleaseChannel = "stable"): string {
+  let u = `${baseUrl.replace(/\/$/, "")}/api/v1/download/pro?platform=${plat}`;
+  if (version) u += `&version=${encodeURIComponent(version)}`;
+  // An exact pin overrides the channel on the server; sending it anyway lets the server report
+  // which channel resolved. Omitted for stable so older servers see an unchanged request.
+  if (channel === "preview") u += "&channel=preview";
+  return u;
+}
+
+/** Options for {@link proEnsureBinary}. */
+export interface ProDownloadOptions {
+  /** License API base (default: `CLEARCOTE_LICENSE_API` env or clearcotelabs.com). */
+  apiBase?: string;
+  /** Override the cache directory (default: per-OS user cache dir). */
+  cacheDir?: string;
+  /** Suppress progress logging. */
+  quiet?: boolean;
+  /** Request a specific PRO major/version; the server returns the newest match. */
+  version?: string;
+  /** "preview" gets the newest build for this platform, preview or stable (default "stable"). */
+  releaseChannel?: ReleaseChannel;
+}
+
+/** What `GET /api/v1/download/pro` answers. */
+interface ProMeta {
+  tag?: string; version?: string; asset?: string; archive?: string; binary?: string;
+  url?: string; sha256?: string; exe_sha256?: string; chrome_dll_sha256?: string; size?: number;
+  channel?: string; resolved_channel?: string;
+  // Since 156-r51: the oldest client per family that can run this build, and, when the route served an
+  // OLDER build because this SDK is below the current build's minimum, one line saying so.
+  min_sdk?: Record<string, string>; notice?: string;
+}
+
+// ── PRO metadata cache ──────────────────────────────────────────────────────
+// The answer of /api/v1/download/pro, kept for PRO_META_TTL_SEC per process and in
+// ~/.clearcote/pro-meta-<16 hex of sha256(key + "\n" + request url)>.json as {at, meta} (`at` in epoch
+// seconds), so a launch of an installed build does not ask for it again. Only a build that is installed
+// and passes the cached-build check (which re-hashes the protected files with the cached hashes) is
+// launched from it: a download always follows a fresh answer, whose signed url has not expired.
+const PRO_META_TTL_SEC = 600;
+const proMetaMemo = new Map<string, { at: number; meta: ProMeta }>();
+
+function proMetaPath(licenseKey: string, proUrl: string): string {
+  const id = createHash("sha256").update(`${licenseKey}\n${proUrl}`).digest("hex").slice(0, 16);
+  return path.join(os.homedir(), ".clearcote", `pro-meta-${id}.json`);
+}
+
+/** The cached answer for this key and request, while younger than the TTL; null otherwise (unreadable = none). */
+function readProMeta(licenseKey: string, proUrl: string): ProMeta | null {
+  const p = proMetaPath(licenseKey, proUrl);
+  const fresh = (e: unknown): e is { at: number; meta: ProMeta } => {
+    const d = e as { at?: unknown; meta?: unknown } | null | undefined;
+    if (!d || typeof d.at !== "number" || !d.meta || typeof d.meta !== "object") return false;
+    const age = Date.now() / 1000 - d.at;
+    return age >= 0 && age < PRO_META_TTL_SEC; // a time ahead of this clock is no proof of age
+  };
+  const mem = proMetaMemo.get(p);
+  if (fresh(mem)) return mem.meta;
+  try {
+    const d: unknown = JSON.parse(readFileSync(p, "utf8"));
+    if (fresh(d)) {
+      proMetaMemo.set(p, d);
+      return d.meta;
+    }
+  } catch {
+    /* none, or corrupt: a miss */
+  }
+  return null;
+}
+
+/** Keep a usable answer (never an error). Best-effort: a cache is never a reason to fail a launch. */
+function writeProMeta(licenseKey: string, proUrl: string, meta: ProMeta): void {
+  const p = proMetaPath(licenseKey, proUrl);
+  const entry = { at: Date.now() / 1000, meta };
+  proMetaMemo.set(p, entry);
+  const tmp = `${p}.tmp-${randomBytes(4).toString("hex")}`;
+  try {
+    mkdirSync(path.dirname(p), { recursive: true });
+    writeFileSync(tmp, JSON.stringify(entry));
+    renameSync(tmp, p);
+  } catch {
+    rmSync(tmp, { force: true });
+  }
+}
+
+// ── PRO download backoff + fall-back to an installed build ──────────────────────────────────────────
+// A new release used to break every launch that could not download it: the SDK asked for "latest",
+// found it missing from the cache, and threw on any failed download -- a 429 from the per-licence
+// download budget included -- while an older build sat verified on disk. A caller that relaunches on
+// failure then hit the route in a tight loop (CR 2026-10-24: one licence, 4,048 attempts in a day).
+// Now a failed download of a newer build launches the newest installed build of the same Chromium
+// major (unless the caller pinned an exact revision), and the failure is remembered in
+// <cache>/.download-backoff-<tag>.json until the server's Retry-After (429) or for 5 minutes (anything
+// else), so the launches in between skip the attempt. Without an installed build to fall back on, a
+// 429 backoff fails the launch at once with the time it ends instead of asking again.
+const DOWNLOAD_BACKOFF_SEC = 300;
+const DOWNLOAD_BACKOFF_MAX_SEC = 86_400;
+
+interface DownloadBackoff { until: number; status: number | null; reason: string }
+
+function backoffPath(cacheRoot: string, tag: string): string {
+  return path.join(cacheRoot, `.download-backoff-${tag.replace(/[^\w.-]/g, "_")}.json`);
+}
+
+/** The pending backoff for a tag; null when none, expired, or unreadable. */
+export function readDownloadBackoff(cacheRoot: string, tag: string, now: number = Date.now()): DownloadBackoff | null {
+  try {
+    const d = JSON.parse(readFileSync(backoffPath(cacheRoot, tag), "utf8")) as Partial<DownloadBackoff>;
+    if (typeof d.until !== "number" || d.until <= now) return null;
+    // A deadline further out than the cap is no proof of anything (a clock jumped, a hand-edited file).
+    if (d.until - now > DOWNLOAD_BACKOFF_MAX_SEC * 1000) return null;
+    return { until: d.until, status: typeof d.status === "number" ? d.status : null, reason: String(d.reason ?? "") };
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort, like the metadata cache: a backoff file is never a reason to fail a launch. */
+function writeDownloadBackoff(cacheRoot: string, tag: string, seconds: number, status: number | null, reason: string): void {
+  const p = backoffPath(cacheRoot, tag);
+  const entry: DownloadBackoff = { until: Date.now() + Math.min(Math.max(seconds, 1), DOWNLOAD_BACKOFF_MAX_SEC) * 1000, status, reason };
+  const tmp = `${p}.tmp-${randomBytes(4).toString("hex")}`;
+  try {
+    mkdirSync(cacheRoot, { recursive: true });
+    writeFileSync(tmp, JSON.stringify(entry));
+    renameSync(tmp, p);
+  } catch {
+    rmSync(tmp, { force: true });
+  }
+}
+
+function clearDownloadBackoff(cacheRoot: string, tag: string): void {
+  rmSync(backoffPath(cacheRoot, tag), { force: true });
+}
+
+/** "pro-155.0.8059.39-r48" -> { version: "155.0.8059.39", rev: 48 }; null for anything else. */
+function parseProTag(tag: string): { version: string; rev: number } | null {
+  const m = /^pro-(\d+(?:\.\d+){3})-r(\d+)$/.exec(tag);
+  return m ? { version: m[1], rev: Number(m[2]) } : null;
+}
+
+/**
+ * The newest installed, intact PRO build that may stand in for `rel`: same Chromium major (same exact
+ * version when the caller asked for one), never `rel` itself, highest revision first. Null when none.
+ */
+export function proFallbackBuild(cacheRoot: string, rel: { tag: string; version: string; binary?: string },
+  selector: string | undefined, quiet?: boolean): { tag: string; path: string } | null {
+  const want = parseProTag(rel.tag)?.version || rel.version;
+  const major = want.split(".")[0];
+  const exact = /^\d+(?:\.\d+){3}$/.test(String(selector || "").trim());
+  if (!major || !existsSync(cacheRoot)) return null;
+  const candidates: Array<{ tag: string; rev: number }> = [];
+  for (const e of readdirSync(cacheRoot, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name === rel.tag) continue;
+    const t = parseProTag(e.name);
+    if (!t || t.version.split(".")[0] !== major || (exact && t.version !== want)) continue;
+    candidates.push({ tag: e.name, rev: t.rev });
+  }
+  for (const c of candidates.sort((a, b) => b.rev - a.rev)) {
+    const exe = cachedBinary(path.join(cacheRoot, c.tag), rel.binary || "chrome.exe", quiet, false);
+    if (exe) return { tag: c.tag, path: exe };
+  }
+  return null;
+}
+
+/** Whether an answer names a build this platform can install. */
+function proMetaUsable(meta: ProMeta, plat: "windows" | "linux" | "macos"): boolean {
+  return !!meta.url && !!meta.sha256 && !!meta.exe_sha256 && (plat !== "windows" || !!meta.chrome_dll_sha256);
+}
+
+/**
+ * Download + verify the PRO (license-gated) browser and return its chrome path.
+ *
+ * The PRO build is not on a public releases page: the SDK asks the site for it via
+ * `GET /api/v1/download/pro` with the license key, gets back an unguessable, short-lived
+ * blob URL + sha256, then reuses the SAME verify+extract path as the free binary
+ * ({@link fetchAndVerify}, sha256-only — no GPG, exactly like the free pin). Cached per PRO
+ * tag; the answer itself is reused for 10 minutes while its build is installed. Throws on any
+ * failure — a licensed caller must get the PRO build, never a silent free fall-back (that would
+ * launch a binary the engine gate then refuses).
+ */
+export async function proEnsureBinary(licenseKey: string, opts: ProDownloadOptions = {}): Promise<string> {
+  const baseUrl = (opts.apiBase || process.env.CLEARCOTE_LICENSE_API || "https://www.clearcotelabs.com").replace(/\/$/, "");
+  const plat = proPlatformKey(); // throws on an Intel Mac: the macOS build is Apple Silicon only
+  if (!plat) throw new Error("Clearcote PRO ships Windows x64, Linux x64 and macOS arm64 only.");
+
+  const channel = resolveReleaseChannel(opts.releaseChannel);
+  const proUrl = proDownloadUrl(baseUrl, plat, opts.version, channel);
+  const known = readProMeta(licenseKey, proUrl);
+  if (known && proMetaUsable(known, plat)) {
+    // Launched only when its build is installed and its protected files still hash to these values.
+    const rel = proRelease(known, plat);
+    const cached = cachedBinary(path.join(opts.cacheDir || defaultCacheRoot(), rel.tag), rel.binary || "chrome.exe",
+      opts.quiet, false, undefined, launchIntegrity(rel));
+    if (cached) {
+      logResolvedChannel(known, plat, channel, opts.quiet);
+      return cached;
+    }
+  }
+  // Named with the SDK version (clearcote-sdk-node/<v>): since 156-r51 a build can need a minimum
+  // client (the persona token), and the route holds back a client that names no version.
+  const res = await fetch(proUrl, {
+    redirect: "follow",
+    headers: { authorization: `Bearer ${licenseKey}`, "User-Agent": licenseUserAgent() },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) {
+    const body = (await res.text().catch(() => "")).slice(0, 200);
+    throw new Error(
+      `Clearcote PRO download not authorized (HTTP ${res.status}): ${body}\n` +
+        "Check your license key and that your plan is active.",
+    );
+  }
+  const meta = (await res.json()) as ProMeta;
+  logResolvedChannel(meta, plat, channel, opts.quiet);
+  if (meta.notice) log(opts.quiet, String(meta.notice));
+  const rel = proRelease(meta, plat);
+  writeProMeta(licenseKey, proUrl, meta);
+
+  const cacheRoot = opts.cacheDir || defaultCacheRoot();
+  const base = path.join(cacheRoot, rel.tag);
+  {
+    const cached = cachedBinary(base, rel.binary || "chrome.exe", opts.quiet, false, undefined, launchIntegrity(rel));
+    if (cached) return cached;
+  }
+  // An exact revision ("r48", "pro-…-r48") is a pin: the caller gets that build or an error, never another.
+  const mayFallBack = !isProRevisionSelector(opts.version);
+  const fallback = () => (mayFallBack ? proFallbackBuild(cacheRoot, rel, opts.version, opts.quiet) : null);
+  const standIn = (fb: { tag: string; path: string }, why: string, until: number) => {
+    // Always said, even when quiet: the caller asked for one build and is getting another.
+    process.stderr.write(`[clearcote] ${rel.tag} is not installed and ${why}; launching the installed ${fb.tag} instead ` +
+      `(the download is tried again after ${new Date(until).toISOString()}).\n`);
+    return fb.path;
+  };
+
+  const pending = readDownloadBackoff(cacheRoot, rel.tag);
+  if (pending) {
+    const fb = fallback();
+    if (fb) return standIn(fb, `its download is paused (${pending.reason})`, pending.until);
+    if (pending.status === 429) {
+      throw new Error(`Clearcote PRO ${rel.tag} is not installed and its download is paused until ` +
+        `${new Date(pending.until).toISOString()} (${pending.reason}). ${PRO_CACHE_HINT}`);
+    }
+  }
+  try {
+    const exe = await fetchAndVerify(rel, base, { cacheDir: opts.cacheDir, quiet: opts.quiet });
+    clearDownloadBackoff(cacheRoot, rel.tag);
+    return exe;
+  } catch (e) {
+    const fb = fallback();
+    const status = e instanceof DownloadHttpError ? e.status : null;
+    const reason = status !== null ? `HTTP ${status}` : String((e as Error)?.message || e).split("\n")[0].slice(0, 120);
+    if (status === 429) {
+      writeDownloadBackoff(cacheRoot, rel.tag, (e as DownloadHttpError).retryAfterSec ?? 60, 429, "download limit reached (HTTP 429)");
+    } else if (fb) {
+      writeDownloadBackoff(cacheRoot, rel.tag, DOWNLOAD_BACKOFF_SEC, status, `download failed: ${reason}`);
+    }
+    const pause = readDownloadBackoff(cacheRoot, rel.tag);
+    if (fb) return standIn(fb, `its download failed (${reason})`, pause?.until ?? Date.now() + DOWNLOAD_BACKOFF_SEC * 1000);
+    if (status === 429) {
+      throw new Error(`${(e as Error).message}\n${PRO_CACHE_HINT}`);
+    }
+    throw e;
+  }
+}
+
+/** The site's own advice on a 429, kept short here; the route's error text has the full sentence. */
+const PRO_CACHE_HINT =
+  "Keep the downloaded build: point CLEARCOTE_CACHE at a directory that survives restarts, " +
+  "so each machine downloads a new build once instead of on every start.";
+
+function logResolvedChannel(meta: ProMeta, plat: "windows" | "linux" | "macos", channel: ReleaseChannel, quiet?: boolean): void {
+  if (channel === "preview" && meta.resolved_channel && meta.resolved_channel !== "preview") {
+    log(quiet, `release channel: preview requested, no newer preview for ${plat} -> ${meta.resolved_channel} ${meta.tag ?? ""}`.trim());
+  }
+}
+
+/** The release a /download/pro answer names. Throws when it names no download for this platform. */
+function proRelease(meta: ProMeta, plat: "windows" | "linux" | "macos"): ResolvedRelease {
+  if (!proMetaUsable(meta, plat)) {
+    throw new Error(`Clearcote PRO build is not currently available for ${plat} (the server returned no download).`);
+  }
+
+  return {
+    tag: meta.tag || `pro-${meta.version || ""}`,
+    version: meta.version || "",
+    asset: meta.asset || `clearcote-pro-${meta.version || ""}-${plat}-${plat === "macos" ? "arm64" : "x64"}.${plat === "linux" ? "tar.xz" : "zip"}`,
+    url: meta.url as string,
+    sha256: meta.sha256 as string,
+    exeSha256: meta.exe_sha256 || "",
+    chromeDllSha256: meta.chrome_dll_sha256 || "",
+    size: meta.size || 0,
+    os: process.platform,
+    archive: (meta.archive as "zip" | "tar.xz") || (plat === "linux" ? "tar.xz" : "zip"),
+    binary: meta.binary || (plat === "windows" ? "chrome.exe" : plat === "macos" ? "Chromium" : "chrome"),
+    assetGlob: `${plat}-${plat === "macos" ? "arm64" : "x64"}`,
+    unpinned: false, // pinned -> sha256-only verify (no GPG), like the free pin
+  };
+}
+
+/**
+ * Refuse a binary this OS has no build for -- but never one the caller named. An existing
+ * `executablePath` / CLEARCOTE_BINARY is theirs to run on any OS (this used to throw on macOS even
+ * when handed one, while telling the caller to pass executablePath). macOS has a native PRO build
+ * (Apple Silicon), which the PRO download resolves itself.
+ */
+export function ensureRunnableHere(exe: string): void {
+  if (exe && existsSync(exe)) return;
+  let pro: string | null = null;
+  try {
+    pro = proPlatformKey();
+  } catch {
+    /* an Intel Mac: no build for this CPU */
+  }
+  if (platformRelease() === undefined && pro === null) {
+    throw new Error(
+      `Clearcote ships Windows x64, Linux x64 and macOS arm64 binaries — there is no build for this '${process.platform}' machine.\n` +
+        `Run on Windows, Linux or an Apple Silicon Mac (an Intel Mac can use docker: true), or pass executablePath to a compatible binary.\n` +
+        `(The binary downloaded and verified fine; it is cached at: ${exe})`
+    );
+  }
+}
+
+/**
+ * Ensure the Clearcote binary is present and verified; return the path to chrome.exe.
+ * Cached per release tag, so subsequent calls are instant.
+ */
+export async function ensureBinary(opts: DownloadOptions = {}): Promise<string> {
+  const cacheRoot = opts.cacheDir || defaultCacheRoot();
+  if (platformRelease() === undefined) {
+    // Fail before downloading a build that cannot run here (this used to fetch the ~245 MB Windows
+    // zip on a Mac, then refuse it).
+    const hint = process.platform === "darwin"
+      ? "The macOS builds are Apple Silicon only: on an Intel Mac use the Docker image (docker: true). "
+      : "";
+    throw new Error(
+      `The free Clearcote build ships Windows x64, Linux x64 and macOS arm64 binaries — there is none for this '${process.platform}' machine. ` +
+        `${hint}Or pass executablePath to a compatible binary.`,
+    );
+  }
+  const pin = platformRelease()!; // RELEASE, unless a test fakes the OS after import
+
+  let rel: ResolvedRelease;
+  if (autoUpdateRequested(opts.autoUpdate)) {
+    const latest = await resolveLatest(opts.quiet);
+    if (latest && latest.tag === pin.tag) {
+      // newest release IS the pinned one — prefer the baked-in hashes (the audited trust anchor).
+      rel = { ...pin, unpinned: false };
+    } else {
+      rel = latest ?? { ...pin, unpinned: false };
+    }
+  } else {
+    rel = { ...pin, unpinned: false };
+  }
+
+  const base = path.join(cacheRoot, rel.tag);
+  {
+    const cached = cachedBinary(base, rel.binary || "chrome.exe", opts.quiet, false, undefined, launchIntegrity(rel));
+    if (cached) return cached;
+  }
+  return fetchAndVerify(rel, base, opts);
+}
+
+/**
+ * Verified browser builds already in the cache, newest first (by directory mtime). Never downloads
+ * and never deletes: unlike cachedBinary(), a damaged entry is simply left out of the list.
+ */
+export function listCachedBuilds(cacheDir: string = defaultCacheRoot()): Array<{ tag: string; path: string }> {
+  if (!existsSync(cacheDir)) return [];
+  const out: Array<{ tag: string; path: string; mtime: number }> = [];
+  for (const e of readdirSync(cacheDir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const base = path.join(cacheDir, e.name);
+    if (!existsSync(path.join(base, ".verified"))) continue;
+    const exe = findFile(path.join(base, "browser"), process.platform === "win32" ? "chrome.exe" : process.platform === "darwin" ? "Chromium" : "chrome");
+    if (!exe) continue;
+    out.push({ tag: e.name, path: exe, mtime: statSync(base).mtimeMs });
+  }
+  return out.sort((a, b) => b.mtime - a.mtime).map(({ tag, path: p }) => ({ tag, path: p }));
+}

@@ -1,0 +1,166 @@
+# Releasing the SDKs (npm + PyPI) — automated via GitHub Actions
+
+This is the runbook for publishing the `clearcote` **SDK** packages (npm `clearcote` from
+`sdk/node`, PyPI `clearcote` from `sdk/python`). It is **separate** from the browser-binary
+release in [RELEASING.md](RELEASING.md): the browser ships on its own `v0.1.0-pre.N` tag line; the
+SDKs ship on a dedicated **`sdk-v*`** tag line. The two never trigger each other.
+
+Publishing uses **OIDC "trusted publishing"** — no `NPM_TOKEN`, no PyPI API token, nothing stored
+in GitHub secrets. A short-lived OIDC token is minted per run and exchanged for a one-time publish
+credential. npm **provenance** and PyPI **PEP 740 attestations** are generated automatically.
+
+> Verified against official docs (2026): npm trusted publishing went GA 2025-07-31
+> ([changelog](https://github.blog/changelog/2025-07-31-npm-trusted-publishing-with-oidc-is-generally-available/));
+> PyPI uses [`pypa/gh-action-pypi-publish@release/v1`](https://github.com/pypa/gh-action-pypi-publish).
+> `clearcote` is already published on both registries, so OIDC can be configured immediately (no
+> cold-start). The repo is **public**, which is required for npm provenance.
+
+## Workflows
+- [`.github/workflows/npm.yml`](../.github/workflows/npm.yml) — build (`tsc`) + `npm publish` from `sdk/node`.
+- [`.github/workflows/pypi.yml`](../.github/workflows/pypi.yml) — `python -m build` + upload from `sdk/python` (two-job split: ungated build → gated publish).
+
+Both trigger on `push:` of a `sdk-v*` tag, with a `workflow_dispatch` manual fallback. Each runs
+behind a GitHub **Environment** (`npm` / `pypi`) with a required-reviewer approval gate.
+
+## One-time setup (do this once, before the first automated release)
+
+### 1. GitHub — environments
+Settings → Environments → create **`npm`** and **`pypi`**. For each:
+- Add **Required reviewers** (your release approver).
+- If you are the **sole maintainer**, leave *Prevent self-review* **OFF** (otherwise you can never
+  approve your own release and it blocks forever). With a second maintainer, turn it **ON** for
+  two-person control.
+- Optional: add a *Deployment branches and tags* rule restricting the environment to `sdk-v*` tags.
+- No secrets are added for the OIDC path.
+
+### 2. npmjs.com — trusted publisher
+`clearcote` package → **Settings → Trusted Publisher → GitHub Actions**. Enter (all
+**case-sensitive**):
+| Field | Value |
+|---|---|
+| Organization or user | `clearcotelabs` |
+| Repository | `clearcote-browser` |
+| Workflow filename | `npm.yml` *(filename only, with `.yml`, no path)* |
+| Environment name | `npm` |
+
+Requires npm CLI ≥ 11.5.1 / Node ≥ 22.14.0 on the runner — the workflow pins Node 24 and runs
+`npm install -g npm@latest`, so this is handled.
+
+### 3. pypi.org — trusted publisher
+Project `clearcote` → **Publishing → Add a new publisher (GitHub Actions)**:
+| Field | Value |
+|---|---|
+| Owner | `clearcotelabs` |
+| Repository | `clearcote-browser` |
+| Workflow name | `pypi.yml` *(basename only)* |
+| Environment name | `pypi` |
+
+*(If the project ever doesn't exist yet, add a **pending publisher** under Account → Publishing with
+the same fields — it converts on first upload and does not reserve the name, so publish promptly.)*
+
+## Per-release steps (every SDK release)
+1. Bump the **same** version in **all three** hardcoded spots:
+   - `sdk/node/package.json` → `"version"`
+   - `sdk/python/pyproject.toml` → `[project] version`
+   - `sdk/python/clearcote/__init__.py` → `__version__`
+
+   Releasing the .NET SDK on the same version? It has **two more** spots, and a unit test fails the
+   publish if they disagree — `sdk/dotnet/src/Clearcote/Clearcote.csproj` (`<Version>`) and
+   `sdk/dotnet/src/Clearcote/Clearcote.cs` (`public const string Version`). See
+   [sdk/dotnet/PUBLISHING.md](../sdk/dotnet/PUBLISHING.md); it ships on its own `dotnet-v*` tag.
+2. Commit and push to `main`.
+3. Tag and push:
+   ```bash
+   git tag sdk-v0.6.1
+   git push origin sdk-v0.6.1
+   ```
+4. The push starts **both** workflows. Each pauses at its environment gate — **approve** `npm` and
+   `pypi` in the repo's Actions/Environments UI. On approval each publishes (OIDC, with
+   provenance/attestations). A version that doesn't match the tag fails the run loudly (a guard
+   step), turning a forgotten bump into a clean red ❌ instead of a mispublish.
+
+5. **Smoke-test the published release — REQUIRED, don't skip.** Unit tests don't prove the browser
+   launches; a green CI can still ship a build that can't start (bad pin, mis-packaged archive,
+   broken PRO route, missing Docker system libs). Install the just-published version from the real
+   registries and launch it — FREE + PRO, Python + Node — on **each** target OS plus a clean-room
+   container:
+   ```bash
+   CLEARCOTE_LICENSE_KEY=cc_lic_...  sdk/scripts/smoke-release.sh <version>            # this OS (run on Windows AND Linux)
+   CLEARCOTE_LICENSE_KEY=cc_lic_...  sdk/scripts/smoke-release.sh <version> --docker   # clean-room Linux container
+   ```
+   Must print `### SMOKE PASS ###` (exit 0). Any `LAUNCH_FAIL` → the release is broken; yank/patch,
+   don't announce. Full details + the Docker system-lib list: [RELEASE-SMOKE-TEST.md](RELEASE-SMOKE-TEST.md).
+
+> A single `sdk-v*` tag publishes **both** packages (they share one version today). If you ever need
+> to release them at different versions, split into per-package tag namespaces.
+
+## MCP server (`clearcote-mcp`) — its own tag line
+
+The MCP server in [`mcp/`](../mcp/) publishes on a dedicated **`mcp-v*`** tag (workflow
+[`mcp.yml`](../.github/workflows/mcp.yml)), independent of the SDK's `sdk-v*` line — it versions
+separately (starts at `0.1.0`). One `mcp-v*` tag publishes **both** the Python package
+(`clearcote-mcp` → PyPI) and the npm launcher (`clearcote-mcp` → npm), via OIDC.
+
+1. Bump the **same** version in **all four** spots: `mcp/pyproject.toml`,
+   `mcp/clearcote_mcp/__init__.py` (`__version__`), `mcp/npm/package.json`, and `mcp/server.json`
+   (its top-level `version` and each package's `version`; `mcp/tests/test_registry.py` fails otherwise).
+2. Commit + push, then:
+   ```bash
+   git tag mcp-v0.1.0
+   git push origin mcp-v0.1.0
+   ```
+3. The push runs `mcp.yml` — a version-consistency guard + the MCP tests
+   ([`mcp-ci.yml`](../.github/workflows/mcp-ci.yml): a fresh resolve of `./mcp` at the latest
+   dependencies and at the declared floors), then pauses at the `pypi` and `npm` environment gates.
+   Approve each; both publish via OIDC. `mcp-ci.yml` also runs weekly and checks the package as
+   published, because an upstream `mcp` release can break a fresh install with no commit here.
+
+**One-time trusted-publisher registration** (like the SDK, but pointing at `mcp.yml`):
+- PyPI: project `clearcote-mcp` → Publishing → add repo `clearcotelabs/clearcote-browser`, workflow
+  `mcp.yml`, environment `pypi`.
+- npm: `clearcote-mcp` → Settings → Trusted Publisher → GitHub Actions, workflow `mcp.yml`,
+  environment `npm`.
+
+### Listing it in the official MCP Registry
+
+[`mcp/server.json`](../mcp/server.json) is the registry entry (`io.github.clearcotelabs/clearcote-mcp`, both
+packages). The registry stores only this metadata and checks that each package names the entry: `mcpName` in
+`mcp/npm/package.json` and the `mcp-name:` comment at the top of `mcp/README.md` (the PyPI description). Both
+reach the registries only with a release, so publish the entry **after** the `mcp-v*` release that contains them
+is live on PyPI and npm, with `server.json` at that version. The `io.github.clearcotelabs/` namespace needs proof of
+the `clearcotelabs` organisation, which the interactive `mcp-publisher login github` cannot give (it only reaches
+the personal `io.github.<user>/` namespace). Publish with the manual
+[`mcp-registry.yml`](../.github/workflows/mcp-registry.yml) workflow instead: it logs in with the workflow's GitHub
+OIDC token, so nothing is stored.
+
+```bash
+gh workflow run mcp-registry.yml -R clearcotelabs/clearcote-browser
+```
+
+To run it locally anyway (an owner's classic PAT with the `read:org` scope):
+
+```bash
+# mcp-publisher: `brew install mcp-publisher`, or the binary from
+# https://github.com/modelcontextprotocol/registry/releases
+cd mcp
+mcp-publisher validate            # checks server.json without publishing
+mcp-publisher login github --token <classic PAT with read:org>
+mcp-publisher publish
+curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.clearcotelabs/clearcote-mcp"
+```
+Every later release: bump `server.json` with the other three version fields, then run the workflow again.
+
+## Auth fallback (only if OIDC is unavailable)
+If you ever must publish before OIDC is configured: `npm publish --access public` from a logged-in
+machine (or a temporary `NODE_AUTH_TOKEN` automation token), and `twine upload` with a PyPI API
+token. Then switch back to the token-free OIDC path. Do **not** leave tokens in GitHub secrets.
+
+## Notes / gotchas
+- Owner/repo/workflow-filename/environment are **case-sensitive exact matches** between the registry
+  config and the workflow — the repo is `clearcote-browser` (not `clearcote`). A mismatch fails OIDC
+  silently with an "invalid publisher" error.
+- npm provenance requires the repo to stay **public** and `package.json` `repository` to match it
+  (it does: `git+https://github.com/clearcotelabs/clearcote-browser.git`). Making the repo private
+  silently disables provenance.
+- `release/v1` of the PyPI action is a moving major pointer; pin it to a full commit SHA for maximum
+  supply-chain hardening (at the cost of manual updates).

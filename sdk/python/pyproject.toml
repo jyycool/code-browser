@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "clearcote"
+version = "0.69.1"
+description = "Playwright drop-in for the Clearcote anti-fingerprint Chromium build. launch() returns a standard Playwright Browser backed by the verified Clearcote binary, which is auto-downloaded and SHA-256 checked."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "BSD-3-Clause" }
+keywords = [
+    "clearcote",
+    "playwright",
+    "chromium",
+    "anti-detect",
+    "anti-fingerprint",
+    "fingerprint",
+    "farbling",
+    "automation",
+    "stealth",
+    "ungoogled",
+]
+dependencies = [
+    "playwright>=1.40",
+    "maxminddb>=2.2",
+]
+
+[project.scripts]
+clearcote = "clearcote._commands:_console_main"
+clearcote-agent = "clearcote.cli:main"
+clearcote-serve = "clearcote._serve:_cli_main"
+
+[project.optional-dependencies]
+test = ["pytest>=7.3", "pytest-asyncio>=0.24"]
+
+[project.urls]
+Homepage = "https://github.com/clearcotelabs/clearcote-browser"
+Repository = "https://github.com/clearcotelabs/clearcote-browser"
+Issues = "https://github.com/clearcotelabs/clearcote-browser/issues"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# Keep tmp_path directories only for tests that failed (for debugging): by default pytest keeps the
+# last three runs in full, browser profiles and fake binaries included.
+tmp_path_retention_policy = "failed"
+
+[tool.hatch.build.targets.wheel]
+packages = ["clearcote"]
+
+[tool.hatch.build.targets.sdist]
+include = ["clearcote", "README.md", "LICENSE"]

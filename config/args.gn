@@ -1,0 +1,71 @@
+# Clearcote reference build configuration — Windows x64, cross-compiled on Linux.
+#
+# This is the effective build configuration used to produce the published pre-release
+# (v0.1.0-pre.25, Chromium 151; same flags and values as the build host's out/Default/args.gn; only ordering/comments
+# differ, which gn ignores; the build host also sets cc_wrapper="ccache", a compile cache that does
+# not change the output). Copy it verbatim into the build:
+#   cp config/args.gn <chromium-src>/out/Default/args.gn
+# then `gn gen out/Default && ninja -C out/Default chrome`. (scripts/04-configure-build.sh
+# does this for you.) Everything here is plain and inspectable — no hidden flags.
+
+# --- De-Google (from ungoogled-chromium's flags.gn; kept explicit so this file is self-contained) ---
+clang_use_chrome_plugins = false
+disable_fieldtrial_testing_config = true
+enable_hangout_services_extension = false
+# On since Chromium 150 (the tree the binaries ship from). Which WebRTC candidates exist is decided
+# by 100-webrtc-leak, so this build still shows no .local host candidates.
+enable_mdns = true
+enable_remoting = false
+enable_reporting = false
+enable_service_discovery = false
+# Widevine EME *plumbing* only — clearcote does NOT bundle Google's proprietary CDM blob; the SDK
+# fetches it opt-in at runtime (see sdk/python/clearcote/_widevine.py). This makes
+# requestMediaKeySystemAccess('com.widevine.alpha') resolvable instead of a no-Widevine tell.
+enable_widevine = true
+exclude_unwind_tables = true
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+safe_browsing_mode = 0
+use_official_google_api_keys = false
+use_unofficial_version_number = false
+
+# --- Target + toolchain ---
+target_os = "win"
+target_cpu = "x64"
+is_clang = true
+clang_base_path = "//third_party/llvm-build/Release+Asserts"
+rust_sysroot_absolute = ""            # build rust std from source (no prebuilt absolute sysroot)
+
+# --- Release configuration ---
+is_debug = false
+# Official since Chromium 151 (v0.1.0-pre.25): ThinLTO + PGO, a ~30 % smaller binary, and DCHECKs
+# compiled out. Earlier open builds were non-official, which turned dcheck_always_on on and made
+# upstream DCHECKs fatal ("page crashed!" / STATUS_BREAKPOINT on edge inputs). Building this costs
+# far more than the old config: the Windows cross ThinLTO link takes ~12 h on 8 cores and needs
+# ~31 GB of RAM. Do NOT set concurrent_links — gn asserts on it under ThinLTO.
+is_official_build = true
+dcheck_always_on = false              # explicit: the official default, kept visible
+is_component_build = false            # single, shippable binary
+symbol_level = 0
+blink_symbol_level = 0
+# PGO with Chromium's own profile for this revision. The Windows profile is NOT in the source
+# tarball: scripts/04-configure-build.sh downloads the file chrome/build/win64.pgo.txt names into
+# chrome/build/pgo_profiles/ (see docs/BUILDING.md). The path below must match that name.
+chrome_pgo_phase = 2
+pgo_data_path = "//chrome/build/pgo_profiles/chrome-win64-7922-1785927076-0ef58e9624f4234b4e8014b635eadd1fce6212cf-fe1da440d678744723d81cc39d45fc5ba3ccfa2d.profdata"
+# The official default (true) runs MSVC's `undname` on the linker output, which does not exist in a
+# Linux cross-build: the build then dies at ~99 % on //chrome:resource_allowlist. Do not substitute
+# llvm-undname — its output differs.
+enable_resource_allowlist_generation = false
+use_remoteexec = false
+
+# --- Media / codecs (match a normal desktop browser) ---
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# --- Cross-build hygiene --- (enable_nacl is not set for Windows: the 151 build leaves it at default)
+dawn_use_built_dxc = false
+treat_warnings_as_errors = false
+fatal_linker_warnings = false
+v8_drumbrake_bounds_checks = true

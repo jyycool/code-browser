@@ -1,0 +1,1570 @@
+"""Clearcote — Playwright drop-in (Python).
+
+    from clearcote import launch
+
+    browser = launch(fingerprint="seed-123", platform="windows")
+    page = browser.new_page()
+    page.goto("https://abrahamjuliot.github.io/creepjs/")
+    browser.close()
+
+launch() returns a Playwright browser handle backed by the verified Clearcote binary
+(auto-downloaded + SHA-256 checked on first use, then cached). Every Playwright launch option
+(headless, proxy, args, timeout, ...) passes through; the fingerprint kwargs map to the engine
+switches.
+
+Since 0.23.0 it launches on a throwaway PROFILE directory rather than incognito, because
+incognito cannot load the Widevine CDM and its absence is itself a fingerprint on a build
+branded Google Chrome. The directory is deleted on close and on interpreter exit, so no state
+survives the run. ``ephemeral_profile=False`` restores the old incognito launch.
+
+Since 0.34.0 the same call can run the browser on Clearcote's servers instead: ``launch(cloud=True)``
+(or ``CLEARCOTE_CLOUD=1`` in the environment) returns the same Playwright ``Browser``, connected to
+a hosted session. :mod:`clearcote.cloud` has the rest of the hosted API (agent runs, profiles,
+recordings, events, hand-off, webhooks).
+"""
+
+import atexit
+import os
+import sys
+import time
+import warnings
+
+from ._agent import AGENT_KEYS, OPENROUTER_BASE_URL, agent_args, run_agent_task
+from ._fingerprint import (
+    FINGERPRINT_KEYS,
+    fingerprint_args,
+    is_fingerprint_passthrough,
+    persona_platform,
+)
+from ._fontpersona import ensure_persona_fonts, font_reachability, profile_with_windows11_faces
+from ._fonts import apply_font_env, check_font_dirs
+from ._shaderdialect import apply_shader_dialect
+from . import _persona  # r51+: server-side personas (the signed persona token)
+from ._persona import PersonaServiceError
+from ._clockcheck import ClockSkewError
+from . import _personaenv
+from ._geometry import (apply_headless_geometry, caller_sized_the_window, engine_places_persona_window,
+                        place_window)
+from ._colorscheme import (default_color_scheme, engine_decides_color_scheme,
+                           install_color_scheme_default)
+from ._humanize import install_humanize, install_humanize_on_context
+from ._hzoptions import ClearcoteStrictError, HumanizeOptions, normalize as _hz_normalize
+from ._httpcache import refuse_without_profile, with_http_cache
+from ._launchopts import (  # noqa: F401  (web_bluetooth_args re-exported for tests)
+    DEFAULT_IGNORED_ARGS,
+    GATED_ENGINE_SWITCHES,
+    QUIET_GATED_ENGINE_SWITCHES,
+    RUNTIME_BINDINGS_SWITCH,
+    STOCK_RUNTIME_SWITCH,
+    engine_extras_args,
+    engine_supports_switch,
+    gate_engine_switches,
+    engine_revision,
+    gpu_backend_args,
+    playwright_keeps_unsafe_swiftshader,
+    software_webgpu_args,
+    mesa_egl_available,
+    gpu_blocklist_args,
+    macos_keychain_args,
+    serve_infobar_args,
+    serve_needs_no_sandbox,
+    extension_args,
+    warn_unsupported_engine_options,
+    portable_args,
+    merge_feature_flags,
+    playwright_feature_override_args,
+    privacy_sandbox_args,
+    quic_args,
+    relay_proxy_by_ip,
+    socks5_udp_args,
+    udp_relay_or_fallback,
+    resolve_proxy,
+    runtime_bindings_args,
+    stock_runtime_args,
+    web_bluetooth_args,
+    webrtc_default_deny_args,
+    webrtc_direct_stun_args,
+)
+from ._profile import Profile, list_profiles, load_profile, resolve_profile_options
+from ._reqproxy import (close_on_failure, request_proxy_args, request_proxy_upstream, route_request_api,
+                        warn_request_api)
+# Profile library: real captured personas, selected for coherence with THIS host.
+from ._profilelib import (
+    DEFAULT_MAX_ENCODED, default_sticky_key, eligible, gpu_vendor_class,
+    score_profile, select_profile,
+)
+from ._profileimport import import_directory, index_entry_from_profile, load_imported_profile
+from ._profilesource import fetch_index, fetch_profile, host_os_family, measure_host
+from ._profileauto import (
+    DEFAULT_LOCAL_DIR, MIN_PROFILE_ENGINE_MAJOR, engine_supports_profiles, load_local_index,
+    local_setup_hint, resolve_auto, resolve_local,
+)
+from ._render import check_render_coherence
+from ._warnings import emit_coherence_warnings
+from ._widevine import (  # noqa: F401  (widevine_cdm_args re-exported for tests)
+    apply_widevine_launch, fetch_widevine, seed_widevine, widevine_cdm_args, widevine_launch_args, widevine_mode,
+)
+from ._crlset import apply_crlset_launch, fetch_crlset, install_crlset
+from ._autofillpref import apply_autofill_prefs
+from . import _offline
+from ._offline import OfflineKeyError
+from ._license import (
+    STALE_TOKEN_REFUSAL,
+    ConcurrencyLimitError,
+    LicenseError,
+    LicenseRevokedError,
+    LicenseServerChallengeError,
+    acquire_lease,
+    get_session_seats,
+    inject_run_token,
+    license_key_path,
+    license_key_source,
+    license_through_proxy_requested,
+    remove_license_key,
+    resolve_license_key,
+    save_license_key,
+)
+from ._net import proxied_request, to_proxy_spec
+from .download import (
+    ensure_binary, list_cached_builds, resolve_release_channel, resolved_engine_version, warm_files,
+)
+from .geoip import (GeoipError, geoip_mode, geoip_timeout_seconds, resolve_geo, resolve_geo_detailed,
+                    warn_on_egress_drift)
+from .release import RELEASE
+from ._serve import Server, serve
+from .cloud import (
+    AsyncCloud, Cloud, CloudError, CloudTimeoutError, cloud_requested, launch_cloud, verify_webhook,
+)
+from ._docker import DockerUnavailableError, docker_requested, launch_docker
+
+from ._hold import press_and_hold
+
+__all__ = [
+    "launch",
+    "HumanizeOptions",
+    "ClearcoteStrictError",
+    "press_and_hold",
+    "Cloud",
+    "AsyncCloud",
+    "CloudError",
+    "CloudTimeoutError",
+    "verify_webhook",
+    "DockerUnavailableError",
+    "launch_persistent_context",
+    "launch_agent",
+    "serve",
+    "Server",
+    "executable_path",
+    "download",
+    "run_agent_task",
+    "resolve_geo",
+    "resolve_geo_detailed",
+    "geoip_timeout_seconds",
+    "geoip_mode",
+    "GeoipError",
+    "proxied_request",
+    "to_proxy_spec",
+    "resolve_release_channel",
+    "list_cached_builds",
+    "is_fingerprint_passthrough",
+    "DEFAULT_IGNORED_ARGS",
+    "gpu_backend_args",
+    "software_webgpu_args",
+    "engine_revision",
+    "mesa_egl_available",
+    "gpu_blocklist_args",
+    "gate_engine_switches",
+    "engine_supports_switch",
+    "serve_multiplex",
+    "get_session_seats",
+    "save_license_key",
+    "remove_license_key",
+    "license_key_source",
+    "license_key_path",
+    "Profile",
+    "list_profiles",
+    "select_profile",
+    "score_profile",
+    "eligible",
+    "gpu_vendor_class",
+    "default_sticky_key",
+    "DEFAULT_MAX_ENCODED",
+    "import_directory",
+    "index_entry_from_profile",
+    "load_imported_profile",
+    "fetch_index",
+    "fetch_profile",
+    "host_os_family",
+    "measure_host",
+    "resolve_auto",
+    "resolve_local",
+    "load_local_index",
+    "local_setup_hint",
+    "DEFAULT_LOCAL_DIR",
+    "MIN_PROFILE_ENGINE_MAJOR",
+    "engine_supports_profiles",
+    "load_profile",
+    "check_render_coherence",
+    "fetch_widevine",
+    "seed_widevine",
+    "fetch_crlset",
+    "install_crlset",
+    "resolve_license_key",
+    "acquire_lease",
+    "LicenseError",
+    "ConcurrencyLimitError",
+    "LicenseRevokedError",
+    "OfflineKeyError",
+    "LicenseServerChallengeError",
+    "PersonaServiceError",
+    "ClockSkewError",
+    "OPENROUTER_BASE_URL",
+    "RELEASE",
+    "__version__",
+]
+__version__ = "0.69.1"
+
+_pw = None  # the shared, lazily-started Playwright driver (one per process)
+
+
+def _stop_quietly(pw):
+    try:
+        pw.stop()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _playwright():
+    global _pw
+    if _pw is None:
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise RuntimeError(
+                "clearcote requires Playwright. Install it with:\n    pip install playwright\n"
+                "(You do NOT need 'playwright install' — Clearcote uses its own browser binary.)"
+            ) from exc
+        _pw = sync_playwright().start()
+        atexit.register(_stop_quietly, _pw)
+    return _pw
+
+
+def _require_binary(path):
+    """A browser the caller named must exist. Handed a missing one, Playwright fails only after
+    creating temp directories it then leaves behind (playwright-artifacts-*,
+    playwright_chromiumdev_profile-*). Same message as the Node and .NET SDKs."""
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Clearcote binary not found at '{path}'. Set executable_path / CLEARCOTE_BINARY, or let "
+            "the SDK auto-download it.")
+
+
+def _resolve_binary(executable_path=None, cache_dir=None, quiet=False, auto_update=None, pro=None,
+                    version=None, release_channel=None):
+    from .download import check_install
+
+    if executable_path:
+        # Caller-supplied tree (often a browser bundled into a packaged app): we did not install it,
+        # so validate it here — a half-copied tree otherwise CHECK-crashes during browser startup.
+        _require_binary(executable_path)
+        check_install(executable_path)
+        return executable_path
+    env = os.environ.get("CLEARCOTE_BINARY")
+    if env:
+        _require_binary(env)
+        check_install(env)
+        return env
+    # Validated on every download path (a typo must never silently select a different build) and
+    # passed to every PRO download, pinned or not; the server lets an exact pin override it.
+    channel = resolve_release_channel(release_channel)
+    version = version or os.environ.get("CLEARCOTE_BROWSER_VERSION")
+    if version:
+        # Explicit version selector ("150" / "149.0.7827.114" / "latest"): validate against the public
+        # catalog FIRST (clear error if it doesn't exist or needs a license), then route free vs pro.
+        from .download import (
+            _cache_root,
+            _cached,
+            _fetch_and_verify,
+            is_pro_revision_selector,
+            pro_ensure_binary,
+            resolve_version,
+        )
+
+        # A PRO revision pin ("r7" / "150.0.7871.114-r7") isn't in the public catalog — it's a
+        # licensed rebuild. Route it straight to the PRO download (which resolves the revision).
+        if is_pro_revision_selector(version):
+            if not (pro and pro[0]):
+                raise ValueError(
+                    f"Clearcote {version!r} is a PRO revision — set a license key "
+                    "(CLEARCOTE_LICENSE_KEY, or pass license_key=...) to pin it."
+                )
+            return pro_ensure_binary(pro[0], api_base=(pro[1] if pro else None),
+                                     cache_dir=cache_dir, quiet=quiet, version=version,
+                                     release_channel=channel)
+
+        kind, payload = resolve_version(version, has_license=bool(pro and pro[0]), quiet=quiet)
+        if kind == "pro":
+            return pro_ensure_binary(pro[0], api_base=(pro[1] if pro else None),
+                                     cache_dir=cache_dir, quiet=quiet, version=payload,
+                                     release_channel=channel)
+        rel = payload  # free build resolved from the catalog
+        base = os.path.join(cache_dir or _cache_root(), rel["tag"])
+        cached = _cached(base, rel["binary"], quiet, repair=False)
+        if cached:
+            return cached
+        return _fetch_and_verify(rel, base, quiet)
+    if pro:  # (license_key, api_base) -> the PRO (license-gated) pinned build via the site
+        from .download import pro_ensure_binary
+        return pro_ensure_binary(pro[0], api_base=pro[1], cache_dir=cache_dir, quiet=quiet,
+                                 release_channel=channel)
+    return ensure_binary(cache_dir=cache_dir, quiet=quiet, auto_update=auto_update)
+
+
+def executable_path(executable_path=None, cache_dir=None, quiet=False, auto_update=None,
+                    version=None, license_key=None, license_api_base=None, release_channel=None):
+    """Resolve the Clearcote chrome.exe path, downloading + verifying it if needed.
+
+    Order: explicit ``executable_path`` > ``CLEARCOTE_BINARY`` env > ``version`` selector > auto-download.
+    Pass ``version="150"`` (major), ``"150.0.7871.115"`` (exact), or ``"latest"`` to pick a specific
+    browser build from the catalog (a PRO-tier version needs ``license_key`` / ``CLEARCOTE_LICENSE_KEY``).
+    Pin a specific PRO rebuild with ``version="150.0.7871.114-r7"`` (or bare ``"r7"``) — revisions are
+    licensed builds, so a key is required.
+    Pass ``auto_update=True`` (or set ``CLEARCOTE_AUTO_UPDATE=1``) to fetch the latest release.
+    ``release_channel="preview"`` (or ``CLEARCOTE_RELEASE_CHANNEL``) selects the newest PRO build,
+    preview or stable.
+    """
+    key = resolve_license_key(license_key)
+    pro = (key, license_api_base) if key else None
+    return _resolve_binary(executable_path, cache_dir, quiet, auto_update, pro=pro, version=version,
+                           release_channel=release_channel)
+
+
+def download(cache_dir=None, quiet=False, auto_update=None, version=None, license_key=None,
+             license_api_base=None, release_channel=None):
+    """Pre-fetch + verify the Clearcote binary without launching. Returns the chrome.exe path.
+
+    Pass ``version="150"`` / ``"150.0.7871.115"`` / ``"latest"`` to fetch a specific browser build
+    from the catalog (PRO-tier versions need ``license_key`` / ``CLEARCOTE_LICENSE_KEY``). A PRO
+    rebuild can be pinned with ``version="150.0.7871.114-r7"`` (or bare ``"r7"``).
+    Pass ``auto_update=True`` (or set ``CLEARCOTE_AUTO_UPDATE=1``) to fetch the latest release.
+    ``release_channel="preview"`` (or ``CLEARCOTE_RELEASE_CHANNEL``) selects the newest PRO build.
+    """
+    key = resolve_license_key(license_key)
+    pro = (key, license_api_base) if key else None
+    return _resolve_binary(None, cache_dir, quiet, auto_update, pro=pro, version=version,
+                           release_channel=release_channel)
+
+
+def _guard(exe):
+    """Refuse a binary this OS has no build for -- but never one the caller named.
+
+    An existing ``executable_path`` / CLEARCOTE_BINARY is theirs to run on any OS (this used to
+    raise on macOS even when handed one, while telling the caller to pass executable_path). An Apple
+    Silicon Mac has native builds: the open pin, and the PRO build the PRO download resolves itself."""
+    from .release import platform_release, pro_platform_key
+    if exe and os.path.exists(exe):
+        return
+    try:
+        pro = pro_platform_key()
+    except RuntimeError:
+        pro = None
+    if platform_release() is None and pro is None:
+        raise RuntimeError(
+            f"Clearcote ships Windows x64, Linux x64 and macOS arm64 binaries — there is no build for "
+            f"this {sys.platform!r} machine.\nRun on Windows, Linux or an Apple Silicon Mac (an Intel "
+            f"Mac can use docker=True), or pass executable_path=... to a "
+            f"compatible binary.\n(A binary downloaded and verified fine; it is cached at: {exe})"
+        )
+
+
+def _apply_auto_profile(fp, exe, select, quiet=False, pro=None, lease=None):
+    """Resolve ``profile="auto"`` into ``fingerprint_profile``, in place.
+
+    Host GPU/display can only be read by rendering, so this may launch the engine once with NO
+    persona and cache the result (keyed by binary, 30 days). The nested launch passes no
+    ``profile``, so it cannot recurse.
+
+    An explicit ``fingerprint_profile`` always wins — if the caller already named a profile,
+    "auto" has nothing to decide and must not silently replace it.
+    """
+    if fp.get("fingerprint_profile") is not None:
+        return
+    major = int(str(RELEASE["version"]).split(".")[0])
+    license_key = pro[0] if pro else None
+    api_base = pro[1] if pro else None
+    # THE NESTED LAUNCH NEEDS THE LICENSE TOO, and used to be given it only by accident.
+    #
+    # measure_host launches the SAME binary that will run the real session. On PRO that binary is
+    # the gated build: with no run-token the engine gate kills it on startup and Playwright reports
+    # `TargetClosedError: Target page, context or browser has been closed` — a message that says
+    # nothing about licensing, from a call the caller never wrote. It only worked when the key
+    # happened to be in CLEARCOTE_LICENSE_KEY (or ~/.clearcote/license.key), because launch()
+    # resolves those itself; passing license_key= as a kwarg — the documented way — failed.
+    #
+    # `pro` is unpacked ABOVE the call for that reason. Do not move it back down.
+    # ephemeral_profile=False: the host probe reads GPU + display off about:blank and needs no
+    # profile, so it takes the cheap incognito path rather than creating and deleting a directory
+    # on every "auto" resolution.
+    # _cc_lease: run the probe on the CALLER's slot. Checking out a second one deadlocks the
+    # caller against itself on a per-browser plan, and the probe is strictly inside this launch.
+    # cloud=False: the probe measures THIS host, whatever CLEARCOTE_CLOUD says.
+    # widevine=False: the probe reads GPU + display only; the CDM (on by default for a licensed launch)
+    # would only cost it a fetch. geoip=False likewise: the default egress lookup would only cost time.
+    host = measure_host(
+        lambda **kw: launch(
+            license_key=license_key, license_api_base=api_base, ephemeral_profile=False,
+            _cc_lease=lease, cloud=False, docker=False, widevine=False, geoip=False, **kw
+        ),
+        exe,
+        major,
+    )
+    # BACKWARDS COMPATIBILITY. The free 149 engine has no persona-profile patch, and Chromium
+    # discards unknown switches silently -- so sending it a profile would leave the user with NO
+    # persona while believing they had one. Fall back to the seed path that engine does support,
+    # and say so, rather than failing or silently doing nothing.
+    if not engine_supports_profiles(host.get("browser_major")):
+        if fp.get("fingerprint") is None:
+            # A stable per-machine seed, so this degrades to a CONSISTENT identity rather than a
+            # new one per launch -- same reasoning as keyless "rotate".
+            fp["fingerprint"] = default_sticky_key()
+        if not quiet:
+            sys.stderr.write(
+                f"[clearcote] [profile] engine {host.get('browser_major')} does not support "
+                f"imported profiles (added in {MIN_PROFILE_ENGINE_MAJOR}) — using the seed "
+                'persona instead. Upgrade with version="150" (PRO) for the profile path.\n'
+            )
+        return
+    result = resolve_auto(host, license_key=license_key, api_base=api_base, quiet=quiet, **select)
+    # The corpus never probed the Windows 11 system fonts; a Windows 11 donor gets them back.
+    fp["fingerprint_profile"] = profile_with_windows11_faces(result["profile"])
+    # A seed alongside a profile is the combination that fails strict scoring, and it also makes
+    # profile fields apply only partially. "auto" therefore never sets one — and says so if the
+    # caller supplied one, rather than silently doing something other than what was asked.
+    if fp.get("fingerprint") is not None and not quiet:
+        sys.stderr.write(
+            '[clearcote] [profile] warning: profile="auto" with an explicit fingerprint seed — '
+            "the seed engages farbling, which strict anti-bots score as tampering and which "
+            "makes profile fields apply only partially. Drop `fingerprint` for the coherent "
+            "path.\n"
+        )
+
+
+def apply_geoip(fp, proxy, quiet=False, timeout=None):
+    """Fill unset timezone/accept_language/location/webrtc_ip on ``fp`` from the proxy's exit-IP geo
+    and return the geo (None when the explicit timezone and accept_language were kept instead).
+    ``timeout`` bounds the lookup in seconds (default :func:`geoip_timeout_seconds`).
+
+    FAILS CLOSED: if the region cannot be resolved, raises :class:`GeoipError` instead of
+    continuing on the host's clock and a default language (UTC + en-US on most servers) -- the exact
+    mismatch geoip exists to prevent. A caller who set BOTH ``timezone`` and ``accept_language``
+    explicitly still launches (with a warning), since nothing geoip would fill is missing."""
+    geo, reason, _ms = resolve_geo_detailed(proxy, quiet=quiet, timeout=timeout)
+    if not geo or not geo.get("timezone"):
+        if fp.get("timezone") and fp.get("accept_language"):
+            if not quiet:
+                warnings.warn(f"clearcote: geoip could not resolve the region ({reason}); using the "
+                              "explicit timezone and accept_language.", stacklevel=3)
+            return None
+        whose = "proxy's" if proxy else "connection's"
+        raise GeoipError(
+            f"geoip: could not resolve the {whose} region ({reason}). Launching anyway would use "
+            "this machine's clock and a default language. Fix the proxy, raise "
+            "CLEARCOTE_GEOIP_TIMEOUT_SECONDS, or pass timezone and accept_language explicitly.")
+    for opt in ("timezone", "accept_language", "location"):
+        if geo.get(opt) and fp.get(opt) is None:
+            fp[opt] = geo[opt]
+    # make WebRTC report the proxy egress IP too, coherent with HTTP egress (engine fabricates the
+    # srflx candidate at this IP; no real STUN leaves the host).
+    if geo.get("ip") and fp.get("webrtc_ip") is None:
+        fp["webrtc_ip"] = geo["ip"]
+    # A rotating proxy changes the exit per connection, making all of the above stale at once.
+    warn_on_egress_drift(proxy, geo.get("ip"), quiet=quiet)
+    return geo
+
+
+# The default lookup's budget: CLEARCOTE_GEOIP_TIMEOUT_SECONDS when set, else 10 s (strict keeps 20 s).
+_AUTO_GEOIP_TIMEOUT = 10.0
+# This machine's own egress rarely moves; one lookup serves the process for 10 minutes.
+_DIRECT_GEO_TTL = 600.0
+_direct_geo = None  # (fields, time.monotonic()) of the last no-proxy lookup
+
+
+def _reset_direct_geo_cache():
+    """Tests: forget the cached no-proxy lookup."""
+    global _direct_geo
+    _direct_geo = None
+
+
+class GeoipApplied(tuple):
+    """What :func:`apply_geoip_mode` did: the same 2-tuple ``(geo, auto_webrtc_ip)`` as before (it still
+    unpacks and compares as one), plus ``.ip``: the egress IP the lookup found (also from the no-proxy
+    cache), with no proxy this machine's own."""
+
+    def __new__(cls, geo=None, auto_webrtc_ip=False, ip=None):
+        self = super().__new__(cls, (geo, auto_webrtc_ip))
+        self.ip = ip or None
+        return self
+
+    @property
+    def geo(self):
+        return self[0]
+
+    @property
+    def auto_webrtc_ip(self):
+        return self[1]
+
+
+def apply_geoip_mode(fp, proxy, mode, quiet=False):
+    """Apply geoip in ``mode`` (see :func:`clearcote.geoip.geoip_mode`) -> ``(geo, auto_webrtc_ip)``
+    (a :class:`GeoipApplied`, whose ``.ip`` is the egress IP the lookup found), where
+    ``auto_webrtc_ip`` says the WebRTC IP came from the default lookup. "strict" is
+    :func:`apply_geoip`. "auto" skips the lookup when every field it fills is already set, reuses a
+    no-proxy lookup for 10 minutes, and on failure warns once and launches without filling anything."""
+    global _direct_geo
+    if mode == "off":
+        return GeoipApplied()
+    if mode == "strict":
+        geo = apply_geoip(fp, proxy, quiet=quiet)
+        return GeoipApplied(geo, False, (geo or {}).get("ip"))
+    if all(fp.get(k) is not None for k in ("timezone", "accept_language", "location", "webrtc_ip")):
+        return GeoipApplied()
+    had_webrtc_ip = fp.get("webrtc_ip") is not None
+    direct = not proxy
+    if direct and _direct_geo is not None and time.monotonic() - _direct_geo[1] < _DIRECT_GEO_TTL:
+        for k, v in _direct_geo[0].items():
+            if fp.get(k) is None and v is not None:
+                fp[k] = v
+        return GeoipApplied(None, not had_webrtc_ip and fp.get("webrtc_ip") is not None,
+                            _direct_geo[0].get("webrtc_ip"))
+    env = str(os.environ.get("CLEARCOTE_GEOIP_TIMEOUT_SECONDS") or "").strip()
+    try:
+        geo = apply_geoip(fp, proxy, quiet=quiet, timeout=geoip_timeout_seconds() if env else _AUTO_GEOIP_TIMEOUT)
+    except GeoipError as e:
+        if not quiet and not os.environ.get("CLEARCOTE_NO_WARN"):
+            msg = str(e).replace("geoip: ", "geoip (on by default): ", 1).split(" Launching anyway")[0]
+            sys.stderr.write(f"clearcote: warning: {msg} Launching with the persona's default timezone and "
+                             "language; pass geoip=True to fail instead, or geoip=False to skip the lookup.\n")
+        return GeoipApplied()
+    if geo and direct:
+        _direct_geo = ({"timezone": geo.get("timezone"), "accept_language": geo.get("accept_language"),
+                        "location": geo.get("location"), "webrtc_ip": geo.get("ip")}, time.monotonic())
+    return GeoipApplied(geo, not had_webrtc_ip and fp.get("webrtc_ip") is not None, (geo or {}).get("ip"))
+
+
+def direct_stun_eligible(fp, applied, proxy):
+    """Engine r54+ (pro-r54-06): whether this launch may send real STUN instead of fabricating the WebRTC
+    IP. Only with no proxy at all, and only when the WebRTC IP is this machine's own egress as the lookup
+    found it (``applied``: what :func:`apply_geoip_mode` returned): a hand-set webrtc_ip may name another
+    place on purpose, and real STUN would contradict it."""
+    ip = getattr(applied, "ip", None)
+    return not proxy and bool(ip) and fp.get("webrtc_ip") == ip
+
+
+def drop_auto_webrtc_ip(fp, applied, proxy, licensed):
+    """The open build (no licence) has no WebRTC UDP egress block, and a WebRTC IP there re-enables UDP
+    that does not go through the proxy: a page's own TURN server would read this machine's real address
+    off the packets. So a WebRTC IP the DEFAULT lookup filled (``applied``: what :func:`apply_geoip_mode`
+    returned) is dropped again on an open-build launch through a proxy. With no proxy the real address
+    is the exit anyway; ``geoip=True`` or an explicit webrtc_ip is the caller's choice and is kept."""
+    if applied[1] and proxy and not licensed:
+        fp.pop("webrtc_ip", None)
+
+
+_REQUEST_ROUTE_KEY = "_cc_request_route"  # _prepare -> the launch: (proxy, proxy_args, quiet) to route
+
+
+def _start_request_route(pw_kwargs):
+    """Start the forwarder _prepare asked for (see _reqproxy.py) and hand Playwright its proxy; the
+    route to close with the browser, or None. Always pops the request, so it never reaches Playwright."""
+    pending = pw_kwargs.pop(_REQUEST_ROUTE_KEY, None)
+    route = route_request_api(*pending) if pending else None
+    if route is not None:
+        pw_kwargs["proxy"] = route.proxy.playwright_proxy
+    return route
+
+
+def _close_route_with(target, event, route):
+    """Stop the forwarder when ``target`` (a Browser, "disconnected"; a context, "close") goes."""
+    if route is not None:
+        target.on(event, lambda *_a: route.proxy.close())
+
+
+def _prepare(kwargs):
+    # profile="auto" is NOT a saved option-set — it resolves a real captured fingerprint later,
+    # once the executable (and therefore the engine's Chromium major) is known. See
+    # _apply_auto_profile.
+    profile = kwargs.pop("profile", None)
+    is_auto = profile == "auto"
+    kwargs["_cc_auto_profile"] = kwargs.pop("profile_select", None) if is_auto else None
+    kwargs["_cc_is_auto"] = is_auto
+    # profile= a saved persona (name, path, or Profile): its options are the base layer;
+    # explicit kwargs passed to launch() override them.
+    if profile is not None and not is_auto:
+        for key, value in resolve_profile_options(profile).items():
+            kwargs.setdefault(key, value)
+    geoip = kwargs.pop("geoip", None)  # None = on by default (geoip_mode)
+    # True | False | "strict" | HumanizeOptions | dict: validated here, before anything is started
+    humanize = _hz_normalize(kwargs.pop("humanize", False))
+    show_cursor = kwargs.pop("show_cursor", False)
+    # widevine: True/False/None (None = CLEARCOTE_WIDEVINE, else on for a licensed launch). The profile
+    # seeding for widevine=True happens in launch_persistent_context; the --widevine-cdm-path switch is
+    # added below, for every launch path (an engine with it loads the CDM without a profile, incognito
+    # included). Popped here so it never leaks to Playwright.
+    widevine = kwargs.pop("widevine", None)
+    fp = {k: kwargs.pop(k) for k in list(kwargs) if k in FINGERPRINT_KEYS}
+    agent = {k: kwargs.pop(k) for k in list(kwargs) if k in AGENT_KEYS}
+    exe_path = kwargs.pop("executable_path", None)
+    _cc_pro = kwargs.pop("_cc_pro", None)  # (license_key, api_base) or None -> pick PRO vs free binary
+    outer_lease = kwargs.pop("_cc_lease", None)  # this launch's slot; the "auto" probe reuses it
+    extra_args = kwargs.pop("args", None)
+    extensions = kwargs.pop("extensions", None)
+    portable_profile = kwargs.pop("portable_profile", False)
+    encryption_key = kwargs.pop("encryption_key", None)
+    # DEFAULT FLIPPED TO FALSE — Privacy Sandbox now stays ON unless the caller asks otherwise.
+    #
+    # The old default disabled Topics/FLEDGE/Shared Storage/Fenced Frames, reasoning that a build
+    # claiming to be de-Googled should not answer document.browsingTopics(). That reasoning was
+    # sound for a de-Googled PERSONA — but the default persona is `brand="chrome"`, and real Google
+    # Chrome ships every one of these. So the shipped default presented a browser that called
+    # itself Google Chrome while missing an API surface Google Chrome always has.
+    #
+    # Measured on the live audit against 150-r10: the row "a build claiming Chrome carries the
+    # Privacy Sandbox surface Chrome ships" failed as an implausible value. It is the same defect
+    # class as the WebUSB split fixed in r7 — a subtractive privacy default that is coherent only
+    # against a persona nobody selects by default, and a hard tell against the one they do.
+    #
+    # Pass disable_privacy_sandbox=True to restore the old behaviour. It is the right choice when
+    # the persona genuinely is de-Googled Chromium (brand="chromium"), and the wrong one under a
+    # Chrome brand — which is why it is now a decision rather than a default.
+    disable_privacy_sandbox = kwargs.pop("disable_privacy_sandbox", False)
+    socks5_udp = kwargs.pop("socks5_udp", False)  # relay WebRTC UDP via SOCKS5 UDP ASSOCIATE
+    cache_dir = kwargs.pop("cache_dir", None)
+    quiet = kwargs.pop("quiet", False)
+    auto_update = kwargs.pop("auto_update", None)
+    version = kwargs.pop("version", None)  # browser major/version selector (catalog-resolved)
+    release_channel = kwargs.pop("release_channel", None)  # PRO "stable" | "preview"
+    # Engine behaviour switches that are not part of the persona (engine 152 r22+).
+    allow_third_party_cookies = kwargs.pop("allow_third_party_cookies", None)
+    transparent_proxy = kwargs.pop("transparent_proxy", None)
+    stock_runtime = kwargs.pop("stock_runtime", None)  # engine r32+, None follows CLEARCOTE_STOCK_RUNTIME
+    runtime_bindings = kwargs.pop("runtime_bindings", None)  # engine r54+, None follows CLEARCOTE_RUNTIME_BINDINGS
+    kwargs.pop("license_through_proxy", None)  # consumed by _acquire_lease_from_kwargs
+    # serve() drives headless itself and pops it from kwargs, so it tells us explicitly.
+    headed_flag = kwargs.pop("_cc_headed", None)
+    headed = bool(headed_flag) if headed_flag is not None else kwargs.get("headless") is False
+    # serve() starts Chromium itself, so there is no Playwright switch list to replace.
+    direct_launch = kwargs.pop("_cc_direct", False)
+    passthrough = is_fingerprint_passthrough(fp.get("fingerprint"))
+    proxy_opt = kwargs.get("proxy")  # captured before resolve_proxy rewrites it (for quic + warnings)
+    # geoip is on by default: resolve the egress geo (the proxy's exit, or this machine's own IP
+    # without a proxy) and fill any UNSET timezone/accept_language/location/webrtc_ip. geoip=True
+    # raises GeoipError (before any browser starts) when the region is unresolvable; the default warns.
+    # Relay UDP: a proxy that refuses UDP ASSOCIATE gets no relay (udp_relay_or_fallback), asked before geoip
+    # so a sticky session is already on its UDP-capable exit when geoip looks the exit up.
+    socks5_udp = udp_relay_or_fallback(kwargs.get("proxy"), socks5_udp, quiet)
+    geo_applied = apply_geoip_mode(fp, kwargs.get("proxy"), geoip_mode(geoip), quiet=quiet)
+    exe = _resolve_binary(exe_path, cache_dir, quiet, auto_update, pro=_cc_pro, version=version,
+                          release_channel=release_channel)
+    _guard(exe)
+    # open build + proxy: no default WebRTC IP (offline mode runs the licensed bundle)
+    drop_auto_webrtc_ip(fp, geo_applied, proxy_opt,
+                        bool(_cc_pro) or isinstance(outer_lease, _offline.OfflineLease))
+    # profile="auto" -> resolve a REAL captured fingerprint for this host and apply it as
+    # fingerprint_profile. Deliberately does NOT set a seed: with no --fingerprint the farbling
+    # machinery stays off, which is the whole reason this path survives strict scoring.
+    # Done here, after `exe` is known, because both the engine's Chromium major and the host GPU
+    # measurement depend on the binary that will actually run.
+    # Pass-through (fingerprint="off") runs with NO persona, so "auto" has nothing to apply.
+    if kwargs.pop("_cc_is_auto", False) and not passthrough:
+        _apply_auto_profile(fp, exe, kwargs.pop("_cc_auto_profile", None) or {},
+                            quiet=quiet, pro=_cc_pro, lease=outer_lease)
+    else:
+        kwargs.pop("_cc_auto_profile", None)
+    # Fonts are the most identifying surface measured -- 9.45 bits of entropy, and 35% of real
+    # machines carry a font set nobody else has. A seeded persona with no profile used to fall
+    # back to the engine's canonical per-OS list, which is byte-identical on every install: zero
+    # entropy, sitting in a conspicuous tail. Give it a real machine's list instead. No-ops when
+    # a profile is already set (an explicit one, or "auto", owns the fonts), under light_stealth,
+    # and when there is no seed at all -- see ensure_persona_fonts for why each is deliberate.
+    # Whether the font list is the caller's (or "auto"'s) rather than the one picked just below: the
+    # macOS build cannot apply a picked list (see coherence_warnings, platform-host-fonts).
+    caller_profile = fp.get("fingerprint_profile") is not None
+    if not passthrough:
+        ensure_persona_fonts(fp, quiet=quiet)
+    # SOCKS5-with-credentials must go through --proxy-server (Playwright rejects creds in its SOCKS
+    # proxy descriptor); resolve_proxy returns proxy=None for that case so we drop it from Playwright.
+    # http(s)-with-credentials goes to the engine's --proxy-auth ONLY when the binary that will run
+    # actually implements it (r19+); an older engine keeps Playwright's credential handling, which
+    # is slower and disables the cache but authenticates. Routing blindly would strip the
+    # credentials from Playwright and hand them to a switch the engine ignores: every request 407s.
+    # Relay UDP: a proxy given by host name is looked up to the IP address the engine relays through.
+    proxy_args, proxy = resolve_proxy(relay_proxy_by_ip(kwargs.get("proxy"), socks5_udp, quiet),
+                                      engine_supports_proxy_auth=engine_supports_switch(exe, "proxy-auth"))
+    warn_unsupported_engine_options(exe, fp, kwargs.get("proxy"), quiet=quiet)
+    if proxy is None:
+        kwargs.pop("proxy", None)
+    else:
+        kwargs["proxy"] = proxy
+    if proxy is None and request_proxy_upstream(proxy_opt, proxy_args):
+        if direct_launch:
+            # serve(): a client attached over CDP runs Playwright's request API in its own process with
+            # no proxy of its own (_reqproxy.py): nothing here can route it, so say so.
+            warn_request_api("clearcote: context.request / page.request of a client attached over CDP do not use "
+                             "this proxy and connect from the client's own IP; make API calls inside the page "
+                             "(page.evaluate(\"fetch(...)\")) instead.", quiet)
+        else:
+            # Credentials moved to the engine: Playwright's request API gets a local credential-less
+            # forwarder instead of no proxy at all, which sent it from this machine's IP (_reqproxy.py).
+            # The engine's bypass-list override goes on now; the forwarder itself is started by the
+            # launch, right before Playwright (_start_request_route), so a launch that fails earlier
+            # leaves nothing running. The key never reaches Playwright: every launch pops it.
+            proxy_args = proxy_args + request_proxy_args(proxy_args)
+            kwargs[_REQUEST_ROUTE_KEY] = (proxy_opt, proxy_args, quiet)
+    base = (fingerprint_args(fp) + agent_args(agent) + extension_args(extensions)
+            + portable_args(portable_profile, encryption_key) + proxy_args)
+    # behind a proxy, disable QUIC so no HTTP/3 UDP egresses around it (r54+: kept on through the relay)
+    base += quic_args(proxy_opt, socks5_udp, exe)
+    # Opt-in: relay WebRTC UDP through the proxy rather than denying it outright.
+    base += socks5_udp_args(socks5_udp, proxy_opt)
+    # navigator.bluetooth must follow the CLAIM, in both directions: a Linux build hides it while
+    # exposing usb/serial/hid (an OS-origin tell on a Windows persona), and a Windows build shows
+    # it under a Linux claim, which genuine Chrome on Linux does not. The host is never consulted;
+    # whichever switch agrees with this build's default is a no-op. See web_bluetooth_args.
+    base += web_bluetooth_args(persona_platform(fp))
+    # Playwright disables third-party storage partitioning, which genuine Chrome never does; re-emit
+    # its list without that entry as the last --disable-features. See playwright_feature_override_args.
+    if not direct_launch:
+        base += playwright_feature_override_args(kwargs.get("ignore_default_args"))
+    if disable_privacy_sandbox:
+        base += privacy_sandbox_args()
+    user = list(extra_args or [])
+    # default WebRTC to leak-proof unless the user wired a webrtc_ip / policy themselves
+    base += webrtc_default_deny_args(base + user, fp.get("webrtc_ip"))
+    base += engine_extras_args(allow_third_party_cookies, transparent_proxy, proxy_opt, quiet=quiet)
+    # Opt-in, engine r32+: Chromium's own DevTools Runtime behaviour (console/pageerror events, set_content(),
+    # expose_function() across navigations). Only on an engine that has the switch; see stock_runtime_args.
+    base += stock_runtime_args(exe, stock_runtime, user, quiet=quiet)
+    # Opt-in, engine r54+: only the bindings part of it (expose_function() across navigations); see
+    # runtime_bindings_args.
+    base += runtime_bindings_args(exe, runtime_bindings, base + user, quiet=quiet)
+    # Engine r54+: real STUN with no proxy when the WebRTC IP is this machine's own (direct_stun_eligible).
+    base += webrtc_direct_stun_args(exe, direct_stun_eligible(fp, geo_applied, proxy_opt), user)
+    # Pairs with stripping Playwright's --enable-unsafe-swiftshader (DEFAULT_IGNORED_ARGS).
+    base += gpu_blocklist_args(headed, sys.platform, user)
+    # On a Linux host, render WebGL through the backend whose limits match the CLAIMED platform:
+    # SwiftShader for a Windows claim (Direct3D11-like limits), Mesa for a Linux claim (over the X
+    # display, or over EGL when there is none). Pass-through has no persona to match. See gpu_backend_args.
+    base += gpu_backend_args(None if passthrough else persona_platform(fp), headed, sys.platform, user)
+    # Engine r47+ (pro-r47-04) on a Linux host: a software WebGPU adapter that wears the persona under a
+    # Windows or macOS claim. Gated on the engine (an older one would show a raw SwiftShader adapter),
+    # and never a switch twice: Playwright's own --enable-unsafe-swiftshader counts when it is kept.
+    base += software_webgpu_args(
+        exe, None if passthrough else persona_platform(fp), sys.platform,
+        present=base + user + (["--enable-unsafe-swiftshader"] if not direct_launch
+                               and playwright_keeps_unsafe_swiftshader(kwargs.get("ignore_default_args")) else []))
+    # macOS: the build is unsigned, so every launch would prompt for the "Chromium Safe Storage"
+    # keychain item. See macos_keychain_args.
+    base += macos_keychain_args(sys.platform, user)
+    # collapse all --enable-features/--disable-features (ours + the user's) into one of each, else
+    # Chromium keeps only the last occurrence and the rest are silently dropped.
+    args = merge_feature_flags(base + user)
+    # Last: drop 152 r22+ switches this engine does not implement (with a warning), wherever they
+    # came from.
+    args, _gate_notes = gate_engine_switches(exe, args, quiet=quiet)
+    # Widevine: on by default for a licensed launch (_cc_pro: the key that selects the PRO build, which
+    # claims the Google Chrome brand) on an engine with --widevine-cdm-path; opt-in for a free one.
+    # The default is bounded and fail-soft (see _widevine.default_cdm); widevine=True keeps its old
+    # best-effort behaviour. The engine was probed already, so this goes after the gate.
+    args = args + widevine_launch_args(exe, widevine, bool(_cc_pro), user, quiet=quiet)
+    # Drop Playwright's default automation flag so the engine's AutomationControlled feature stays
+    # OFF (it otherwise flips navigator.webdriver-adjacent tells), --enable-unsafe-swiftshader and the
+    # headless --hide-scrollbars and --disable-popup-blocking (see DEFAULT_IGNORED_ARGS). The control transport (--remote-debugging-pipe) is left intact.
+    # Caller can override via their own ignore_default_args.
+    # NOTE: launch_persistent_context sets this BEFORE the Widevine helper so that helper appends
+    # --disable-component-update rather than clobbering the automation strip.
+    kwargs.setdefault("ignore_default_args", list(DEFAULT_IGNORED_ARGS))
+    # Surface incoherent / missing-recommended option combos the SDK can't auto-fix (stderr; gated
+    # by quiet / CLEARCOTE_NO_WARN). geoip may have just filled timezone/accept_language above.
+    # _font_reach is computed HERE, not inside coherence_warnings, because enumerating the
+    # host's installed families is I/O and that function is documented (and tested) as pure.
+    emit_coherence_warnings(
+        {**fp, "proxy": proxy_opt, "geoip": geoip, "headless": kwargs.get("headless"),
+         "devtools": kwargs.get("devtools"), "user_agent": kwargs.get("user_agent"),
+         "_user_args": user, "_font_reach": font_reachability(fp.get("fingerprint_profile")),
+         "_sdk_font_profile": not caller_profile and fp.get("fingerprint_profile") is not None,
+         "_stock_runtime": (STOCK_RUNTIME_SWITCH in args
+                            and engine_supports_switch(exe, STOCK_RUNTIME_SWITCH[2:])),
+         "_runtime_bindings": (RUNTIME_BINDINGS_SWITCH in args
+                               and engine_supports_switch(exe, RUNTIME_BINDINGS_SWITCH[2:]))},
+        quiet=quiet, build_major=str(RELEASE["version"]).split(".")[0])
+    # The motor-persona seed is the EFFECTIVE fingerprint (after the profile= merge above), i.e. the
+    # same value that becomes --fingerprint — not the raw pre-merge kwarg. A profile-based launch
+    # thus gets the profile's stable persona instead of a random one.
+    return exe, args, kwargs, humanize, show_cursor, fp.get("fingerprint")
+
+
+def _headed_no_viewport(pw_kwargs):
+    """A headed launch with Playwright's default emulated viewport (1280x720) sitting on the real
+    OS window makes window.innerWidth/Height disagree with the actual window — an impossible-window
+    tell that defeats the engine's coherence. True when headed and no viewport was requested, so we
+    default new pages/contexts to no_viewport (innerWidth then tracks the real window)."""
+    return (pw_kwargs.get("headless") is False
+            and "viewport" not in pw_kwargs and "no_viewport" not in pw_kwargs)
+
+
+def _headed_linux_fit(args, exe=None):
+    """Whether a HEADED launch gets the first-page window fit: a Linux host (no window manager under
+    Xvfb/Docker, so nothing else maximizes the window) and no window switch of the caller's own.
+    Measured (SC 180): ``--start-maximized`` is a no-op there; CDP ``Browser.setWindowBounds`` before
+    the first navigation gives ``outer == avail`` at (0,0) with zero resize events. Not for a persona
+    on an engine that opens the persona's window itself (r39+): the engine sizes it at creation."""
+    return (sys.platform.startswith("linux") and not caller_sized_the_window(args)
+            and not engine_places_persona_window(exe, args))
+
+
+def _install_headed_viewport(browser):
+    """Default a headed browser's new pages/contexts to no_viewport (unless the caller sets one)."""
+    orig_new_page, orig_new_context = browser.new_page, browser.new_context
+
+    def new_page(**kw):
+        if "viewport" not in kw and "no_viewport" not in kw:
+            kw["no_viewport"] = True
+        return orig_new_page(**kw)
+
+    def new_context(**kw):
+        if "viewport" not in kw and "no_viewport" not in kw:
+            kw["no_viewport"] = True
+        return orig_new_context(**kw)
+
+    browser.new_page, browser.new_context = new_page, new_context
+
+
+def _headless_geometry_kwargs(pw_kwargs, seed, args=None, exe=None):
+    """The headless geometry defaults for this launch, or None if they don't apply.
+
+    ``apply_headless_geometry`` mutates, and ``chromium.launch()`` accepts no ``no_viewport`` (a
+    context option), so probe a copy and carry the result to the context.
+    """
+    return apply_headless_geometry(dict(pw_kwargs), seed, args, exe=exe)
+
+
+def _with_geometry_args(args, geom):
+    """The command line plus the headless display switches ``geom`` asks for (regime 2)."""
+    return list(args) + list((geom or {}).get("args") or [])
+
+
+_FIT = {"mode": "fit"}  # the plain work-area fit (headed Linux, no persona window)
+
+
+def _install_window_fixup(container, args, geom=_FIT):
+    """Run the geometry plan's first-page window step once (``place_window``): the work-area fit,
+    or for an r39+ persona window only a position reconcile under an explicit viewport.
+
+    A persistent context already owns a page, so act immediately; a browser-level context does not,
+    so defer to its first ``new_page``. Idempotent — later tabs share the window. ``args`` are the
+    caller's, so a window switch of theirs is respected.
+    """
+    done = []
+
+    def fit(page):
+        if done:
+            return page
+        done.append(True)
+        place_window(page, args, geom)
+        return page
+
+    pages = getattr(container, "pages", None)
+    if pages:
+        return fit(pages[0])
+    orig_new_page = getattr(container, "new_page", None)
+    if orig_new_page is None:  # a stand-in driver (tests) with neither pages nor new_page: nothing to fit
+        return None
+
+    def new_page(**kw):
+        return fit(orig_new_page(**kw))
+
+    container.new_page = new_page
+    return None
+
+
+def _call_geometry(geom, kw):
+    """The plan for one new_page/new_context call: an r39+ persona window reconciles only when this
+    call asks for its own viewport; every other plan is the launch's."""
+    if geom and geom.get("mode") == "persona-native":
+        reconcile = kw.get("viewport") is not None and not kw.get("no_viewport")
+        return dict(geom, reconcile=reconcile, viewport=kw.get("viewport") if reconcile else None)
+    return geom or _FIT
+
+
+def _install_headless_geometry(browser, args=None, geom=None):
+    """Default a headless browser's new pages/contexts to ``no_viewport`` plus the window step.
+
+    ``chromium.launch()`` accepts no context options, so the default has to ride on
+    ``new_page``/``new_context`` — the same shape as ``_install_headed_viewport``. Each new context
+    is a new window, so each also gets the window step: the fit (to the persona's work area, or the
+    display ``--screen-info`` set) on older engines, nothing for an r39+ persona window (the engine
+    opened it at the persona's bounds), whose only step is a position reconcile when a call passes
+    its own ``viewport``. A caller who passes any of ``viewport`` / ``no_viewport`` / ``screen``
+    per call keeps full control of the viewport.
+    """
+    orig_new_page, orig_new_context = browser.new_page, browser.new_context
+
+    def _merge(kw):
+        if not any(k in kw for k in ("viewport", "no_viewport", "screen")):
+            kw["no_viewport"] = True
+        return kw
+
+    def new_page(**kw):
+        kw = _merge(kw)
+        page = orig_new_page(**kw)
+        place_window(page, args, _call_geometry(geom, kw))
+        return page
+
+    def new_context(**kw):
+        kw = _merge(kw)
+        context = orig_new_context(**kw)
+        _install_window_fixup(context, args, _call_geometry(geom, kw))
+        return context
+
+    browser.new_page, browser.new_context = new_page, new_context
+
+
+def _install_ephemeral_profile_cleanup(context, user_data_dir):
+    """Delete the throwaway profile directory -- once the browser that used it has EXITED.
+
+    THE DIRECTORY IS THE COST OF THE PERSISTENT DEFAULT, so it has to be paid back reliably.
+    A Chromium profile is 5-50MB and this session's audit found 570 leaked browser directories
+    on one developer machine from earlier tooling — the failure mode is silent until a disk
+    fills, which is exactly when it is most expensive.
+
+    NEVER UNDER A LIVE BROWSER. Playwright fires ``close`` when the browser's pipe drops, which on
+    Linux is ~100 ms BEFORE the browser process exits, and Chrome keeps writing the profile until
+    then. Deleting it from that handler either raised mid-walk or succeeded -- and Chrome wrote the
+    directory back (Default/, Local State, first_party_sets.db) after the cleanup had marked itself
+    done: 2 of 10 launches on Linux, and one clearcote-run-* per release smoke run. So:
+      * ``close()`` is wrapped: Playwright returns from it only once the browser process has
+        exited, so the profile is removed right after, and is gone when the caller's close returns;
+      * ``close`` without a close() call (a crash, the window closed) waits for the browser's
+        process to exit first (its pid is in the profile, see _browser_process_files);
+      * at interpreter exit, one sweep runs AFTER the driver has stopped and closed its browsers
+        (see _sweep_throwaway_profiles).
+    All funnel through one idempotent remove, so running twice is harmless.
+
+    THE RETRY IS NOT DEFENSIVE PADDING — a single attempt measurably does not work. On Windows the
+    browser process still holds handles under the profile directory for a short window after
+    ``close()`` returns, so the first rmtree hits "being used by another process" and, with
+    ignore_errors=True, fails SILENTLY. Measured on the first build of this change: the directory
+    survived a close plus a 1.5s wait, reported clean, and leaked.
+
+    So: retry with a short backoff, and only swallow the error once the attempts are spent. A
+    failed cleanup must never raise into the caller's teardown — the directory is disposable,
+    their traceback is not — but it must not be swallowed on the first try either, which is how
+    570 directories accumulate without anyone noticing.
+    """
+    remove = _profile_dir_remover(user_data_dir, *_browser_process_files(user_data_dir))
+    closing = {"v": False}
+    orig_close = context.close
+
+    def close(*args, **kwargs):
+        closing["v"] = True
+        try:
+            return orig_close(*args, **kwargs)
+        finally:
+            remove()
+
+    def on_close(*_a):
+        if not closing["v"]:
+            remove()
+
+    context.close = close
+    context.on("close", on_close)
+    return remove
+
+
+def _browser_process_files(user_data_dir):
+    """``(pid, socket_dir)`` of the browser running on ``user_data_dir``, read from the symlinks
+    Chrome keeps in its profile on Linux and macOS while it runs: SingletonLock ->
+    "<hostname>-<pid>", SingletonSocket -> "<tmp>/org.chromium.Chromium.XXXXXX/SingletonSocket"
+    (the socket directory leaks when the browser is killed rather than closed). Read right after
+    launch, while both exist. Windows has neither: nothing to wait for, and there its file locks
+    make an early delete fail rather than succeed."""
+    if os.name == "nt":
+        return None, None
+    pid = socket_dir = None
+    try:
+        pid = int(os.readlink(os.path.join(user_data_dir, "SingletonLock")).rsplit("-", 1)[-1])
+    except (OSError, ValueError):
+        pass
+    try:
+        d = os.path.dirname(os.readlink(os.path.join(user_data_dir, "SingletonSocket")))
+        # only ever Chrome's own temp directory: the path comes out of a file
+        if os.path.basename(d).startswith(("org.chromium.Chromium.", "com.google.Chrome.")):
+            socket_dir = d
+    except OSError:
+        pass
+    return pid, socket_dir
+
+
+def _wait_for_exit(pid, timeout):
+    """True once process ``pid`` has exited (or there is none to wait for); False if it is still
+    running after ``timeout`` seconds."""
+    if pid is None or pid <= 0 or os.name == "nt":  # os.kill(pid, 0) TERMINATES it on Windows
+        return True
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            pass  # EPERM: alive, and another user's (the pid was reused) -- wait out the timeout
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+_THROWAWAY_PROFILES = {}  # user_data_dir -> its remover, until the directory is gone
+
+
+def _sweep_throwaway_profiles():
+    """Interpreter exit: remove every throwaway profile still on disk -- a script that ended (or
+    crashed) with its browser open. Registered at import, see below."""
+    for remove in list(_THROWAWAY_PROFILES.values()):
+        remove(final=True)
+
+
+# Registered at IMPORT, so before the first launch registers _stop_quietly(_pw): atexit runs
+# last-in-first-out, so this sweep runs AFTER the driver has stopped -- and closed its browsers. A
+# hook registered per launch ran first instead, deleted the profile under the still-running
+# browser, and the browser wrote it back while the driver closed it (5 of 5 launches on Linux).
+atexit.register(_sweep_throwaway_profiles)
+
+
+def _profile_dir_remover(user_data_dir, pid=None, socket_dir=None):
+    """An idempotent remove of ``user_data_dir`` (and the browser's ``socket_dir``) that first waits
+    for the browser ``pid`` on it to exit, then retries while the browser still holds handles under
+    it (see _install_ephemeral_profile_cleanup for why). Returns True once the directory is gone;
+    until then it stays registered for the interpreter-exit sweep."""
+    import shutil
+
+    done = {"v": False}
+
+    def cleanup(*_a, final=False):
+        if done["v"]:
+            return True
+        # Deleting under a running browser is what leaked: it writes the directory back. So not
+        # yet -- a later trigger retries. At exit there is none: delete anyway after the wait.
+        if not _wait_for_exit(pid, 5.0 if final else 10.0) and not final:
+            return False
+        if socket_dir:
+            shutil.rmtree(socket_dir, ignore_errors=True)
+        for attempt in range(6):
+            try:
+                shutil.rmtree(user_data_dir)
+            except OSError:
+                # FileNotFoundError included: rmtree raises it for ANY entry that vanished during
+                # the walk, not only for the directory itself -- so only the check below is "gone".
+                pass
+            if not os.path.lexists(user_data_dir):
+                done["v"] = True
+                _THROWAWAY_PROFILES.pop(user_data_dir, None)
+                return True
+            if attempt < 5:
+                time.sleep(0.25 * (attempt + 1))  # 0.25→1.5s, ~5s total
+        # Out of attempts: left registered for the exit sweep (the browser is usually gone by
+        # then); if that fails too the OS temp sweeper reclaims it.
+        return False
+
+    _THROWAWAY_PROFILES[user_data_dir] = cleanup
+    return cleanup
+
+
+def _launch_on_throwaway_profile(prefix, kwargs):
+    """A persistent context on a fresh temp profile the caller never named, so never sees again:
+    removed once its browser has exited -- after close(), or when it went away by itself -- and at
+    interpreter exit; and at once when the launch fails, which used to leak one directory per
+    failed launch."""
+    import tempfile
+
+    udd = tempfile.mkdtemp(prefix=prefix)
+    try:
+        # looked up at call time (module global), so tests can stand in for the real launch.
+        # cloud=False: the caller already decided this is a local launch; CLEARCOTE_CLOUD must not
+        # send the inner call to the cloud.
+        context = launch_persistent_context(udd, cloud=False, **kwargs)
+    except BaseException:
+        _profile_dir_remover(udd, *_browser_process_files(udd))()
+        raise
+    _install_ephemeral_profile_cleanup(context, udd)
+    return context
+
+
+def _install_persistent_as_browser(context):
+    """Make a persistent BrowserContext satisfy the code written against ``launch()``'s Browser.
+
+    launch() has always returned a Playwright ``Browser`` and is documented as a drop-in, so the
+    persistent default cannot simply hand back a ``BrowserContext``: ``browser.new_context()`` is
+    ordinary Playwright and would break at the call site.
+
+    ``new_context()`` therefore returns THE PERSISTENT CONTEXT ITSELF rather than a fresh incognito
+    one. That is the deliberate part: a real incognito context would silently leave the profile
+    behind and take the Widevine CDM, the component-updated state and the cookies with it — the
+    caller would get back exactly the browser this change exists to stop handing them. Two calls
+    returning the same context is a visible, documented compromise; quietly returning a browser
+    without a profile is not.
+    """
+    if not hasattr(context, "new_context"):
+        context.new_context = lambda **_kw: context
+    if not hasattr(context, "contexts"):
+        context.contexts = [context]
+    return context
+
+
+def _is_win_launch_race(exc):
+    m = str(exc).lower()
+    return "spawn unknown" in m or "side-by-side" in m or "side by side" in m
+
+
+def _launch_attempt(do_launch, exe):
+    """``do_launch(exe)``; when Windows could not start the process, first remove the temp
+    directories Playwright made for it (they leak otherwise, see _winlaunch)."""
+    started = time.time()
+    try:
+        return do_launch(exe)
+    except Exception as exc:  # noqa: BLE001
+        if _is_win_launch_race(exc):
+            from ._winlaunch import remove_failed_launch_dirs
+            remove_failed_launch_dirs(exc, started)
+        raise
+
+
+def _win_av_retry(do_launch, exe):
+    """Launch via ``do_launch(exe_path)``, working around Windows refusing to start a cached build
+    ("spawn UNKNOWN" / "side-by-side configuration is incorrect").
+
+    Inside an MSIX-packaged app a build downloaded into %LOCALAPPDATA% is invisible to the
+    activation-context check, so it never starts in place; real-time antivirus scanning a freshly
+    extracted chrome_elf.dll can cause the same error for a while (see _winlaunch). So: (1) launch
+    from this build's recovered copy when one exists; else (2) probe the cached exe with a
+    suspended CreateProcess, re-scanning + backing off up to three times, and launch it once the
+    probe passes; else (3) copy the build once to ``~/.clearcote/recovered/`` and launch from
+    there, which every later launch reuses. Probing instead of launching keeps failed attempts
+    from leaking Playwright's temp directories. Pass-through on non-Windows."""
+    if sys.platform != "win32":
+        return do_launch(exe)
+    from . import _winlaunch
+
+    ready = _winlaunch.recovered_exe(exe)
+    if ready:
+        return _launch_attempt(do_launch, ready)
+    for i in range(3):
+        failure = _winlaunch.spawn_error(exe)
+        if failure is None or not _winlaunch.is_sxs_error(failure):
+            try:
+                return _launch_attempt(do_launch, exe)
+            except Exception as exc:  # noqa: BLE001
+                if not _is_win_launch_race(exc):
+                    raise
+        warm_files(os.path.dirname(exe))
+        time.sleep(0.8 * (i + 1))
+    return _launch_attempt(do_launch, _winlaunch.make_recovered_copy(exe, warm=warm_files))
+
+
+def _acquire_lease_from_kwargs(kwargs):
+    """Pop license kwargs and acquire a concurrency lease (opt-in; None in free mode).
+
+    Uses kwargs.get for quiet (leave it for _prepare to pop). Injects nothing here —
+    the caller injects CLEARCOTE_RUN_TOKEN into pw_kwargs after apply_font_env.
+    """
+    # Offline mode (offline_key= / CLEARCOTE_OFFLINE_KEY): no licence calls and no download; the key's token
+    # is the run token and the binary comes from the offline bundle (_offline.py).
+    off = _offline.offline_lease(kwargs.pop("offline_key", None), quiet=kwargs.get("quiet", False))
+    if off is not None:
+        for k in ("license_key", "license_api_base", "license_through_proxy"):
+            kwargs.pop(k, None)
+        _offline.require_offline_binary(kwargs)
+        kwargs["_cc_pro"] = None
+        kwargs["_cc_lease"] = off
+        return off
+    license_key = kwargs.pop("license_key", None)
+    license_api_base = kwargs.pop("license_api_base", None)
+    # Stash the effective license (explicit > env > file) so _prepare selects the
+    # PRO (gated) binary with the SAME key: licensed run -> gated build, free -> public.
+    key = resolve_license_key(license_key)
+    kwargs["_cc_pro"] = (key, license_api_base) if key else None
+    # Telemetry split: sdk_version = the SDK PACKAGE version; engine_version = the resolved browser
+    # build (respecting version="150"/"latest"/exact). The engine resolve is deferred behind a lambda
+    # so the catalog is only consulted on a cold checkout (not on every launch that reuses the token).
+    version_sel = kwargs.get("version") or os.environ.get("CLEARCOTE_BROWSER_VERSION")
+    # license_through_proxy: checkout/heartbeat/checkin through the launch's own proxy.
+    license_through_proxy = kwargs.pop("license_through_proxy", None)
+    lease = acquire_lease(
+        license_key=license_key, api_base=license_api_base,
+        sdk_version=__version__, quiet=kwargs.get("quiet", False),
+        engine_version=lambda: resolved_engine_version(version_sel, has_license=bool(key)),
+        license_through_proxy=license_through_proxy, proxy=kwargs.get("proxy"),
+    )
+    # Hand this slot to the nested host probe behind profile="auto" (see _apply_auto_profile).
+    # It launches the engine once more, and used to check out a SECOND slot while this one is
+    # already live -- which a per-browser plan (the free tier) refuses, so the launch deadlocked
+    # against itself. _prepare pops this key; it never reaches Playwright.
+    kwargs["_cc_lease"] = lease
+    return lease
+
+
+def _adopt_license_kwargs(kwargs, lease):
+    """Consume the licence kwargs exactly as :func:`_acquire_lease_from_kwargs` would, but reuse
+    ``lease`` instead of checking out a second concurrency slot. Used by the nested host probe."""
+    kwargs.pop("offline_key", None)
+    license_key = kwargs.pop("license_key", None)
+    license_api_base = kwargs.pop("license_api_base", None)
+    kwargs.pop("license_through_proxy", None)
+    key = resolve_license_key(license_key)
+    kwargs["_cc_pro"] = (key, license_api_base) if key else None
+    return lease
+
+
+def _prepare_or_release(kwargs, lease):
+    """_prepare, releasing the lease handle if it raises (e.g. GeoipError) so a failed launch does
+    not keep a reference on the machine lease."""
+    try:
+        return _prepare(kwargs)
+    except BaseException:
+        if lease:
+            try:
+                lease.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        raise
+
+
+def _is_stale_token_refusal(exc) -> bool:
+    """The PRO engine refused the run-token as older than one it has already accepted on this machine.
+    Playwright's launch error carries the engine's stderr, which is where that line lands."""
+    return STALE_TOKEN_REFUSAL in str(exc)
+
+
+def _retry_on_stale_run_token(lease, pw_kwargs, launch_token, start):
+    """Run ``start()``; if the engine refuses the run-token as stale, mint a fresh one and launch once more.
+
+    acquire_lease() already replaces a token it can SEE is older than the engine's mark. This covers the
+    race it cannot see: another process (a parallel launch, the hosted-browser gateway, another key)
+    moving the mark between that check and this launch. ``start`` reads ``pw_kwargs`` when called, so
+    re-injecting the new token is all a retry needs; the bound token file follows the lease by itself."""
+    try:
+        return start()
+    except Exception as exc:  # noqa: BLE001
+        refresh = getattr(lease, "refresh_token", None)
+        if refresh is None or not _is_stale_token_refusal(exc) or not refresh():
+            raise
+        inject_run_token(pw_kwargs, lease.token, launch_token[0] if launch_token else None)
+        return start()
+
+
+def _release_lease_on_failure(lease, start, launch_token=None):
+    """Run ``start()``; if the browser fails to start, release the lease before re-raising. On a
+    per-browser plan (the free tier) the slot would otherwise stay taken until the lease TTL.
+
+    ``launch_token`` (the launch's run-token file, ``(path, release)``) goes too: a paid lease is
+    shared, so its stop() only drops a reference, and the file stayed in the temp directory until the
+    interpreter exited."""
+    try:
+        return start()
+    except BaseException:
+        if lease:
+            try:
+                lease.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        _release_launch_token(launch_token)
+        raise
+
+
+def _release_launch_token(launch_token):
+    """Remove a launch's run-token file (``(path, release)`` or None); never raises."""
+    if launch_token:
+        try:
+            launch_token[1]()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _drop_cloud_credentials(kwargs):
+    """api_key/api_url only pick the account a CLOUD launch uses. A local launch ignores them, so
+    code that always passes them switches between local and cloud with nothing but ``cloud``."""
+    kwargs.pop("api_key", None)
+    kwargs.pop("api_url", None)
+
+
+def launch(cloud=None, **kwargs):
+    """Launch Clearcote and return a Playwright browser handle backed by a REAL Chrome profile.
+
+    LOCAL OR CLOUD. ``cloud=True`` runs the browser on Clearcote's servers instead and returns the
+    same Playwright ``Browser``, connected over CDP, with ``humanize`` applied here exactly as for a
+    local browser. ``cloud=None`` (the default) follows ``CLEARCOTE_CLOUD=1|true|yes``. The API key
+    comes from ``api_key=`` or ``CLEARCOTE_API_KEY``; the cloud options (``country``, ``identity``,
+    ``profile``, ``record``, ...) and the options a cloud browser cannot take are listed in
+    :mod:`clearcote.cloud`. ``close()`` disconnects and ends the session. ``timeout`` and
+    ``slow_mo`` go to the CDP connect; ``timeout`` defaults to 120 000 ms there, as the browser
+    starts when you connect.
+
+    MACOS. On an Apple Silicon Mac, launch() runs a native macOS build (a ``Chromium.app`` bundle,
+    downloaded and verified like the other platforms): the PRO build with a licence key, and without
+    one the open macOS build this SDK pins (Chromium 150, v0.1.0-pre.24, a major behind the open
+    Windows and Linux builds). Its fonts and canvas text metrics stay host-native, so only
+    ``platform="macos"`` (the default there) is coherent; another platform without a
+    ``fingerprint_profile`` captured on that OS warns. On an Intel Mac, launch() starts
+    the Clearcote Docker image instead (``teamflatearth/clearcote:sdk-<version>``; ``docker_image=``
+    or CLEARCOTE_DOCKER_IMAGE picks another) and returns the same Playwright ``Browser``, connected
+    to it over CDP; ``close()`` stops the container. The persona options, ``headless``, ``proxy``,
+    ``args``, ``version`` and the licence key go to the container; an option it cannot take raises
+    ValueError naming it. Docker must be installed and running (DockerUnavailableError says so
+    otherwise). ``docker=True`` (or CLEARCOTE_DOCKER=1) uses the container on any OS, an Apple
+    Silicon Mac included; ``docker=False`` (or CLEARCOTE_DOCKER=0) never does.
+
+    Fingerprint kwargs: fingerprint, platform, platform_version, brand, brand_version,
+    gpu_vendor, gpu_renderer, hardware_concurrency, location, timezone, accept_language,
+    webrtc_ip, disable_gpu_fingerprint. ``geoip`` is on by default (since 0.66.0): the egress geo (the
+    proxy's exit IP, or this machine's own public IP without a proxy) fills any unset
+    timezone/accept_language/location/webrtc_ip. Left unset, a failed lookup warns and launches;
+    ``geoip=True`` raises :class:`GeoipError` instead; ``geoip=False`` (or CLEARCOTE_GEOIP=0) skips
+    it. Pass license_key=... (or set CLEARCOTE_LICENSE_KEY) to check out a concurrency slot for the PRO engine. ``widevine``: Google's
+    Widevine CDM, on by default for a licensed launch and opt-in for a free one (see
+    :func:`launch_persistent_context`). All other kwargs (headless, proxy, args, timeout, ...) pass
+    through to Playwright.
+
+    PROFILE-BACKED BY DEFAULT (changed in 0.23.0). This used to be ``chromium.launch()`` —
+    incognito, no profile directory. Incognito cannot load a component-updated CDM, so
+    ``requestMediaKeySystemAccess('com.widevine.alpha')`` rejected and the EME surface was a
+    no-Widevine tell on a build branded Google Chrome (measured against the live audit on
+    150-r10). It now launches a persistent context on a throwaway directory, so ``widevine=True``
+    works here and the profile-shaped surface matches a real Chrome.
+
+    The directory is deleted when the context closes AND on interpreter exit — nothing is left
+    behind, and no state survives to the next launch, so the incognito-like isolation callers
+    relied on is preserved. Pass ``user_data_dir=`` to keep a profile instead (or call
+    ``launch_persistent_context`` directly), and ``ephemeral_profile=False`` to opt back out.
+
+    SHARED HTTP CACHE. ``http_cache_dir="<folder>"`` keeps the HTTP disk cache (scripts, styles, images)
+    there across runs while the profile itself stays fresh: cookies and storage are new every run, only
+    cached files carry over, so a site's assets come from disk instead of through the proxy again
+    (measured: about 8 MB of proxy traffic per run down to about 0.4 MB on script-heavy pages). Browsers
+    running at the same time each get their own slot in the folder (``slot-0``, ``slot-1``, ...), since
+    Chromium lets only one browser use a cache at once. Only share a folder between runs that may look like
+    the same visitor: a site can link sessions through what they have cached, so use one folder per
+    identity (persona, proxy, account) when that matters. Needs a profile: ``ephemeral_profile=False`` (and
+    the async ``launch()``, which has none) keeps the cache in memory and raises TypeError; use
+    ``launch_persistent_context`` there. Local launches only (``cloud`` and ``docker`` refuse it); combining it
+    with your own ``--disk-cache-dir`` in ``args`` raises TypeError.
+    """
+    if cloud_requested(cloud):
+        return launch_cloud(cloud, kwargs)
+    _drop_cloud_credentials(kwargs)
+    docker, docker_image = kwargs.pop("docker", None), kwargs.pop("docker_image", None)
+    if docker_requested(docker, kwargs):  # an Intel Mac (no native macOS build): the Docker image
+        return launch_docker({**kwargs, "docker_image": docker_image})
+    # ephemeral_profile=False restores the pre-0.23 incognito launch. Kept because the persistent
+    # path costs a directory create+delete per launch, which a caller spawning hundreds of
+    # short-lived browsers may reasonably not want to pay for a CDM they never touch.
+    ephemeral = kwargs.pop("ephemeral_profile", True)
+    explicit_dir = kwargs.pop("user_data_dir", None)
+    if explicit_dir is not None:
+        return launch_persistent_context(explicit_dir, cloud=False, **kwargs)
+    if ephemeral:
+        return _install_persistent_as_browser(_launch_on_throwaway_profile("clearcote-run-", kwargs))
+
+    refuse_without_profile(kwargs, "Leave ephemeral_profile on (the default), or use launch_persistent_context() or serve()")
+    return _launch_incognito(kwargs)
+
+
+def _launch_incognito(kwargs):
+    # incognito has no profile to seed a CRLSet into (see _crlset): drop the options, warn if asked for
+    if kwargs.pop("crlset", None) not in (None, False):
+        print("clearcote: crlset: ephemeral_profile=False has no profile to seed a CRLSet into; "
+              "launching without one", file=sys.stderr)
+    kwargs.pop("crlset_timeout", None)
+    shader_dialect = kwargs.pop("shader_dialect", None)  # popped before _prepare: not a PW option
+    persona_env = kwargs.pop("persona_env", None)  # 1021 env mode (_personaenv.py): not a PW option
+    font_dirs = check_font_dirs(kwargs.pop("font_dirs", None))  # Linux fontconfig dirs; a typo raises before the lease
+    # _cc_lease (internal): the host probe behind profile="auto" runs on its caller's slot rather
+    # than checking out its own. It does not own the lease, so it must not release it on close.
+    reused = kwargs.pop("_cc_lease", None)
+    owns_lease = reused is None
+    lease = _acquire_lease_from_kwargs(kwargs) if owns_lease else _adopt_license_kwargs(kwargs, reused)
+    # seed reflects the merged/effective fingerprint (profile-aware) -> stable motor persona
+    exe, args, pw_kwargs, humanize, show_cursor, seed = _prepare_or_release(
+        kwargs, lease if owns_lease else None)
+    apply_font_env(exe, pw_kwargs, args, font_dirs)  # Linux: bundled font clones (+ font_dirs) + UI-locale LANGUAGE
+    apply_shader_dialect(shader_dialect, pw_kwargs, args)  # after fonts: that helper rebuilds the env
+    launch_token = lease.bind_launch() if lease else None  # (file, release) or None; r23+ opt-in
+    if lease:  # inject CLEARCOTE_RUN_TOKEN (+ the r23+ opt-in token FILE) so the gate lets it launch
+        inject_run_token(pw_kwargs, lease.token, launch_token[0])
+    headed = _headed_no_viewport(pw_kwargs)  # launch() takes no viewport kwarg -> wrap new_page/context
+    # Headless: screen.* has to be handled alongside the viewport or the window reports
+    # outer > screen (see _geometry). The display switches go on the command line; no_viewport is a
+    # context option, so it rides on new_page/new_context.
+    geom = None if headed else _headless_geometry_kwargs(pw_kwargs, seed, args, exe)
+    launch_args = _with_geometry_args(args, geom)
+    launch_args = _persona.apply_to_pw_kwargs(exe, launch_args, pw_kwargs, lease)  # r51+: the signed persona token
+    launch_args = _personaenv.apply_to_pw_kwargs(exe, launch_args, pw_kwargs, persona_env)
+    # Credentials moved to the engine: Playwright's request API gets a local credential-less forwarder
+    # instead of no proxy at all, which sent it from this machine's IP (_reqproxy.py).
+    req_route = _start_request_route(pw_kwargs)
+    with close_on_failure(req_route):
+        browser = _release_lease_on_failure(lease if owns_lease else None, lambda: _retry_on_stale_run_token(
+            lease, pw_kwargs, launch_token, lambda: _win_av_retry(
+                lambda e: _playwright().chromium.launch(executable_path=e, args=launch_args, **pw_kwargs), exe
+            )), launch_token)
+    _close_route_with(browser, "disconnected", req_route)
+    if lease:  # release the concurrency slot + remove the run-token file when the browser closes
+        def _on_disconnect(_b=None, _lease=lease, _lt=launch_token, _own=owns_lease):
+            if _own:  # a borrowed slot belongs to the caller: only drop this launch's token file
+                _lease.stop()
+            _lt[1]()
+        browser.on("disconnected", _on_disconnect)
+    if headed and _headed_linux_fit(args, exe):
+        # Headed Linux with no window manager (Xvfb: every Docker/VPS headful run) leaves Chrome's
+        # 945x1060 default window at (10,10); the same first-page fit as headless maximizes it.
+        _install_headless_geometry(browser, args)
+    elif headed:
+        _install_headed_viewport(browser)
+    elif geom:
+        _install_headless_geometry(browser, args, geom)
+    if engine_decides_color_scheme(exe):  # r32+: the persona's colour scheme, not Playwright's light
+        install_color_scheme_default(browser)
+    install_humanize(browser, humanize, show_cursor, seed=seed)
+    return browser
+
+
+def launch_persistent_context(user_data_dir=None, cloud=None, **kwargs):
+    """Launch Clearcote with a persistent profile directory; returns a Playwright
+    ``BrowserContext`` (cookies/storage persist in ``user_data_dir``).
+
+    WIDEVINE. A licensed launch (licence key set: the PRO build, branded Google Chrome) on an engine
+    with ``--widevine-cdm-path`` (r32+) loads Google's Widevine CDM by default, so DRM/EME works
+    (``requestMediaKeySystemAccess('com.widevine.alpha')`` resolves) and the EME surface matches a
+    real Chrome instead of being a no-Widevine tell. The CDM is downloaded from Google on first use
+    and cached; later launches use the cache with no network. When the first download cannot be had in
+    CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS (default 15) the launch goes on without it and warns once (stderr).
+    CLEARCOTE_WIDEVINE=0 (or ``widevine=False``) turns it off. A
+    free launch stays opt-in: ``widevine=True`` (or CLEARCOTE_WIDEVINE=1) fetches the CDM, seeds it
+    into this profile and enables it.
+
+    CRLSET (opt-in). The engine never downloads Chrome's certificate revocation list (CRLSet), so revoked
+    or distrusted CA keys stay trusted. ``crlset=True`` (or CLEARCOTE_CRLSET=1) seeds the current CRLSet
+    into this profile (fetched from Google's component updater on first use, cached in
+    ~/.clearcote/crlset, refreshed every 6 h) and the launch waits, a few seconds, until the engine has it
+    live. ``crlset="nowait"`` seeds without waiting (live once the first tab has been idle for a moment),
+    ``crlset="<path>"`` seeds that file, ``crlset_timeout`` bounds the wait (default 15 s). See
+    ``clearcote._crlset``.
+
+    CLOUD: ``launch_persistent_context(cloud=True, profile="name")`` returns the context of a hosted
+    session that loads the cloud profile ``name`` and saves it back when the context closes (which
+    also ends the session). A cloud browser has no local directory, so ``user_data_dir`` with
+    ``cloud=True`` raises ValueError pointing at ``profile=``."""
+    if cloud_requested(cloud):
+        return launch_cloud(cloud, kwargs, persistent=True, user_data_dir=user_data_dir)
+    if user_data_dir is None:
+        raise TypeError("launch_persistent_context() needs a user_data_dir "
+                        "(or cloud=True with profile=\"name\" for a cloud profile)")
+    _drop_cloud_credentials(kwargs)
+    return with_http_cache(kwargs, lambda: _launch_persistent_context_local(user_data_dir, kwargs), "close")
+
+
+def _launch_persistent_context_local(user_data_dir, kwargs):
+    # Set the default strip (DEFAULT_IGNORED_ARGS) BEFORE the Widevine helper so it appends
+    # --disable-component-update to it rather than replacing it (which would lose the AutomationControlled
+    # strip on Widevine launches).
+    kwargs.setdefault("ignore_default_args", list(DEFAULT_IGNORED_ARGS))
+    # Widevine ASKED FOR (widevine=True or CLEARCOTE_WIDEVINE=1): seed the CDM into this profile too, so
+    # an engine without --widevine-cdm-path loads it (best-effort, as always). The licensed DEFAULT only
+    # uses that switch, which _prepare adds (with the explicit case's) once the engine is known.
+    if widevine_mode(kwargs.get("widevine"), licensed=False) == "explicit":
+        apply_widevine_launch(user_data_dir, kwargs, quiet=kwargs.get("quiet", False))
+    # Autofill on where the profile never set it, as Chrome has it (the engine's defaults are off; _autofillpref).
+    apply_autofill_prefs(user_data_dir, quiet=kwargs.get("quiet", False))
+    # CRLSet: Chrome's revocation list, which the engine never downloads (see _crlset). Seeded into the
+    # profile with the component updater un-suppressed; the launch then waits until it is live.
+    crlset_plan = apply_crlset_launch(user_data_dir, kwargs, quiet=kwargs.get("quiet", False))
+    shader_dialect = kwargs.pop("shader_dialect", None)  # popped before _prepare: not a PW option
+    persona_env = kwargs.pop("persona_env", None)  # 1021 env mode (_personaenv.py): not a PW option
+    font_dirs = check_font_dirs(kwargs.pop("font_dirs", None))  # Linux fontconfig dirs; a typo raises before the lease
+    # _cc_lease (internal): a launch that borrows its caller's slot (the profile="auto" host probe
+    # reaches here when ephemeral_profile is left on). It must not release a slot it does not own.
+    reused = kwargs.pop("_cc_lease", None)
+    owns_lease = reused is None
+    lease = _acquire_lease_from_kwargs(kwargs) if owns_lease else _adopt_license_kwargs(kwargs, reused)
+    # seed reflects the merged/effective fingerprint (profile-aware) -> stable motor persona
+    exe, args, pw_kwargs, humanize, show_cursor, seed = _prepare_or_release(
+        kwargs, lease if owns_lease else None)
+    apply_font_env(exe, pw_kwargs, args, font_dirs)  # Linux: bundled font clones (+ font_dirs) + UI-locale LANGUAGE
+    apply_shader_dialect(shader_dialect, pw_kwargs, args)  # after fonts: that helper rebuilds the env
+    launch_token = lease.bind_launch() if lease else None  # (file, release) or None; r23+ opt-in
+    if lease:  # inject CLEARCOTE_RUN_TOKEN (+ the r23+ opt-in token FILE) so the gate lets it launch
+        inject_run_token(pw_kwargs, lease.token, launch_token[0])
+    geom = None
+    headed_fit = False
+    if _headed_no_viewport(pw_kwargs):  # no_viewport IS a valid persistent-context option
+        pw_kwargs["no_viewport"] = True
+        headed_fit = _headed_linux_fit(args, exe)  # Xvfb/Docker headful: maximize on the first page too
+    else:  # headless: persona owns screen -> fit the window; no persona -> set the display too
+        geom = apply_headless_geometry(pw_kwargs, seed, args, exe=exe)
+    if engine_decides_color_scheme(exe):  # r32+: the persona's colour scheme, not Playwright's light
+        default_color_scheme(pw_kwargs)
+    launch_args = _with_geometry_args(args, geom)  # carries --widevine-cdm-path when on (see _prepare)
+    launch_args = _persona.apply_to_pw_kwargs(exe, launch_args, pw_kwargs, lease)  # r51+: the signed persona token
+    launch_args = _personaenv.apply_to_pw_kwargs(exe, launch_args, pw_kwargs, persona_env)
+    if crlset_plan:  # the readiness probe's port must bypass a launch proxy, so its server starts first
+        launch_args = launch_args + crlset_plan.before_launch(pw_kwargs)
+    # As launch(): the request API reaches the proxy through a local forwarder (_reqproxy.py). Started
+    # after the CRLSet probe: the forwarder is a proxy the browser never uses, with no <-loopback> to route around.
+    req_route = _start_request_route(pw_kwargs)
+    try:
+        with close_on_failure(req_route):
+            context = _release_lease_on_failure(lease if owns_lease else None, lambda: _retry_on_stale_run_token(
+                lease, pw_kwargs, launch_token, lambda: _win_av_retry(
+                    lambda e: _playwright().chromium.launch_persistent_context(
+                        user_data_dir, executable_path=e, args=launch_args, **pw_kwargs
+                    ),
+                    exe,
+                )), launch_token)
+    except BaseException:
+        if crlset_plan:
+            crlset_plan.close()
+        raise
+    _close_route_with(context, "close", req_route)
+    if lease:  # release the concurrency slot + remove the run-token file when the context closes
+        def _on_close(_c=None, _lease=lease, _lt=launch_token, _own=owns_lease):
+            if _own:  # a borrowed slot belongs to the caller: only drop this launch's token file
+                _lease.stop()
+            _lt[1]()
+        context.on("close", _on_close)
+    if crlset_plan:  # before anything touches the first tab: it must stay idle on about:blank
+        crlset_plan.wait(context)
+    if geom or headed_fit:
+        _install_window_fixup(context, args, geom or _FIT)
+    install_humanize_on_context(context, humanize, show_cursor, seed=seed)
+    return context
+
+
+def launch_agent(user_data_dir=None, **kwargs):
+    """Launch Clearcote ready for the in-browser AI agent; returns a Playwright ``BrowserContext``.
+
+    The agent drives Chrome's Actor framework, which only attaches to a REGULAR profile (not
+    incognito), so this uses a persistent context: a fresh temp ``user_data_dir``, deleted when the
+    context closes, unless you pass one to keep. Set ``agent_llm_key`` (+ optional
+    ``agent_model``), then drive a page with ``run_agent_task()``. Use this (or
+    ``launch_persistent_context``) for the agent -- plain ``launch()`` is incognito, where the
+    Actor framework can't attach the tab."""
+    if user_data_dir is not None:
+        # the agent drives the LOCAL engine's Actor framework: never a cloud browser
+        return launch_persistent_context(user_data_dir, cloud=False, **kwargs)
+    return _launch_on_throwaway_profile("clearcote-agent-", kwargs)
+
+
+def serve_multiplex(**kwargs):
+    """One CDP endpoint, many identities: a separate clearcote browser per connection URL.
+
+    See :func:`clearcote._multiplex.serve_multiplex`."""
+    from ._multiplex import serve_multiplex as _serve_multiplex
+    return _serve_multiplex(**kwargs)

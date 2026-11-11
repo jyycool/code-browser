@@ -1,0 +1,533 @@
+import warnings
+
+from clearcote._launchopts import (
+    extension_args,
+    merge_feature_flags,
+    privacy_sandbox_args,
+    quic_args,
+    relay_proxy_by_ip,
+    socks5_udp_args,
+    resolve_proxy,
+    webrtc_default_deny_args,
+)
+
+import clearcote._launchopts as _lo  # module handle: web_bluetooth_args reads sys.platform
+
+
+def test_merge_feature_flags_collapses_into_one_each():
+    out = merge_feature_flags([
+        "--enable-features=A", "--mute-audio", "--enable-features=B,C",
+        "--disable-features=D", "--disable-features=D,E",
+    ])
+    assert [a for a in out if a.startswith("--enable-features=")] == ["--enable-features=A,B,C"]
+    assert [a for a in out if a.startswith("--disable-features=")] == ["--disable-features=D,E"]
+    assert "--mute-audio" in out
+
+
+def test_privacy_sandbox_args():
+    assert privacy_sandbox_args() == [
+        "--disable-features=BrowsingTopics,BrowsingTopicsDocumentAPI,Fledge,InterestGroupStorage,"
+        "PrivateAggregationApi,SharedStorageAPI,FencedFrames"
+    ]
+
+
+def test_webrtc_default_deny():
+    assert webrtc_default_deny_args([], None) == ["--webrtc-ip-handling-policy=disable_non_proxied_udp"]
+    # Regression: this used to return [] when webrtc_ip was set, on the theory that the engine's
+    # srflx fabrication covered WebRTC. It does not. A page using iceTransportPolicy:"relay" forces
+    # TURN; TURN prefers UDP; an HTTP/SOCKS proxy carries only TCP -- so the UDP left on the host's
+    # own path and the TURN server read the real public IP off the packet, with no candidate
+    # involved for the fabrication to rewrite. geoip=True sets webrtc_ip for you, so the coherent
+    # configurations were the exposed ones.
+    assert webrtc_default_deny_args([], "1.2.3.4") == ["--webrtc-ip-handling-policy=disable_non_proxied_udp"]
+    assert webrtc_default_deny_args(["--webrtc-ip-handling-policy=default"], None) == []  # caller set it
+    # An explicit caller policy still wins, even alongside a webrtc_ip.
+    assert webrtc_default_deny_args(["--force-webrtc-ip-handling-policy=default"], "1.2.3.4") == []
+
+
+def test_quic_args_disabled_only_when_proxied():
+    # Behind any proxy (SOCKS or HTTP) QUIC can't tunnel -> disable so no UDP egresses around it.
+    assert quic_args({"server": "socks5://host:1080"}) == ["--disable-quic"]
+    assert quic_args({"server": "http://host:8080"}) == ["--disable-quic"]
+    # No proxy -> leave QUIC on (matches real Chrome).
+    assert quic_args(None) == []
+    assert quic_args({}) == []  # malformed/empty proxy descriptor -> no flag
+
+
+def test_extension_args_empty():
+    assert extension_args(None) == []
+    assert extension_args([]) == []
+
+
+def test_extension_args_emits_load_and_disable_except():
+    assert extension_args(["/a", "/b"]) == [
+        "--load-extension=/a,/b",
+        "--disable-extensions-except=/a,/b",
+    ]
+
+
+def test_resolve_proxy_passthrough_when_absent():
+    assert resolve_proxy(None) == ([], None)
+
+
+def test_resolve_proxy_socks5_with_creds_routes_to_switch_and_forwards_creds():
+    proxy = {"server": "socks5://h:1080", "username": "u", "password": "p"}
+    args, pw = resolve_proxy(proxy, engine_supports_proxy_auth=True)
+    # The engine implements RFC 1929, so the credentials are handed to it rather than dropped.
+    assert args == ["--proxy-server=socks5://h:1080", "--socks5-credentials=u:p"]
+    assert pw is None  # Playwright would reject creds in a SOCKS descriptor -> drop it
+
+
+def test_resolve_proxy_socks5_strips_userinfo_already_in_url():
+    proxy = {"server": "socks5://old:secret@h:1080", "username": "u", "password": "p"}
+    args, pw = resolve_proxy(proxy, engine_supports_proxy_auth=True)
+    assert args == ["--proxy-server=socks5://h:1080", "--socks5-credentials=u:p"]
+    assert pw is None
+
+
+# Regression (found 2026-09-24, proven at runtime on r27): credentials written INTO the URL were
+# ignored, because only the keys were read. The proxy went to Playwright, which rebuilds the server
+# as scheme://host:port, and the browser's SOCKS5 greeting offered only "no auth".
+def test_resolve_proxy_routes_socks5_url_credentials_to_the_engine():
+    args, pw = resolve_proxy({"server": "socks5://user:pass@h:1080"})
+    assert args == ["--proxy-server=socks5://h:1080", "--socks5-credentials=user:pass"]
+    assert pw is None
+
+
+def test_resolve_proxy_percent_decodes_url_credentials_and_splits_at_the_last_at():
+    args, _ = resolve_proxy({"server": "socks5://us%40er:p%3Ass%2Fw@h:1080"})
+    assert args == ["--proxy-server=socks5://h:1080", "--socks5-credentials=us@er:p:ss/w"]
+    # an unescaped '@' in the password (URL parsers split userinfo at the LAST '@')
+    args, _ = resolve_proxy({"server": "socks5://user:p@ss@h:1080"})
+    assert args == ["--proxy-server=socks5://h:1080", "--socks5-credentials=user:p@ss"]
+    # a malformed escape is taken literally
+    args, _ = resolve_proxy({"server": "socks5://user:100%@h:1080"})
+    assert args == ["--proxy-server=socks5://h:1080", "--socks5-credentials=user:100%"]
+
+
+def test_resolve_proxy_routes_http_url_credentials_to_proxy_auth():
+    args, pw = resolve_proxy({"server": "http://u:p@h:3128", "bypass": "*.internal"},
+                             engine_supports_proxy_auth=True)
+    assert args == ["--proxy-server=http://h:3128", "--proxy-auth=u:p", "--proxy-bypass-list=*.internal"]
+    assert pw is None
+
+
+def test_resolve_proxy_hands_url_credentials_to_playwright_as_keys():
+    # Playwright drops userinfo from `server`: left there, every request would 407.
+    args, pw = resolve_proxy({"server": "http://u:p%21@h:3128", "bypass": "*.internal"})
+    assert args == []
+    assert pw == {"server": "http://h:3128", "username": "u", "password": "p!", "bypass": "*.internal"}
+
+
+def test_resolve_proxy_keys_win_over_userinfo_per_key():
+    args, _ = resolve_proxy({"server": "socks5://urluser:urlpass@h:1080", "password": "field"})
+    assert args == ["--proxy-server=socks5://h:1080", "--socks5-credentials=urluser:field"]
+
+
+def test_quic_args_keeps_quic_through_the_socks5_udp_relay_on_an_r54_engine(tmp_path):
+    from clearcote._launchopts import quic_args
+    r54 = tmp_path / "r54-chrome"; r54.write_bytes(b"\x00socks5-udp\x00disable-socks5-udp-quic\x00")
+    r53 = tmp_path / "r53-chrome"; r53.write_bytes(b"\x00socks5-udp\x00")
+    socks = {"server": "socks5://203.0.113.9:1080"}
+    # r54 + Relay UDP + SOCKS5: HTTP/3 goes through the relay
+    assert quic_args(socks, True, str(r54)) == []
+    # anything else keeps QUIC off behind the proxy
+    assert quic_args(socks, True, str(r53)) == ["--disable-quic"]
+    assert quic_args(socks, False, str(r54)) == ["--disable-quic"]
+    assert quic_args({"server": "http://203.0.113.9:8080"}, True, str(r54)) == ["--disable-quic"]
+    assert quic_args(socks, True, None) == ["--disable-quic"]
+
+
+def test_warn_unsupported_engine_options_sees_socks5_url_credentials(tmp_path):
+    from clearcote._launchopts import warn_unsupported_engine_options
+    r16 = tmp_path / "r16-chrome"; r16.write_bytes(b"\x00proxy-server\x00")  # no socks5-credentials
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_unsupported_engine_options(str(r16), {}, {"server": "socks5://u:p@h:1080"})
+    assert any("cannot authenticate to a SOCKS5 proxy" in str(w.message) for w in caught)
+
+
+def test_resolve_proxy_socks5_without_creds_left_to_playwright():
+    proxy = {"server": "socks5://h:1080"}
+    assert resolve_proxy(proxy) == ([], proxy)
+
+
+def test_resolve_proxy_http_with_creds_routes_to_engine_proxy_auth():
+    # Credentials handed to Playwright switch on Fetch interception + Network.setCacheDisabled for
+    # the whole context (a transport tell); the engine answers the 407 itself via --proxy-auth.
+    proxy = {"server": "http://old:secret@h:3128", "username": "u", "password": "p"}
+    args, pw = resolve_proxy(proxy, engine_supports_proxy_auth=True)
+    assert args == ["--proxy-server=http://h:3128", "--proxy-auth=u:p"]
+    assert pw is None
+
+
+def test_resolve_proxy_https_with_creds_keeps_bypass_list():
+    proxy = {"server": "https://h:443", "username": "u", "password": "p", "bypass": "*.internal,localhost"}
+    args, pw = resolve_proxy(proxy, engine_supports_proxy_auth=True)
+    assert args == ["--proxy-server=https://h:443", "--proxy-auth=u:p",
+                    "--proxy-bypass-list=*.internal,localhost"]
+    assert pw is None
+
+
+def test_resolve_proxy_http_without_creds_left_to_playwright():
+    proxy = {"server": "http://h:3128"}
+    assert resolve_proxy(proxy) == ([], proxy)
+
+
+def test_resolve_proxy_http_with_creds_no_longer_left_to_playwright():
+    # Was: "authed HTTP proxies stay on Playwright's path (inline-cred handling needs an engine
+    # change)". The engine change landed (--proxy-auth), and the Playwright path is exactly what
+    # switches on Fetch interception + cache disabling, so the credentials never go there now.
+    proxy = {"server": "http://h:8080", "username": "u", "password": "p"}
+    args, pw = resolve_proxy(proxy, engine_supports_proxy_auth=True)
+    assert pw is None
+    assert "--proxy-auth=u:p" in args
+
+
+def test_resolve_proxy_socks5_with_creds_does_not_warn():
+    # This used to warn that Chromium cannot authenticate SOCKS5 and to put the auth on a local
+    # relay. The engine now speaks RFC 1929, so warning would send callers to a workaround they
+    # no longer need.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        resolve_proxy({"server": "socks5://h:1", "username": "u", "password": "p"})
+    assert not [w for w in caught if "SOCKS5" in str(w.message)]
+
+
+# --------------------------------------------------------------------------- web bluetooth
+# WHY THESE EXIST: Web Bluetooth is compiled into the engine but its DEFAULT follows the build
+# platform (Chromium marks WebBluetooth "stable" on Win/Mac and lets Linux fall to "experimental"),
+# so the same persona is a tell in opposite directions depending on which build is running: a Linux
+# build serving a Windows persona exposed navigator.usb/serial/hid but NOT navigator.bluetooth,
+# while a Windows build under a Linux claim exposes navigator.bluetooth, which genuine Chrome on
+# Linux does not have. The switch is therefore derived from the CLAIM alone, on every host.
+def test_web_bluetooth_args_enabled_for_a_desktop_claim_on_every_host(monkeypatch):
+    for plat in ("linux", "win32", "darwin"):
+        monkeypatch.setattr(_lo.sys, "platform", plat)
+        for claimed in ("windows", "macos", "android", "chromeos"):
+            assert _lo.web_bluetooth_args(claimed) == ["--enable-features=WebBluetooth"], (plat, claimed)
+
+
+def test_web_bluetooth_args_disabled_under_a_linux_claim_on_every_host(monkeypatch):
+    """Genuine Chrome 154 on Linux has NO navigator.bluetooth (measured 2026-10-04 against the
+    branded build, and against our own engine launched without the SDK). Leaving it on under a
+    Linux claim exposes an API real Linux Chrome lacks, and ours answered getAvailability() ===
+    false -- "API present, no adapter" -- which genuine Linux Chrome cannot produce at all.
+
+    Withholding the ENABLE switch is not enough off Linux: measured on the r30 Windows build,
+    ``'bluetooth' in navigator`` was still true under a Linux claim until --disable-features
+    landed, because that build ships the feature stable."""
+    for plat in ("linux", "win32", "darwin"):
+        monkeypatch.setattr(_lo.sys, "platform", plat)
+        assert _lo.web_bluetooth_args("linux") == ["--disable-features=WebBluetooth"], plat
+
+
+def test_web_bluetooth_args_bare_call_follows_the_host(monkeypatch):
+    """No claim means no persona switches, so the page sees the real host OS -- and the switch has
+    to agree with that, not with the build's default."""
+    monkeypatch.setattr(_lo.sys, "platform", "linux")
+    monkeypatch.setattr("clearcote._fingerprint.sys.platform", "linux")
+    assert _lo.web_bluetooth_args() == ["--disable-features=WebBluetooth"]
+    monkeypatch.setattr(_lo.sys, "platform", "win32")
+    monkeypatch.setattr("clearcote._fingerprint.sys.platform", "win32")
+    assert _lo.web_bluetooth_args() == ["--enable-features=WebBluetooth"]
+
+
+def test_persona_platform_is_the_claim_not_the_host(monkeypatch):
+    from clearcote import _fingerprint as _fp
+    monkeypatch.setattr(_fp.sys, "platform", "linux")
+    assert _fp.persona_platform({}) == "linux"                        # bare: host's own
+    assert _fp.persona_platform({"platform": "windows"}) == "windows"  # explicit persona wins
+    assert _fp.persona_platform({"platform": "Windows "}) == "windows"  # normalised
+    # pass-through sends no persona switches, so the engine presents the real host OS
+    assert _fp.persona_platform({"platform": "windows", "fingerprint": "off"}) == "linux"
+
+
+def test_web_bluetooth_folds_into_one_enable_features(monkeypatch):
+    """The flag must survive merge_feature_flags: Chromium honours only the LAST
+    --enable-features, so a second occurrence would silently drop WebBluetooth."""
+    monkeypatch.setattr(_lo.sys, "platform", "linux")
+    merged = _lo.merge_feature_flags(
+        _lo.web_bluetooth_args("windows") + ["--enable-features=SomethingElse"])
+    enables = [a for a in merged if a.startswith("--enable-features=")]
+    assert len(enables) == 1
+    assert "WebBluetooth" in enables[0] and "SomethingElse" in enables[0]
+
+
+def test_web_bluetooth_disable_folds_into_one_disable_features(monkeypatch):
+    """Same hazard on the other side: the Linux-claim switch is a --disable-features, and
+    Chromium honours only the last of those too."""
+    monkeypatch.setattr(_lo.sys, "platform", "win32")
+    merged = _lo.merge_feature_flags(
+        _lo.web_bluetooth_args("linux") + ["--disable-features=SomethingElse"])
+    disables = [a for a in merged if a.startswith("--disable-features=")]
+    assert len(disables) == 1
+    assert "WebBluetooth" in disables[0] and "SomethingElse" in disables[0]
+
+
+SOCKS5 = {"server": "socks5://gw.example.com:1080", "username": "u", "password": "p"}
+
+
+def test_socks5_udp_emitted_only_when_opted_in():
+    assert socks5_udp_args(True, SOCKS5) == ["--socks5-udp"]
+    assert socks5_udp_args(False, SOCKS5) == []
+    assert socks5_udp_args(None, SOCKS5) == []
+
+
+def test_socks5_udp_silent_for_transports_that_cannot_carry_datagrams():
+    # UDP ASSOCIATE is a SOCKS5 command. Emitting the switch for a transport that cannot relay a
+    # datagram would be accepted and silently do nothing -- the failure mode this guards against.
+    for server in ("http://p:8080", "https://p:8443", "socks4://p:1080"):
+        assert socks5_udp_args(True, {"server": server}) == []
+
+
+def test_socks5_udp_silent_without_a_proxy():
+    assert socks5_udp_args(True, None) == []
+    assert socks5_udp_args(True, {}) == []
+    assert socks5_udp_args(True, {"server": ""}) == []
+
+
+def test_socks5_udp_accepts_socks5h_and_is_case_insensitive():
+    assert socks5_udp_args(True, {"server": "socks5h://p:1080"}) == ["--socks5-udp"]
+    assert socks5_udp_args(True, {"server": "SOCKS5://p:1080"}) == ["--socks5-udp"]
+
+
+def test_socks5_udp_composes_with_the_webrtc_deny_default():
+    # Verified against the proxy's own log: the association is established with the deny policy in
+    # force, so enabling UDP does not mean weakening the leak default.
+    args = socks5_udp_args(True, SOCKS5)
+    combined = args + webrtc_default_deny_args(args, None)
+    assert "--socks5-udp" in combined
+    assert "--webrtc-ip-handling-policy=disable_non_proxied_udp" in combined
+
+
+def test_resolve_proxy_http_with_creds_stays_with_playwright_on_engines_without_proxy_auth():
+    # r18 and earlier (and the free engine) do not implement --proxy-auth: routing the credentials
+    # there would strip them from Playwright and every request would 407. Legacy path instead.
+    proxy = {"server": "http://h:3128", "username": "u", "password": "p"}
+    assert resolve_proxy(proxy) == ([], proxy)
+    assert resolve_proxy(proxy, engine_supports_proxy_auth=False) == ([], proxy)
+
+
+def test_resolve_proxy_socks5_routing_does_not_depend_on_the_proxy_auth_flag():
+    proxy = {"server": "socks5://h:1080", "username": "u", "password": "p"}
+    a1, _ = resolve_proxy(proxy)
+    a2, _ = resolve_proxy(proxy, engine_supports_proxy_auth=True)
+    assert a1 == a2 and any(a.startswith("--socks5-credentials=") for a in a1)
+
+
+def test_engine_supports_switch_probes_the_nul_delimited_literal(tmp_path):
+    from clearcote._launchopts import engine_supports_switch
+    exe = tmp_path / "chrome"
+    exe.write_bytes(b"xx\x00proxy-authenticate\x00yy")          # HPACK header name: must NOT match
+    assert engine_supports_switch(str(exe), "proxy-auth") is False
+    exe2 = tmp_path / "chrome2"
+    exe2.write_bytes(b"xx\x00proxy-auth\x00yy")
+    assert engine_supports_switch(str(exe2), "proxy-auth") is True
+    assert engine_supports_switch(str(tmp_path / "missing"), "proxy-auth") is False
+    assert engine_supports_switch("", "proxy-auth") is False
+
+
+def test_warn_unsupported_engine_options_warns_only_for_missing_switches(tmp_path):
+    from clearcote._launchopts import warn_unsupported_engine_options
+    old = tmp_path / "old-chrome"; old.write_bytes(b"\x00socks5-credentials\x00")        # r17/r18-class engine
+    new = tmp_path / "new-chrome"; new.write_bytes(b"\x00socks5-credentials\x00\x00fingerprint-schema\x00\x00fingerprint-gpu-backend-real\x00\x00proxy-auth\x00")
+    fp = {"persona_schema": 2, "real_gpu_host": True}
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_unsupported_engine_options(str(old), fp, {"server": "socks5://h:1080", "username": "u", "password": "p"})
+    msgs = [str(w.message) for w in caught]
+    assert any("persona_schema=2" in m for m in msgs) and any("real_gpu_host" in m for m in msgs)
+    assert not any("SOCKS5" in m for m in msgs)                       # socks5 IS supported by the old engine
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_unsupported_engine_options(str(new), fp, {"server": "socks5://h:1080", "username": "u", "password": "p"})
+    assert not caught                                                  # everything supported -> silence
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warn_unsupported_engine_options(str(old), {"persona_schema": 1}, None)
+    assert not caught                                                  # schema 1 is the default: nothing to warn
+
+
+def test_warn_unsupported_engine_options_knows_which_engine_each_schema_needs(tmp_path):
+    # Schema 2 came with 151 r19 (the switch itself), 3 with 154 r36 (--block-third-party-cookies too), 4 with 154 r37,
+    # whose schema-4 GPU pool is the first to carry the Intel Arc row; r36's table names that chip "Arc(TM) Pro".
+    from clearcote._launchopts import SCHEMA4_ENGINE_MARKER, warn_unsupported_engine_options
+    lits = lambda *ls: b"".join(b"\x00" + l.encode("ascii") + b"\x00" for l in ls)
+    r35 = tmp_path / "r35"; r35.write_bytes(lits("fingerprint-schema"))
+    r36 = tmp_path / "r36"; r36.write_bytes(lits("fingerprint-schema", "block-third-party-cookies", "ANGLE (Intel, Intel(R) Arc(TM) Pro Graphics (0x00007D55) Direct3D11 vs_5_0 ps_5_0, D3D11)"))
+    r37 = tmp_path / "r37"; r37.write_bytes(lits("fingerprint-schema", "block-third-party-cookies", SCHEMA4_ENGINE_MARKER))
+
+    def msgs(exe, schema):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            warn_unsupported_engine_options(str(exe), {"persona_schema": schema}, None)
+        return [str(w.message) for w in caught]
+
+    assert any("persona_schema=3 (engine 154 r36+)" in m for m in msgs(r35, 3))
+    assert any("persona_schema=4 (engine 154 r37+)" in m for m in msgs(r35, 4))
+    assert msgs(r36, 3) == [] and any("persona_schema=4" in m for m in msgs(r36, 4))
+    assert msgs(r37, 3) == [] and msgs(r37, 4) == [] and msgs(r35, 2) == []
+    r51 = tmp_path / "r51"; r51.write_bytes(lits("fingerprint-schema", "block-third-party-cookies", SCHEMA4_ENGINE_MARKER, "cc-persona-host-facts"))
+    assert any("persona_schema=5 (engine 155 r45+)" in m for m in msgs(r35, 5))
+    assert msgs(r37, 5) == [] and any("persona_schema=7 (engine 156 r51+)" in m for m in msgs(r37, 7))
+    assert msgs(r51, 5) == [] and msgs(r51, 7) == []
+    assert "Arc(TM) Graphics (0x00007D55)" in SCHEMA4_ENGINE_MARKER
+
+
+PW157 = ("AcceptCHFrame", "AvoidUnnecessaryBeforeUnloadCheckSync", "HttpsUpgrades", "MediaRouter",
+         "PaintHolding", "ThirdPartyStoragePartitioning", "RenderDocument")
+
+
+def test_playwright_feature_override_re_enables_only_what_a_site_can_observe():
+    from clearcote._launchopts import playwright_feature_override_args
+    out = playwright_feature_override_args(playwright_features=PW157, screenshot_surface=False)
+    assert out == ["--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,PaintHolding,RenderDocument"]
+    # LazyFrameLoading (Playwright 1.49) is page-visible too
+    out = playwright_feature_override_args(playwright_features=("LazyFrameLoading", "Translate"),
+                                           screenshot_surface=False)
+    assert out == ["--disable-features=Translate"]
+
+
+def test_playwright_feature_override_is_skipped_only_when_playwrights_exact_switch_is_dropped():
+    from clearcote._launchopts import playwright_feature_override_args
+    exact = "--disable-features=" + ",".join(PW157)
+    kw = dict(playwright_features=PW157, screenshot_surface=False)
+    assert playwright_feature_override_args(True, **kw) == []
+    assert playwright_feature_override_args([exact], **kw) == []
+    # Playwright drops only an EXACT match: a different --disable-features value leaves its list on
+    # the line, so the replacement is still needed.
+    assert playwright_feature_override_args(["--disable-features=MediaRouter"], **kw) != []
+    assert playwright_feature_override_args(["--enable-automation"], **kw) != []
+
+
+def test_playwright_screenshot_surface_is_re_emitted():
+    from clearcote._launchopts import playwright_feature_override_args
+    out = playwright_feature_override_args(playwright_features=("PaintHolding",), screenshot_surface=True)
+    assert out == ["--disable-features=PaintHolding", "--enable-features=CDPScreenshotNewSurface"]
+
+
+def test_parse_playwright_disabled_features_reads_every_release_shape():
+    from clearcote._launchopts import parse_playwright_disabled_features as parse
+    v157 = """const disabledFeatures = (assistantMode) => [
+  // See https://github.com/microsoft/playwright/pull/10380
+  "AcceptCHFrame",
+  // See https://github.com/microsoft/playwright/issues/32230
+  "ThirdPartyStoragePartitioning",
+  assistantMode ? "AutomationControlled" : ""
+].filter(Boolean);"""
+    assert parse(v157) == ("AcceptCHFrame", "ThirdPartyStoragePartitioning")
+    v161 = """var disabledFeatures, chromiumSwitches;
+    disabledFeatures = [
+      // See https://github.com/microsoft/playwright/issues/38568
+      "BoundaryEventDispatchTracksNodeRemoval",
+      "MediaRouter"
+    ].filter(Boolean);"""
+    assert parse(v161) == ("BoundaryEventDispatchTracksNodeRemoval", "MediaRouter")
+    v149 = "const chromiumSwitches = ['--disable-features=LazyFrameLoading,MediaRouter', '--no-first-run'];"
+    assert parse(v149) == ("LazyFrameLoading", "MediaRouter")
+    assert parse("") is None and parse("nothing here") is None
+
+
+def test_the_installed_playwright_list_is_readable():
+    # Drift guard: if a Playwright release reshapes chromiumSwitches, the SDK falls back to its 1.57
+    # copy -- this fails instead of letting that happen silently.
+    from clearcote._launchopts import installed_playwright_disabled_features
+    feats = installed_playwright_disabled_features()
+    assert feats, "could not read the installed Playwright's --disable-features list"
+    assert "MediaRouter" in feats
+
+
+def test_dropping_playwrights_disable_switch_still_keeps_its_screenshot_switch():
+    # The SDK's own --enable-features (WebBluetooth) replaces Playwright's CDPScreenshotNewSurface
+    # whether or not the caller dropped Playwright's --disable-features.
+    from clearcote._launchopts import playwright_feature_override_args
+    exact = "--disable-features=" + ",".join(PW157)
+    assert playwright_feature_override_args([exact], PW157, True) == ["--enable-features=CDPScreenshotNewSurface"]
+    # ...but a screenshot switch the caller dropped is not re-added
+    assert playwright_feature_override_args(["--enable-features=CDPScreenshotNewSurface"], ("PaintHolding",), True) \
+        == ["--disable-features=PaintHolding"]
+
+
+def test_parse_is_robust_to_a_bracket_in_a_comment_and_rejects_an_unrecognised_list():
+    from clearcote._launchopts import parse_playwright_disabled_features as parse
+    assert parse('const disabledFeatures = [\n // see ] here\n "MediaRouter",\n "Translate"\n];') \
+        == ("MediaRouter", "Translate")
+    assert parse('disabledFeatures = ["SomethingElse"];') is None      # no known entry: not trusted
+    assert parse('const disabledFeatures2 = ["MediaRouter"];') is None  # a different variable
+
+
+# -- software WebGPU under a desktop claim (engine r47+, pro-r47-04) ------------------------------
+
+def test_engine_revision_reads_the_pro_tag_from_the_path():
+    from clearcote._launchopts import engine_revision
+    assert engine_revision("/home/u/.clearcote/pro-155.0.8059.39-r47/chrome") == 47
+    assert engine_revision(r"C:\Users\u\.clearcote\pro-155.0.8059.39-r46\chrome.exe") == 46
+    assert engine_revision("/Users/u/.clearcote/pro-155.0.8059.39-r48/Chromium.app/Contents/MacOS/Chromium") == 48
+    assert engine_revision("/x/other-r3/pro-155.0.8059.39-r47/chrome") == 47  # the deepest component wins
+    assert engine_revision("/opt/clearcote/chrome") is None  # a binary the caller named: no revision there
+    assert engine_revision("/x/chromium-r4/chrome") == 4
+    assert engine_revision("") is None and engine_revision(None) is None
+
+
+def test_software_webgpu_args_only_for_an_engine_that_can_dress_the_adapter(tmp_path):
+    from clearcote._launchopts import SOFTWARE_WEBGPU_ARGS, software_webgpu_args
+    r47 = str(tmp_path / "pro-155.0.8059.39-r47" / "chrome")
+    r46 = str(tmp_path / "pro-155.0.8059.39-r46" / "chrome")
+    three = list(SOFTWARE_WEBGPU_ARGS)
+    assert three == ["--use-webgpu-adapter=swiftshader", "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader"]
+    assert software_webgpu_args(r47, "windows", "linux") == three
+    assert software_webgpu_args(r47, "macos", "linux") == three
+    assert software_webgpu_args(r47, "Windows ", "linux") == three
+    assert software_webgpu_args(r46, "windows", "linux") == []  # r46: a raw SwiftShader adapter would show
+    assert software_webgpu_args("/opt/cc/chrome", "windows", "linux") == []  # no revision, no marker switch
+    assert software_webgpu_args(r47, "linux", "linux") == []  # a Linux claim renders through Mesa
+    assert software_webgpu_args(r47, None, "linux") == []  # pass-through: no persona
+    assert software_webgpu_args(r47, "windows", "win32") == []
+    assert software_webgpu_args(r47, "windows", "darwin") == []
+
+
+def test_software_webgpu_args_marker_switch_stands_in_for_the_revision(tmp_path):
+    from clearcote._launchopts import SOFTWARE_WEBGPU_ARGS, software_webgpu_args
+    exe = tmp_path / "chrome"
+    exe.write_bytes(b"xx\x00fingerprint-platform\x00yy")
+    assert software_webgpu_args(str(exe), "windows", "linux") == []
+    exe.write_bytes(b"xx\x00fingerprint-software-webgpu\x00yy")  # the r48 engine's marker
+    assert software_webgpu_args(str(exe), "windows", "linux") == list(SOFTWARE_WEBGPU_ARGS)
+
+
+def test_software_webgpu_args_never_adds_a_switch_twice(tmp_path):
+    from clearcote._launchopts import playwright_keeps_unsafe_swiftshader, software_webgpu_args
+    r47 = str(tmp_path / "pro-155.0.8059.39-r47" / "chrome")
+    assert software_webgpu_args(r47, "windows", "linux", present=["--enable-unsafe-swiftshader"]) == [
+        "--use-webgpu-adapter=swiftshader", "--enable-unsafe-webgpu"]
+    assert software_webgpu_args(r47, "windows", "linux", present=[
+        "--use-webgpu-adapter=swiftshader", "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader"]) == []
+    # Playwright's own --enable-unsafe-swiftshader reaches the line only when the launch keeps it
+    assert playwright_keeps_unsafe_swiftshader(None) is False  # the SDK's default strip
+    assert playwright_keeps_unsafe_swiftshader(True) is False  # every default dropped
+    assert playwright_keeps_unsafe_swiftshader(["--enable-automation"]) is True
+    assert playwright_keeps_unsafe_swiftshader(["--enable-automation", "--enable-unsafe-swiftshader"]) is False
+
+
+def test_relay_proxy_by_ip_looks_up_a_socks5_name_only_with_relay_udp():
+    calls = []
+
+    def lookup(host):
+        calls.append(host)
+        if host == "gw.example.com":
+            return "203.0.113.9"
+        raise OSError("not found")
+
+    assert relay_proxy_by_ip({"server": "socks5://u:p@ss@gw.example.com:1080", "bypass": "x"}, True, True, lookup) ==         {"server": "socks5://u:p@ss@203.0.113.9:1080", "bypass": "x"}
+    assert relay_proxy_by_ip({"server": "socks5://gw.example.com", "username": "u"}, True, True, lookup) ==         {"server": "socks5://203.0.113.9", "username": "u"}
+    calls.clear()
+    for unchanged, on in (({"server": "socks5://198.51.100.4:1080"}, True),
+                          ({"server": "socks5://[2001:db8::1]:1080"}, True),
+                          ({"server": "socks5://gw.example.com:1080"}, False),
+                          ({"server": "http://gw.example.com:8080"}, True)):
+        assert relay_proxy_by_ip(unchanged, on, True, lookup) is unchanged
+    assert relay_proxy_by_ip(None, True, True, lookup) is None
+    assert calls == []
+    bad = {"server": "socks5://nope.invalid:1080"}
+    assert relay_proxy_by_ip(bad, True, True, lookup) is bad

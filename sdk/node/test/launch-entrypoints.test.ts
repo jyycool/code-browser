@@ -1,0 +1,848 @@
+// Entry-point wiring the pure helper tests cannot reach: profile:"auto" through launch(),
+// launchPersistentContext() and serve(); the throwaway-profile lifecycle of launch() and
+// launchAgent(); and the proxy switches serve() puts on the engine command line.
+//
+// Stubbed: Playwright, the child-process spawn, and the two expensive "auto" collaborators (the
+// host measurement launches a browser, the resolver calls the profile service). Everything between
+// them — option merging, binary resolution, arg assembly, temp-directory handling — runs for real.
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
+import { createServer, type Server as HttpServer } from "node:http";
+import type { EventEmitter } from "node:events";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
+
+const stub = vi.hoisted(() => ({
+  // PROFILE_DIR is read once, at import: point it somewhere empty before the SDK loads, so no saved
+  // profile on this machine (a real auto.json included) can change what these tests see.
+  savedProfileDir: ((prev) => { process.env.CLEARCOTE_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CLEARCOTE_PROFILE_DIR),
+  launches: [] as Array<{ kind: "persistent" | "incognito"; userDataDir?: string; opts: Record<string, unknown> }>,
+  spawns: [] as string[][],
+  fontDirs: [] as unknown[],  // the fontDirs argument of every fontLaunchEnv call
+  failLaunch: null as Error | null,
+  // The stand-in browser: what it leaves in its profile at launch, and what it does while it shuts down.
+  browser: {
+    onLaunch: null as null | ((userDataDir: string) => void),
+    shutdown: null as null | ((userDataDir: string) => Promise<void>),
+    newPage: null as null | (() => unknown),  // what an incognito browser's newPage() hands back
+    pages: [] as unknown[],                   // what a persistent context already owns
+  },
+  fits: [] as unknown[][],  // the arguments of every fitServedWindow call serve() made
+  host: {
+    os_family: "windows", browser_major: 153, gpu_vendor: "intel",
+    screen_width: 1920, screen_height: 1080, device_pixel_ratio: 1,
+    hardware_concurrency: 8, device_memory: 8,
+  },
+  serviceProfile: { navigator: { user_agent: "captured-ua", languages: ["en-US", "en"] } },
+}));
+
+vi.mock("playwright-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("playwright-core")>();
+  const { EventEmitter } = await import("node:events");
+  const fakeContext = (userDataDir?: string) => {
+    const ctx = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    ctx.pages = () => stub.browser.pages;
+    ctx.browser = () => null;
+    // As real Playwright does: "close" is emitted when the browser's pipe drops, and close() resolves
+    // only once the browser process has exited — which on Linux is ~100 ms later, and Chrome keeps
+    // writing its profile in between.
+    ctx.close = async () => {
+      ctx.emit("close", ctx);
+      if (userDataDir && stub.browser.shutdown) await stub.browser.shutdown(userDataDir);
+    };
+    return ctx;
+  };
+  const chromium = {
+    launchPersistentContext: async (userDataDir: string, opts: Record<string, unknown>) => {
+      stub.launches.push({ kind: "persistent", userDataDir, opts });
+      if (stub.failLaunch) throw stub.failLaunch;
+      stub.browser.onLaunch?.(userDataDir);
+      return fakeContext(userDataDir);
+    },
+    launch: async (opts: Record<string, unknown>) => {
+      stub.launches.push({ kind: "incognito", opts });
+      if (stub.failLaunch) throw stub.failLaunch;
+      const browser = new EventEmitter() as EventEmitter & Record<string, unknown>;
+      browser.newPage = async () => stub.browser.newPage?.() ?? {};
+      browser.newContext = async () => fakeContext();
+      browser.close = async () => {};
+      return browser;
+    },
+  };
+  return { ...actual, chromium };
+});
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  const { EventEmitter } = await import("node:events");
+  return {
+    ...actual,
+    spawn: (_cmd: string, args: string[]) => {
+      stub.spawns.push(args);
+      const p = new EventEmitter() as EventEmitter & Record<string, unknown>;
+      p.exitCode = null;
+      p.killed = false;
+      p.pid = 4242;
+      p.kill = () => { p.killed = true; return true; };
+      queueMicrotask(() => p.emit("spawn"));
+      return p;
+    },
+  };
+});
+
+// The font wiring runs for real; only the directories it was handed are recorded.
+vi.mock("../src/fonts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/fonts.js")>();
+  return {
+    ...actual,
+    fontLaunchEnv: (...a: Parameters<typeof actual.fontLaunchEnv>) => {
+      stub.fontDirs.push(a[3]);
+      return actual.fontLaunchEnv(...a);
+    },
+  };
+});
+
+// The served-window fit is recorded, not run: it would open a WebSocket to the stand-in endpoint.
+vi.mock("../src/geometry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/geometry.js")>();
+  return {
+    ...actual,
+    fitServedWindow: async (...a: unknown[]) => { stub.fits.push(a); return null; },
+  };
+});
+
+vi.mock("../src/profilesource.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/profilesource.js")>()),
+  measureHost: async () => stub.host,
+}));
+
+vi.mock("../src/profileauto.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/profileauto.js")>()),
+  resolveAuto: async () => ({ profile: stub.serviceProfile, selection: { entry: { id: "svc-1" } }, source: "service" }),
+}));
+
+import { launch, launchAgent, launchPersistentContext, serve, serveNeedsNoSandbox } from "../src/index.js";
+import { removeLiveTokenFiles, resolveLicenseKey } from "../src/license.js";
+import { installedPlaywrightDisabledFeatures, PAGE_VISIBLE_PLAYWRIGHT_FEATURES, PLAYWRIGHT_DISABLED_FEATURES } from "../src/launchopts.js";
+
+afterAll(() => {
+  if (stub.savedProfileDir === undefined) delete process.env.CLEARCOTE_PROFILE_DIR;
+  else process.env.CLEARCOTE_PROFILE_DIR = stub.savedProfileDir;
+});
+
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY",
+  "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"] as const;
+let savedEnv: Record<string, string | undefined>;
+let root: string;
+let temp: string; // the TEMP every launch sees: anything left in it after a test leaked
+let exe: string;
+
+beforeEach(() => {
+  savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  root = mkdtempSync(join(tmpdir(), "cc-entry-"));
+  temp = join(root, "temp");
+  const home = join(root, "home");
+  for (const d of [temp, home, join(root, "engine")]) mkdirSync(d);
+  // A modern engine as far as the capability probes can tell. Deliberately no chrome.dll next to
+  // it: checkInstall only verifies a tree that looks like a full install.
+  exe = join(root, "engine", process.platform === "win32" ? "chrome.exe" : "chrome");
+  writeFileSync(exe, Buffer.from("MZ\0socks5-credentials\0\0proxy-auth\0\0fingerprint-profile\0", "latin1"));
+  // No licence (a key would select the PRO binary and a lease), no saved profiles, no warnings.
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  process.env.TEMP = temp;
+  process.env.TMP = temp;
+  process.env.TMPDIR = temp;
+  process.env.CLEARCOTE_NO_WARN = "1";
+  for (const k of ["CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"]) delete process.env[k];
+  stub.launches.length = 0;
+  stub.spawns.length = 0;
+  stub.fontDirs.length = 0;
+  stub.failLaunch = null;
+  stub.browser.onLaunch = null;
+  stub.browser.shutdown = null;
+  stub.browser.newPage = null;
+  stub.browser.pages = [];
+  stub.fits.length = 0;
+});
+
+afterEach(() => {
+  for (const k of ENV_KEYS) {
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+/** The persona a --fingerprint-profile switch carries (gzip + base64 JSON). */
+function decodedProfile(args: string[]): unknown {
+  const a = args.find((x) => x.startsWith("--fingerprint-profile="));
+  return a ? JSON.parse(gunzipSync(Buffer.from(a.slice("--fingerprint-profile=".length), "base64")).toString("utf8")) : undefined;
+}
+
+const base = () => ({ executablePath: exe, headless: false, quiet: true });
+
+it("harness: no licence is visible, so no launch here can take a real lease", () => {
+  expect(resolveLicenseKey()).toBeUndefined();
+});
+
+describe("profile: \"auto\" on every entry point", () => {
+  // Regression: launch() is profile-backed by default (0.23.0), and launchPersistentContext loaded
+  // "auto" as a SAVED profile name -> ENOENT ~/.clearcote/profiles/auto.json. Only the incognito
+  // path (ephemeralProfile: false) knew "auto" was special.
+  it("launch() — the default ephemeral profile", async () => {
+    const browser = await launch({ ...base(), profile: "auto" });
+    const call = stub.launches.at(-1)!;
+    expect(call.kind).toBe("persistent");
+    const args = call.opts.args as string[];
+    expect(decodedProfile(args)).toEqual(stub.serviceProfile);
+    expect(args.some((a) => a.startsWith("--fingerprint="))).toBe(false); // "auto" never seeds
+    await browser.close();
+  });
+
+  it("launchPersistentContext()", async () => {
+    const udd = join(root, "profile");
+    const context = await launchPersistentContext(udd, { ...base(), profile: "auto" });
+    const call = stub.launches.at(-1)!;
+    expect(call.userDataDir).toBe(udd);
+    expect(decodedProfile(call.opts.args as string[])).toEqual(stub.serviceProfile);
+    expect(call.opts).not.toHaveProperty("profileSelect"); // an SDK option, not a Playwright one
+    await context.close();
+  });
+
+  it("launch({ ephemeralProfile: false }) — unchanged", async () => {
+    const browser = await launch({ ...base(), profile: "auto", ephemeralProfile: false });
+    const call = stub.launches.at(-1)!;
+    expect(call.kind).toBe("incognito");
+    expect(decodedProfile(call.opts.args as string[])).toEqual(stub.serviceProfile);
+    await browser.close();
+  });
+
+  it("serve()", async () => {
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      const srv = await serve({ ...base(), port, profile: "auto" });
+      expect(decodedProfile(stub.spawns.at(-1)!)).toEqual(stub.serviceProfile);
+      await srv.close();
+    } finally {
+      await close();
+    }
+  });
+
+  it("a saved profile name that does not exist still fails loudly", async () => {
+    await expect(launch({ ...base(), profile: "no-such-profile" })).rejects.toThrow(/no-such-profile/);
+  });
+});
+
+describe("throwaway profiles are never left behind", () => {
+  const leftovers = () => readdirSync(temp);
+
+  // Regression: the temp profile was created before the launch and never removed when it failed.
+  it("launch() removes its profile when the launch fails", async () => {
+    stub.failLaunch = new Error("browser failed to start");
+    await expect(launch(base())).rejects.toThrow("browser failed to start");
+    expect(stub.launches.at(-1)!.userDataDir).toMatch(/clearcote-run-/);
+    expect(leftovers()).toEqual([]);
+  });
+
+  it("launch() removes its profile when option resolution fails before any browser starts", async () => {
+    await expect(launch({ ...base(), profile: "no-such-profile" })).rejects.toThrow();
+    expect(leftovers()).toEqual([]);
+  });
+
+  it("launchAgent() removes its profile when the launch fails", async () => {
+    stub.failLaunch = new Error("browser failed to start");
+    await expect(launchAgent(base())).rejects.toThrow("browser failed to start");
+    expect(stub.launches.at(-1)!.userDataDir).toMatch(/clearcote-agent-/);
+    expect(leftovers()).toEqual([]);
+  });
+
+  // The caller never learns the path of a profile it did not name, so keeping it only leaks it.
+  it("launchAgent() removes the profile it created when the context closes", async () => {
+    const context = await launchAgent(base());
+    const dir = stub.launches.at(-1)!.userDataDir!;
+    expect(existsSync(dir)).toBe(true);
+    await context.close();
+    await vi.waitFor(() => expect(existsSync(dir)).toBe(false));
+    expect(leftovers()).toEqual([]);
+  });
+
+  it("launchAgent({ userDataDir }) keeps the caller's profile", async () => {
+    const udd = join(root, "keep-me");
+    mkdirSync(udd);
+    const context = await launchAgent({ ...base(), userDataDir: udd });
+    await context.close();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(existsSync(udd)).toBe(true);
+  });
+
+  // Regression (0.35.0/0.36.0 release smoke on Linux: a clearcote-run-* directory left in /tmp per
+  // run). The profile was deleted on the "close" event, while the browser was still shutting down;
+  // Chrome then wrote the directory back (Default/, Local State) after the cleanup had marked itself
+  // done, so nothing ever retried.
+  it.each([
+    ["launch()", () => launch(base()) as unknown as Promise<{ close(): Promise<void> }>],
+    ["launchAgent()", () => launchAgent(base()) as Promise<{ close(): Promise<void> }>],
+  ])("%s: close() removes the profile only after the browser has exited, so its last writes cannot outlive it", async (_name, start) => {
+    stub.browser.shutdown = async (udd) => {
+      await new Promise((r) => setTimeout(r, 20));
+      mkdirSync(join(udd, "Default"), { recursive: true });
+      writeFileSync(join(udd, "Local State"), "{}");
+    };
+    const browser = await start();
+    const dir = stub.launches.at(-1)!.userDataDir!;
+    await browser.close();
+    expect(existsSync(dir)).toBe(false);
+    expect(leftovers()).toEqual([]);
+  });
+
+  // The browser can also go away by itself (a crash, its last window closed): no close() to wait for.
+  // Chrome names its pid in the SingletonLock symlink ("<host>-<pid>") on Linux and macOS.
+  it.skipIf(process.platform === "win32")("a browser that exits on its own: the profile is removed once its process has exited, not when its pipe drops", async () => {
+    const real = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const proc = real.spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+    try {
+      stub.browser.onLaunch = (udd) => symlinkSync(`test-host-${proc.pid}`, join(udd, "SingletonLock"));
+      const browser = await launch(base());
+      const dir = stub.launches.at(-1)!.userDataDir!;
+      (browser as unknown as EventEmitter).emit("close", browser); // the pipe dropped
+      await new Promise((r) => setTimeout(r, 300));
+      expect(existsSync(dir)).toBe(true); // still shutting down: deleting it now is what leaked
+      const exited = new Promise((r) => proc.once("exit", r));
+      proc.kill();
+      await exited;
+      await vi.waitFor(() => expect(existsSync(dir)).toBe(false));
+      expect(leftovers()).toEqual([]);
+    } finally {
+      proc.kill();
+    }
+  });
+
+  // Chrome keeps its singleton socket in a temp directory of its own, found through the profile's
+  // SingletonSocket symlink. A browser that never shuts down cleanly (killed at process exit) leaves
+  // it behind: 71 org.chromium.Chromium.* directories in one Linux machine's /tmp in a single day.
+  it.skipIf(process.platform === "win32")("removes the browser's singleton-socket directory with the profile", async () => {
+    const socketDir = join(temp, "org.chromium.Chromium.Ab12Cd");
+    mkdirSync(socketDir);
+    writeFileSync(join(socketDir, "SingletonSocket"), "");
+    stub.browser.onLaunch = (udd) => symlinkSync(join(socketDir, "SingletonSocket"), join(udd, "SingletonSocket"));
+    const browser = await launch(base());
+    await browser.close();
+    expect(leftovers()).toEqual([]);
+  });
+
+  it.skipIf(process.platform === "win32")("never deletes a SingletonSocket target that is not Chrome's own temp directory", async () => {
+    const precious = join(root, "precious");
+    mkdirSync(precious);
+    writeFileSync(join(precious, "SingletonSocket"), "");
+    stub.browser.onLaunch = (udd) => symlinkSync(join(precious, "SingletonSocket"), join(udd, "SingletonSocket"));
+    const browser = await launch(base());
+    await browser.close();
+    expect(leftovers()).toEqual([]);
+    expect(existsSync(join(precious, "SingletonSocket"))).toBe(true);
+  });
+
+  // A licensed launch writes a run-token file for the engine (<tmp>/clearcote-rt-*.tok) before the
+  // browser starts. When the browser then failed to start, the lease was released but the file stayed
+  // in the temp directory until the process exited (a paid lease is shared, so its stop() only drops a
+  // reference) — and for good when the process was killed.
+  it.each([
+    ["launch()", {}],
+    ["launch({ ephemeralProfile: false })", { ephemeralProfile: false }],
+  ])("%s: a licensed launch that fails to start leaves no run-token file behind", async (_name, extra) => {
+    const realFetch = globalThis.fetch;
+    const token = Buffer.from(JSON.stringify({ v: 1, plan: "pro", n: 1 })).toString("base64url") + ".sig";
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url).endsWith("/checkout")) {
+        return new Response(JSON.stringify({
+          lease_id: "L1", token, exp: Math.floor(Date.now() / 1000) + 900, lease_ttl_sec: 810,
+          heartbeat_interval_sec: 270, concurrency: { used: 1, limit: 5 },
+        }), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      stub.failLaunch = new Error("browser failed to start");
+      const key = `cc_lic_pro_${Date.now()}_${Math.random().toString(36).slice(2)}`; // its own lease
+      await expect(launch({ ...base(), ...extra, licenseKey: key, licenseApiBase: "http://test.local" }))
+        .rejects.toThrow("browser failed to start");
+      expect(stub.launches).toHaveLength(1); // the browser really was asked to start, under a lease
+      expect(leftovers()).toEqual([]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  // SC 283: the release-test harness left one clearcote-rt-*.tok per run. A step timed out with its
+  // persistent context open, then the harness called process.exit(): no "close", and "beforeExit"
+  // (the only hook that removed token files) never runs on process.exit() or a signal.
+  describe("licensed: no run-token file is left behind", () => {
+    let realFetch: typeof fetch;
+    beforeEach(() => {
+      realFetch = globalThis.fetch;
+      const token = Buffer.from(JSON.stringify({ v: 1, plan: "pro", n: 1 })).toString("base64url") + ".sig";
+      globalThis.fetch = (async (url: unknown) => new Response(String(url).endsWith("/checkout") ? JSON.stringify({
+        lease_id: "L1", token, exp: Math.floor(Date.now() / 1000) + 900, lease_ttl_sec: 810,
+        heartbeat_interval_sec: 270, concurrency: { used: 1, limit: 5 },
+      }) : "{}", { status: 200 })) as typeof fetch;
+    });
+    afterEach(() => { globalThis.fetch = realFetch; });
+    const licensed = () => ({ ...base(), licenseKey: `cc_lic_pro_${Date.now()}_${Math.random().toString(36).slice(2)}`, licenseApiBase: "http://test.local" });
+    const tokens = () => leftovers().filter((n) => n.startsWith("clearcote-rt-"));
+    const envFile = () => (stub.launches.at(-1)!.opts.env as Record<string, string>).CLEARCOTE_RUN_TOKEN_FILE;
+
+    it("launchPersistentContext(): close() removes it", async () => {
+      const ctx = await launchPersistentContext(join(root, "udd"), licensed());
+      expect(tokens()).toHaveLength(1);
+      expect(envFile()).toBe(join(temp, tokens()[0])); // the engine was handed that very file
+      await ctx.close();
+      expect(tokens()).toEqual([]);
+    });
+
+    it("launch() (a persistent context behind a Browser): browser.close() removes it", async () => {
+      const browser = await launch(licensed());
+      expect(tokens()).toHaveLength(1);
+      await browser.close();
+      expect(tokens()).toEqual([]);
+    });
+
+    it("a context still open at process exit: the exit hook removes it", async () => {
+      const ctx = await launchPersistentContext(join(root, "udd"), licensed());
+      expect(tokens()).toHaveLength(1);
+      // What process.exit() runs: "exit" listeners only (no "beforeExit", no "close" from the browser).
+      const hook = process.listeners("exit").find((l) => l === removeLiveTokenFiles);
+      expect(hook).toBeDefined();
+      (hook as () => void)();
+      expect(tokens()).toEqual([]);
+      await ctx.close();
+    });
+  });
+
+  // Handed an executable that does not exist, Playwright fails only after creating its temp
+  // directories (playwright-artifacts-*, plus playwright_chromiumdev_profile-* for launch()), which it
+  // leaves behind — and a licensed launch had taken a lease by then.
+  it.each([
+    ["executablePath", (missing: string) => launch({ ...base(), executablePath: missing })],
+    ["CLEARCOTE_BINARY", (missing: string) => { process.env.CLEARCOTE_BINARY = missing; return launch({ headless: false, quiet: true }); }],
+  ])("a missing %s is refused before any browser is started", async (_name, start) => {
+    const missing = join(root, "nowhere", process.platform === "win32" ? "chrome.exe" : "chrome");
+    await expect(start(missing)).rejects.toThrow(/Clearcote binary not found/);
+    expect(stub.launches).toEqual([]);
+    expect(leftovers()).toEqual([]);
+  });
+
+  // One process-exit hook per launch, never removed: a caller running hundreds of short-lived
+  // browsers piled them up (MaxListenersExceededWarning past 10).
+  it("a closed launch leaves no process-exit hook behind", async () => {
+    const before = process.listenerCount("exit");
+    for (let i = 0; i < 3; i++) await (await launch(base())).close();
+    expect(process.listenerCount("exit")).toBe(before);
+  });
+});
+
+describe("autofill is seeded on, as in Chrome, on every launch with a profile directory", () => {
+  const autofill = (udd: string) => JSON.parse(readFileSync(join(udd, "Default", "Preferences"), "utf8")).autofill;
+  const ON = { profile_enabled: true, credit_card_enabled: true };
+
+  it("launchPersistentContext(): before the browser starts", async () => {
+    const udd = join(root, "profile");
+    let seen: unknown;
+    stub.browser.onLaunch = (d) => { seen = autofill(d); };
+    const context = await launchPersistentContext(udd, base());
+    expect(seen).toEqual(ON);
+    await context.close();
+  });
+
+  it("launchPersistentContext(): an explicit off and the other prefs are kept", async () => {
+    const udd = join(root, "profile");
+    mkdirSync(join(udd, "Default"), { recursive: true });
+    writeFileSync(join(udd, "Default", "Preferences"), JSON.stringify({ autofill: { profile_enabled: false }, browser: { x: 1 } }));
+    const context = await launchPersistentContext(udd, base());
+    await context.close();
+    const prefs = JSON.parse(readFileSync(join(udd, "Default", "Preferences"), "utf8"));
+    expect(prefs).toEqual({ autofill: { profile_enabled: false, credit_card_enabled: true }, browser: { x: 1 } });
+  });
+
+  it("launch(): the throwaway profile", async () => {
+    let seen: unknown;
+    stub.browser.onLaunch = (d) => { seen = autofill(d); };
+    const browser = await launch(base());
+    expect(seen).toEqual(ON);
+    await browser.close();
+  });
+
+  it("serve(): on the caller's directory and on its own", async () => {
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      const udd = join(root, "served");
+      const srv = await serve({ ...base(), port, userDataDir: udd });
+      expect(autofill(udd)).toEqual(ON);
+      await srv.close();
+      const own = await serve({ ...base(), port });
+      const dir = stub.spawns.at(-1)!.find((a) => a.startsWith("--user-data-dir="))!.slice("--user-data-dir=".length);
+      expect(autofill(dir)).toEqual(ON);
+      await own.close();
+    } finally {
+      await close();
+    }
+  });
+
+  it("launch({ ephemeralProfile: false }): no profile directory, nothing written", async () => {
+    const browser = await launch({ ...base(), ephemeralProfile: false });
+    expect(stub.launches.at(-1)!.kind).toBe("incognito");
+    await browser.close();
+    expect(readdirSync(temp)).toEqual([]);
+    expect(readdirSync(root).sort()).toEqual(["engine", "home", "temp"]);
+  });
+});
+
+describe("serve() proxy switches", () => {
+  // Regression: serve() appended --proxy-server=<the caller's raw server> AFTER the resolved proxy
+  // args. The last --proxy-server wins, and with user:pass@ still in it Chromium drops the entry.
+  it("sends URL credentials to the engine and never puts userinfo on --proxy-server", async () => {
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      const srv = await serve({ ...base(), port, proxy: { server: "socks5://user:p%40ss@127.0.0.1:1080" } });
+      const args = stub.spawns.at(-1)!;
+      expect(args).toContain("--socks5-credentials=user:p@ss");
+      expect(args.filter((a) => a.startsWith("--proxy-server="))).toEqual(["--proxy-server=socks5://127.0.0.1:1080"]);
+      await srv.close();
+    } finally {
+      await close();
+    }
+  });
+
+  it("keeps a plain proxy on a single --proxy-server", async () => {
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      const srv = await serve({ ...base(), port, proxy: { server: "http://127.0.0.1:3128" } });
+      expect(stub.spawns.at(-1)!.filter((a) => a.startsWith("--proxy-server="))).toEqual(["--proxy-server=http://127.0.0.1:3128"]);
+      await srv.close();
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("serve(): the unsupported-flag infobar", () => {
+  // Any flag on Chromium's list (--no-sandbox among them) puts a warning bar on the first tab, ~56px
+  // off its innerHeight. The switch that suppresses it has to reach the engine's command line.
+  it("headless: --disable-infobars on the command line, with or without --no-sandbox", async () => {
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      for (const args of [[], ["--no-sandbox"]]) {
+        const srv = await serve({ ...base(), headless: true, port, args });
+        const line = stub.spawns.at(-1)!;
+        expect(line.filter((a) => a === "--disable-infobars")).toHaveLength(1);
+        expect(line.some((a) => a.startsWith("--test-type"))).toBe(false);
+        await srv.close();
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  it("headed: --test-type only when --no-sandbox is on the command line", async () => {
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      // As root on Linux serve() adds --no-sandbox itself, and --test-type comes with it.
+      const asRoot = serveNeedsNoSandbox(process.platform, process.getuid?.(), []);
+      const plain = await serve({ ...base(), port });
+      expect(stub.spawns.at(-1)!.filter((a) => a === "--test-type")).toHaveLength(asRoot ? 1 : 0);
+      expect(stub.spawns.at(-1)).not.toContain("--disable-infobars");
+      await plain.close();
+      const unsandboxed = await serve({ ...base(), port, args: ["--no-sandbox"] });
+      expect(stub.spawns.at(-1)!.filter((a) => a === "--test-type")).toHaveLength(1);
+      await unsandboxed.close();
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("launch() proxy options", () => {
+  it("routes SOCKS5 credentials written in the URL to the engine, not Playwright", async () => {
+    const browser = await launch({ ...base(), proxy: { server: "socks5://user:pass@127.0.0.1:1080" } });
+    const call = stub.launches.at(-1)!;
+    expect(call.opts.args).toEqual(expect.arrayContaining(["--proxy-server=socks5://127.0.0.1:1080", "--socks5-credentials=user:pass", "--proxy-bypass-list="]));
+    // Playwright gets only the credential-less local forwarder its request API uses (../src/reqproxy.ts)
+    expect(call.opts.proxy).toEqual({ server: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/) });
+    await browser.close();
+  });
+
+  it("leaves a proxy without credentials to Playwright, with no forwarder", async () => {
+    const browser = await launch({ ...base(), proxy: { server: "http://127.0.0.1:3128" } });
+    const call = stub.launches.at(-1)!;
+    expect(call.opts.proxy).toEqual({ server: "http://127.0.0.1:3128" });
+    expect(call.opts.args).not.toEqual(expect.arrayContaining(["--proxy-bypass-list="]));
+    await browser.close();
+  });
+});
+
+/** A stand-in for the browser's CDP HTTP endpoint, which serve() polls until it answers. */
+async function fakeCdpEndpoint(): Promise<{ port: number; close: () => Promise<void> }> {
+  const server: HttpServer = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end("{}");
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const addr = server.address();
+  const port = typeof addr === "object" && addr ? addr.port : 0;
+  return { port, close: () => new Promise<void>((r) => server.close(() => r())) };
+}
+
+// -- 2026-10-06 coherence fixes, end to end through every entry point -------------------------------
+
+/** The single --disable-features on a launch line, split. */
+function disabledFeatures(args: string[]): string[] {
+  const found = args.filter((a) => a.startsWith("--disable-features="));
+  expect(found).toHaveLength(1);
+  return found[0].slice("--disable-features=".length).split(",");
+}
+
+describe("Playwright's --disable-features is replaced without ThirdPartyStoragePartitioning", () => {
+  // Measured on r30 vs genuine Chrome 154: with Playwright's switch a cross-site iframe read the
+  // top-level site's storage, or got a SecurityError from localStorage with third-party cookies
+  // blocked; genuine gives it an empty partition either way.
+  for (const platform of ["windows", "linux"] as const) {
+    it(`launch() under a ${platform} claim`, async () => {
+      const browser = await launch({ ...base(), fingerprint: "s1", platform });
+      const feats = disabledFeatures(stub.launches.at(-1)!.opts.args as string[]);
+      for (const f of ["ThirdPartyStoragePartitioning", "AcceptCHFrame", "HttpsUpgrades"]) expect(feats).not.toContain(f);
+      // Which entries Playwright disables varies by release (1.63 dropped RenderDocument): check the installed one's.
+      const kept = (installedPlaywrightDisabledFeatures() ?? PLAYWRIGHT_DISABLED_FEATURES).filter((f) => !PAGE_VISIBLE_PLAYWRIGHT_FEATURES.has(f));
+      expect(kept).toContain("PaintHolding");
+      expect(feats).not.toContain("MediaRouter");
+      for (const f of kept) expect(feats).toContain(f);
+      expect(feats.includes("WebBluetooth")).toBe(platform === "linux");
+      await browser.close();
+    });
+  }
+
+  it("launchPersistentContext()", async () => {
+    const context = await launchPersistentContext(join(root, "p"), { ...base(), fingerprint: "s1" });
+    const feats = disabledFeatures(stub.launches.at(-1)!.opts.args as string[]);
+    expect(feats).not.toContain("ThirdPartyStoragePartitioning");
+    expect(feats).not.toContain("MediaRouter");
+    expect(feats).toContain("PaintHolding");
+    await context.close();
+  });
+
+  it("not when the caller dropped Playwright's defaults", async () => {
+    const browser = await launch({ ...base(), ephemeralProfile: false, ignoreDefaultArgs: true } as never);
+    const args = stub.launches.at(-1)!.opts.args as string[];
+    expect(args.some((a) => a.includes("PaintHolding"))).toBe(false);
+    await browser.close();
+  });
+
+  it("never on serve(), which starts Chromium itself", async () => {
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      const srv = await serve({ ...base(), port, fingerprint: "s1" });
+      const line = stub.spawns.at(-1)!;
+      expect(line.some((a) => a.includes("PaintHolding") || a.includes("ThirdPartyStoragePartitioning"))).toBe(false);
+      await srv.close();
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("profile: \"auto\" from a Windows 11 donor carries the Windows 11 system faces", () => {
+  it("launch()", async () => {
+    const saved = stub.serviceProfile;
+    (stub as { serviceProfile: unknown }).serviceProfile = {
+      navigator: { platform: "Win32", uadata: { platform: "Windows", high_entropy: { platform: "Windows", platformVersion: "15.0.0" } } },
+      fonts: { detected: ["Arial", "HoloLens MDL2 Assets", "Segoe MDL2 Assets"] },
+    };
+    try {
+      const browser = await launch({ ...base(), profile: "auto" });
+      const detected = (decodedProfile(stub.launches.at(-1)!.opts.args as string[]) as { fonts: { detected: string[] } }).fonts.detected;
+      expect(detected).toEqual(expect.arrayContaining(["Segoe Fluent Icons", "Segoe UI Variable Display", "Segoe UI Variable Text"]));
+      expect(detected).not.toContain("Cascadia Code");
+      expect(detected).not.toContain("Segoe UI Variable");  // genuine Windows 11 reports the bare family absent
+      await browser.close();
+    } finally {
+      (stub as { serviceProfile: unknown }).serviceProfile = saved;
+    }
+  });
+});
+
+describe("fontDirs reaches the font wiring on every entry point", () => {
+  it("launch() — the default ephemeral profile, and ephemeralProfile: false", async () => {
+    const fonts = join(root, "winfonts");
+    mkdirSync(fonts);
+    for (const extra of [{}, { ephemeralProfile: false }]) {
+      const browser = await launch({ ...base(), fontDirs: fonts, ...extra });
+      expect(stub.fontDirs.at(-1)).toEqual([fonts]);
+      expect(stub.launches.at(-1)!.opts).not.toHaveProperty("fontDirs"); // an SDK option, not a Playwright one
+      await browser.close();
+    }
+  });
+
+  it("launchPersistentContext()", async () => {
+    const fonts = join(root, "winfonts");
+    mkdirSync(fonts);
+    const context = await launchPersistentContext(join(root, "profile"), { ...base(), fontDirs: [fonts] });
+    expect(stub.fontDirs.at(-1)).toEqual([fonts]);
+    expect(stub.launches.at(-1)!.opts).not.toHaveProperty("fontDirs");
+    await context.close();
+  });
+
+  it("serve()", async () => {
+    const fonts = join(root, "winfonts");
+    mkdirSync(fonts);
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      const srv = await serve({ ...base(), port, fontDirs: fonts });
+      expect(stub.fontDirs.at(-1)).toEqual([fonts]);
+      await srv.close();
+    } finally {
+      await close();
+    }
+  });
+
+  it("no fontDirs: the wiring gets an empty list", async () => {
+    const browser = await launch(base());
+    expect(stub.fontDirs.at(-1)).toEqual([]);
+    await browser.close();
+  });
+});
+
+// SC 180: a headed Linux launch (Xvfb/Docker: no window manager, so Chrome's 945x1060 default window
+// stays at (10,10)) gets the same first-page window fit as headless; other headed platforms keep
+// viewport: null alone. serve() keeps a caller's own --window-position and still sets the display.
+describe("the window fit on headed launches and on serve()", () => {
+  /** A page as the fit sees it: a plausible work area, a window that reports the bounds it was given. */
+  function fakePage() {
+    const calls: string[] = [];
+    let outer = [945, 1060];
+    const cdp = {
+      send: async (method: string, params?: Record<string, unknown>) => {
+        calls.push(method);
+        if (method === "Browser.getWindowForTarget") return { windowId: 1 };
+        if (method === "Browser.setWindowBounds") {
+          const b = params!.bounds as { width: number; height: number };
+          outer = [b.width, b.height];
+        }
+        return {};
+      },
+    };
+    const page = {
+      evaluate: async (js: string) => (js.includes("availWidth") ? [1920, 1040] : outer),
+      context: () => ({ newCDPSession: async () => cdp }),
+    };
+    return { page, calls, fitted: () => calls.includes("Browser.setWindowBounds") };
+  }
+  const onLinux = process.platform === "linux";
+  /** Run `fn` with process.platform reporting `platform` (the headed fit reads it at launch time). */
+  async function pretending(platform: NodeJS.Platform, fn: () => Promise<void>): Promise<void> {
+    const real = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: platform, configurable: true });
+    try { await fn(); } finally { Object.defineProperty(process, "platform", real); }
+  }
+
+  it("harness: a headless launch fits the stand-in page on every platform (the path headed Linux shares)", async () => {
+    const fake = fakePage();
+    stub.browser.newPage = () => fake.page;
+    const browser = await launch({ ...base(), headless: true, ephemeralProfile: false });
+    await browser.newPage();
+    expect(fake.fitted()).toBe(true);
+    await browser.close();
+    const owned = fakePage();
+    stub.browser.pages = [owned.page];
+    const context = await launchPersistentContext(join(root, "p0"), { ...base(), headless: true });
+    expect(owned.fitted()).toBe(true);
+    await context.close();
+  });
+
+  it("launch(): the first page of a headed incognito browser is fitted on Linux only", async () => {
+    const fake = fakePage();
+    stub.browser.newPage = () => fake.page;
+    const browser = await launch({ ...base(), ephemeralProfile: false });
+    await browser.newPage();
+    expect(fake.fitted()).toBe(onLinux);
+    await browser.close();
+  });
+
+  it("launch(): the page a headed throwaway profile's context owns is fitted on Linux only", async () => {
+    const fake = fakePage();
+    stub.browser.pages = [fake.page];
+    const browser = await launch(base());
+    expect(stub.launches.at(-1)!.kind).toBe("persistent");
+    expect(fake.fitted()).toBe(onLinux);
+    await browser.close();
+  });
+
+  it.skipIf(onLinux)("a non-Linux host pretending to be Linux: both headed entry points fit the window", async () => {
+    await pretending("linux", async () => {
+      const fake = fakePage();
+      stub.browser.newPage = () => fake.page;
+      const browser = await launch({ ...base(), ephemeralProfile: false });
+      await browser.newPage();
+      expect(fake.fitted()).toBe(true);
+      await browser.close();
+      const owned = fakePage();
+      stub.browser.pages = [owned.page];
+      const context = await launchPersistentContext(join(root, "p3"), base());
+      expect(owned.fitted()).toBe(true);
+      await context.close();
+    });
+  });
+
+  it.skipIf(!onLinux)("Linux pretending to be Windows: a headed window is left to the window manager", async () => {
+    await pretending("win32", async () => {
+      const fake = fakePage();
+      stub.browser.newPage = () => fake.page;
+      const browser = await launch({ ...base(), ephemeralProfile: false });
+      await browser.newPage();
+      expect(fake.calls).toEqual([]);
+      await browser.close();
+    });
+  });
+
+  it("launchPersistentContext(): the same, and a placed window stays the caller's on every platform", async () => {
+    const fake = fakePage();
+    stub.browser.pages = [fake.page];
+    const context = await launchPersistentContext(join(root, "p1"), base());
+    expect(fake.fitted()).toBe(onLinux);
+    await context.close();
+    const own = fakePage();
+    stub.browser.pages = [own.page];
+    const placed = await launchPersistentContext(join(root, "p2"), { ...base(), args: ["--window-position=10,10"] });
+    expect(own.calls).toEqual([]);
+    await placed.close();
+  });
+
+  it("launch(): a caller's own window switch keeps a headed incognito window theirs on every platform", async () => {
+    const fake = fakePage();
+    stub.browser.newPage = () => fake.page;
+    const browser = await launch({ ...base(), ephemeralProfile: false, args: ["--start-maximized"] });
+    await browser.newPage();
+    expect(fake.calls).toEqual([]);
+    await browser.close();
+  });
+
+  it("serve(): fits the window unless the caller placed it, and sets the display either way", async () => {
+    const { port, close } = await fakeCdpEndpoint();
+    try {
+      const fitted = await serve({ ...base(), headless: true, port, fingerprint: "s1" });
+      expect(stub.fits).toHaveLength(1);
+      expect((stub.fits[0][1] as { persona: boolean }).persona).toBe(true);
+      const fittedArgs = stub.spawns.at(-1)!;
+      expect(fittedArgs.some((a) => a.startsWith("--screen-info="))).toBe(true);  // the fallback row under a persona
+      expect(fittedArgs).toContain("--window-position=0,0");
+      await fitted.close();
+      stub.fits.length = 0;
+      const placed = await serve({ ...base(), headless: true, port, args: ["--window-position=10,10"] });
+      expect(stub.fits).toEqual([]);  // their position holds
+      const placedArgs = stub.spawns.at(-1)!;
+      expect(placedArgs.some((a) => a.startsWith("--screen-info="))).toBe(true);  // with a real display under it
+      expect(placedArgs.filter((a) => a.startsWith("--window-position"))).toEqual(["--window-position=10,10"]);
+      await placed.close();
+    } finally {
+      await close();
+    }
+  });
+});

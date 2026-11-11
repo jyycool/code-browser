@@ -1,0 +1,1097 @@
+diff -u --recursive a/third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h b/third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h
+--- a/third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h	2026-07-21 13:56:47.385014668 +0000
++++ b/third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h	2026-07-21 13:56:47.393014703 +0000
+@@ -182,6 +182,12 @@
+   virtual void PageVisibilityChanged() = 0;
+   virtual void SizeChanged() {}
+   virtual bool isContextLost() const { return true; }
++  // canvas-bridge: fill |out| with the remote-rendered RGBA8 pixels for the
++  // whole surface when the bridge is active; default no-op.
++  virtual bool ReadBridgePixels(std::vector<uint8_t>* out, int width,
++                                int height) {
++    return false;
++  }
+   bool IsContextBeingRestored() const { return is_context_being_restored_; }
+   // TODO(fserb): remove AsV8RenderingContext and AsV8OffscreenRenderingContext.
+   virtual V8RenderingContext* AsV8RenderingContext() { NOTREACHED(); }
+diff -u --recursive a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc	2026-07-21 13:56:47.385014668 +0000
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc	2026-07-21 13:56:47.393014703 +0000
+@@ -32,7 +32,9 @@
+ #include <limits>
+ #include <memory>
+ #include <utility>
++#include <vector>
+ 
++#include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "base/functional/callback_helpers.h"
+ #include "base/location.h"
+@@ -45,8 +47,14 @@
+ #include "base/numerics/safe_conversions.h"
+ #include "base/trace_event/trace_event.h"
+ #include "base/trace_event/typed_macros.h"
++#include "base/allocator/partition_allocator/src/partition_alloc/partition_alloc_constants.h"
++#include "third_party/skia/include/core/SkData.h"
++#include "third_party/skia/include/core/SkImage.h"
++#include "components/ungoogled/ungoogled_switches.h"
++#include "components/ungoogled/farble_seed.h"
+ #include "build/build_config.h"
+ #include "cc/layers/texture_layer.h"
++#include "cc/paint/paint_image_builder.h"
+ #include "cc/trees/layer_tree_host.h"
+ #include "services/metrics/public/cpp/ukm_recorder.h"
+ #include "services/metrics/public/cpp/ukm_source_id.h"
+@@ -69,6 +77,7 @@
+ #include "third_party/blink/renderer/core/dom/element_traversal.h"
+ #include "third_party/blink/renderer/core/fileapi/file.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
++#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/core/frame/local_frame_client.h"
+ #include "third_party/blink/renderer/core/frame/settings.h"
+@@ -1310,7 +1319,88 @@
+           mime_type, ImageEncoderUtils::kEncodeReasonToDataURL);
+ 
+   scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(source_buffer);
++  // canvas-bridge: replace the local snapshot with the remote render (skips
++  // the local farble below; the bridge pixels are ground truth).
++  bool from_bridge = false;
+   if (image_bitmap) {
++    std::vector<uint8_t> bridge_px;
++    if (CanvasRenderingContext* ctx = RenderingContext();
++        ctx && ctx->ReadBridgePixels(&bridge_px, image_bitmap->width(),
++                                     image_bitmap->height())) {
++      SkImageInfo bi = SkImageInfo::Make(
++          image_bitmap->width(), image_bitmap->height(),
++          kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
++      sk_sp<SkData> bd =
++          SkData::MakeWithCopy(bridge_px.data(), bridge_px.size());
++      if (sk_sp<SkImage> bimg =
++              SkImages::RasterFromData(bi, bd, bi.minRowBytes())) {
++        image_bitmap = StaticBitmapImage::Create(
++            PaintImageBuilder::WithDefault()
++                .set_id(PaintImage::GetNextId())
++                .set_image(bimg, PaintImage::GetNextContentId())
++                .TakePaintImage(),
++            image_bitmap->Orientation());
++        from_bridge = true;
++      }
++    }
++  }
++  if (image_bitmap) {
++    // Fingerprint protection: modify a copy of the pixel data before
++    // creating the ImageDataBuffer when the fingerprint switch is enabled.
++    const base::CommandLine* command_line =
++        base::CommandLine::ForCurrentProcess();
++    if (!from_bridge && command_line->HasSwitch(switches::kFingerprint) &&
++        // clearcote: this snapshot path is rendering-context agnostic -- a WebGL canvas's
++        // toDataURL() lands here too. Only the 2D case follows the canvas-noise toggle;
++        // everything else stays on the process-wide gate.
++        ((RenderingContext() && RenderingContext()->IsRenderingContext2D())
++             ? ungoogled::CanvasNoiseEnabled()
++             : ungoogled::FingerprintNoiseEnabled())) {
++      // Per-site farbling: derive the seed from this canvas's eTLD+1.
++      const SecurityOrigin* origin =
++          GetExecutionContext() ? GetExecutionContext()->GetSecurityOrigin()
++                                : nullptr;
++      uint64_t effective_seed = ungoogled::GetFarbleSeed64(
++          origin ? origin->RegistrableDomain().Utf8() : std::string());
++      SkImageInfo image_info = SkImageInfo::Make(
++          image_bitmap->width(), image_bitmap->height(),
++          kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
++
++      size_t row_bytes = image_info.minRowBytes();
++      size_t buffer_size = image_info.computeMinByteSize();
++
++      if (buffer_size > 0 && buffer_size <= partition_alloc::MaxDirectMapped()) {
++        std::vector<uint8_t> pixel_buffer(buffer_size);
++
++        PaintImage original_paint_image =
++            image_bitmap->PaintImageForCurrentFrame();
++        if (original_paint_image.readPixels(image_info, pixel_buffer.data(),
++                                            row_bytes, 0, 0)) {
++          // Apply fingerprint protection to the copy (originals untouched).
++          StaticBitmapImage::ShuffleSubchannelColorData(pixel_buffer.data(),
++                                                        image_info, 0, 0,
++                                                        effective_seed);
++
++          sk_sp<SkData> modified_data =
++              SkData::MakeWithCopy(pixel_buffer.data(), buffer_size);
++          if (modified_data) {
++            sk_sp<SkImage> modified_sk_image =
++                SkImages::RasterFromData(image_info, modified_data, row_bytes);
++            if (modified_sk_image) {
++              PaintImage modified_paint_image =
++                  PaintImageBuilder::WithDefault()
++                      .set_id(PaintImage::GetNextId())
++                      .set_image(modified_sk_image,
++                                 PaintImage::GetNextContentId())
++                      .TakePaintImage();
++              image_bitmap = StaticBitmapImage::Create(
++                  modified_paint_image, image_bitmap->Orientation());
++            }
++          }
++        }
++      }
++    }
++
+     std::unique_ptr<ImageDataBuffer> data_buffer =
+         ImageDataBuffer::Create(image_bitmap);
+     if (!data_buffer)
+diff -u --recursive a/third_party/blink/renderer/core/html/canvas/text_metrics.h b/third_party/blink/renderer/core/html/canvas/text_metrics.h
+--- a/third_party/blink/renderer/core/html/canvas/text_metrics.h	2026-07-21 13:56:47.385014668 +0000
++++ b/third_party/blink/renderer/core/html/canvas/text_metrics.h	2026-07-21 13:56:47.393014703 +0000
+@@ -112,6 +112,21 @@
+ 
+   void Shuffle(const double factor);
+ 
++  // canvas-bridge: replace the computed metrics with a remote host's values.
++  void OverrideFromBridge(double w, double abbl, double abbr, double fbba,
++                          double fbbd, double abba, double abbd, double emha,
++                          double emhd) {
++    width_ = w;
++    actual_bounding_box_left_ = abbl;
++    actual_bounding_box_right_ = abbr;
++    font_bounding_box_ascent_ = fbba;
++    font_bounding_box_descent_ = fbbd;
++    actual_bounding_box_ascent_ = abba;
++    actual_bounding_box_descent_ = abbd;
++    em_height_ascent_ = emha;
++    em_height_descent_ = emhd;
++  }
++
+  private:
+   void Update(const Font*,
+               const TextDirection& direction,
+diff -u --recursive a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc	2026-07-21 13:56:47.385014668 +0000
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc	2026-07-21 13:56:47.393014703 +0000
+@@ -13,6 +13,7 @@
+ 
+ #include "base/check.h"
+ #include "base/check_op.h"
++#include "base/command_line.h"
+ #include "base/location.h"
+ #include "base/memory/scoped_refptr.h"
+ #include "base/memory/weak_ptr.h"
+@@ -26,6 +27,11 @@
+ #include "cc/paint/paint_flags.h"
+ #include "cc/paint/paint_image.h"
+ #include "cc/paint/record_paint_canvas.h"
++#include "components/ungoogled/ungoogled_switches.h"
++#include "components/ungoogled/farble_seed.h"
++#include <cstring>
++#include "third_party/blink/renderer/platform/canvas_bridge/canvas_bridge_client.h"
++#include "third_party/blink/renderer/platform/canvas_bridge/canvas_bridge_codec.h"
+ #include "components/viz/common/resources/shared_image_format_utils.h"
+ #include "third_party/abseil-cpp/absl/cleanup/cleanup.h"
+ #include "third_party/blink/public/common/metrics/document_update_reason.h"
+@@ -108,6 +114,7 @@
+ 
+ #include "third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
++#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+ 
+ namespace blink {
+ 
+@@ -353,6 +360,85 @@
+ }
+ perfetto::EventContext GetEventContext();
+ 
++namespace {
++
++// canvas-bridge: lazily create the server-side surface for this 2D context and
++// return its stable id, so recorded ops and the readback target one canvas.
++uint32_t EnsureBridgeCanvas(blink::canvas_bridge::CanvasBridgeClient* bridge,
++                            uint32_t& id, int width, int height) {
++  if (id == 0) {
++    id = bridge->AllocateCanvasId();
++    blink::canvas_bridge::CreateCanvas2DMessage create;
++    create.canvas_id = id;
++    create.width = static_cast<uint32_t>(width < 0 ? 0 : width);
++    create.height = static_cast<uint32_t>(height < 0 ? 0 : height);
++    create.opaque = false;
++    bridge->Send(blink::canvas_bridge::Encode(create));
++  }
++  return id;
++}
++
++}  // namespace
++
++bool BaseRenderingContext2D::BridgeAllowedForThisContext() {
++  if (!bridge_policy_checked_) {
++    bridge_policy_checked_ = true;
++    bridge_policy_allowed_ = false;
++    if (auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get()) {
++      std::string etld1;
++      if (auto* ec = GetTopExecutionContext(); ec && ec->GetSecurityOrigin()) {
++        etld1 = ec->GetSecurityOrigin()->RegistrableDomain().Utf8();
++      }
++      bridge_policy_allowed_ = cb->BridgeEnabledForOrigin(etld1);
++    }
++  }
++  return bridge_policy_allowed_;
++}
++
++void BaseRenderingContext2D::RecordBridgeOp(
++    uint32_t op, const std::string& str, const std::vector<double>& args) {
++  auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++  if (!cb || !cb->Connected() || !BridgeAllowedForThisContext())
++    return;
++  blink::canvas_bridge::Canvas2DOpMessage m;
++  m.canvas_id = EnsureBridgeCanvas(cb, bridge_canvas_id_, Width(), Height());
++  m.op = op;
++  m.str_arg = str;
++  m.args = args;
++  cb->Send(blink::canvas_bridge::Encode(m));
++  // Tier 1: a draw op changes the rendered surface -> bump version + prefetch.
++  using CbOp = blink::canvas_bridge::Canvas2DOp;
++  switch (static_cast<CbOp>(op)) {
++    case CbOp::kFill:
++    case CbOp::kStroke:
++    case CbOp::kFillRect:
++    case CbOp::kStrokeRect:
++    case CbOp::kClearRect:
++    case CbOp::kFillText:
++    case CbOp::kStrokeText:
++      cb->BumpVersion(m.canvas_id);
++      cb->MaybePrefetch(m.canvas_id, static_cast<uint32_t>(Width()),
++                        static_cast<uint32_t>(Height()));
++      break;
++    default:
++      break;
++  }
++}
++
++bool BaseRenderingContext2D::ReadBridgePixels(std::vector<uint8_t>* out,
++                                              int width, int height) {
++  auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++  if (!cb || !cb->Connected() || bridge_canvas_id_ == 0 ||
++      !BridgeAllowedForThisContext())
++    return false;
++  std::optional<std::vector<uint8_t>> px =
++      cb->GetImageDataCacheFirst(bridge_canvas_id_, 0, 0, width, height);
++  if (!px || px->size() != static_cast<size_t>(width) * height * 4)
++    return false;
++  *out = std::move(*px);
++  return true;
++}
++
+ ImageData* BaseRenderingContext2D::getImageDataInternal(
+     int sx,
+     int sy,
+@@ -494,6 +580,23 @@
+   if (!image_data)
+     return nullptr;
+ 
++  // clearcote canvas bridge: when a remote real-GPU host is connected, return
++  // its authentic pixels for this region instead of the local render (and skip
++  // the local farble below; the bridge pixels are ground truth).
++  if (auto* bridge = blink::canvas_bridge::CanvasBridgeClient::Get();
++      bridge && bridge->Connected() && BridgeAllowedForThisContext()) {
++    SkPixmap bridge_pixmap = image_data->GetSkPixmap();
++    const size_t expected = bridge_pixmap.computeByteSize();
++    std::optional<std::vector<uint8_t>> bridge_pixels =
++        bridge->GetImageDataCacheFirst(
++            EnsureBridgeCanvas(bridge, bridge_canvas_id_, Width(), Height()),
++            sx, sy, sw, sh);
++    if (bridge_pixels && bridge_pixels->size() == expected) {
++      memcpy(bridge_pixmap.writable_addr(), bridge_pixels->data(), expected);
++      return image_data;
++    }
++  }
++
+   // Read pixels into |image_data|.
+   if (snapshot) {
+     gfx::Rect snapshot_rect{snapshot->Size()};
+@@ -514,8 +617,17 @@
+           snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
+       DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
+     }
+-    if (read_pixels_successful && RuntimeEnabledFeatures::FingerprintingCanvasImageDataNoiseEnabled()) {
+-      StaticBitmapImage::ShuffleSubchannelColorData(image_data_pixmap.addr(), image_data_pixmap.info(), sx, sy);
++
++    const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++    if (read_pixels_successful && command_line->HasSwitch(switches::kFingerprint) &&
++        ungoogled::CanvasNoiseEnabled()) {
++      // Per-site farbling: derive the seed from this context's eTLD+1.
++      const SecurityOrigin* origin =
++          GetTopExecutionContext() ? GetTopExecutionContext()->GetSecurityOrigin()
++                                   : nullptr;
++      uint64_t effective_seed = ungoogled::GetFarbleSeed64(
++          origin ? origin->RegistrableDomain().Utf8() : std::string());
++      StaticBitmapImage::ShuffleSubchannelColorData(image_data_pixmap.addr(), image_data_pixmap.info(), sx, sy, effective_seed);
+     }
+   }
+ 
+@@ -667,6 +779,9 @@
+ }
+ 
+ void BaseRenderingContext2D::setTextAlign(const V8CanvasTextAlign align) {
++  RecordBridgeOp(
++      static_cast<uint32_t>(blink::canvas_bridge::Canvas2DOp::kSetTextAlign),
++      std::string(align.AsCStr()), {});
+   GetState().SetTextAlign(align.AsEnum());
+ }
+ 
+@@ -676,6 +791,9 @@
+ 
+ void BaseRenderingContext2D::setTextBaseline(
+     const V8CanvasTextBaseline baseline) {
++  RecordBridgeOp(
++      static_cast<uint32_t>(blink::canvas_bridge::Canvas2DOp::kSetTextBaseline),
++      std::string(baseline.AsCStr()), {});
+   GetState().SetTextBaseline(baseline.AsEnum());
+ }
+ 
+@@ -815,6 +933,10 @@
+     return;
+   }
+ 
++  RecordBridgeOp(
++      static_cast<uint32_t>(blink::canvas_bridge::Canvas2DOp::kSetFont),
++      new_font.Utf8(), {});
++
+   CanvasRenderingContext2DState& state = GetState();
+   if (new_font == state.UnparsedFont() && CurrentFontResolvedAndUpToDate()) {
+     return;
+@@ -872,6 +994,9 @@
+ }
+ 
+ void BaseRenderingContext2D::fillText(const String& text, double x, double y) {
++  RecordBridgeOp(
++      static_cast<uint32_t>(blink::canvas_bridge::Canvas2DOp::kFillText),
++      text.Utf8(), {x, y});
+   CanvasRenderingContext2DState& state = GetState();
+   DrawTextInternal(text, x, y, CanvasRenderingContext2DState::kFillPaintType,
+                    state.GetTextAlign(), state.GetTextBaseline(), 0,
+@@ -928,6 +1053,7 @@
+ void BaseRenderingContext2D::strokeText(const String& text,
+                                         double x,
+                                         double y) {
++  RecordBridgeOp(21u, text.Utf8(), {x, y});
+   CanvasRenderingContext2DState& state = GetState();
+   DrawTextInternal(text, x, y, CanvasRenderingContext2DState::kStrokePaintType,
+                    state.GetTextAlign(), state.GetTextBaseline(), 0,
+@@ -938,6 +1064,7 @@
+                                         double x,
+                                         double y,
+                                         double max_width) {
++  RecordBridgeOp(21u, text.Utf8(), {x, y});
+   CanvasRenderingContext2DState& state = GetState();
+   DrawTextInternal(text, x, y, CanvasRenderingContext2DState::kStrokePaintType,
+                    state.GetTextAlign(), state.GetTextBaseline(), 0,
+@@ -1160,15 +1287,44 @@
+       font, direction, state.GetTextBaseline(), state.GetTextAlign(), text,
+       host->GetPlainTextPainter());
+ 
++  // canvas-bridge: override the metrics with the remote render host's values.
++  if (auto* cb = blink::canvas_bridge::CanvasBridgeClient::Get();
++      cb && cb->Connected() && bridge_canvas_id_ != 0) {
++    std::optional<std::vector<uint8_t>> mb =
++        cb->RequestTextMetrics(bridge_canvas_id_, text.Utf8());
++    if (mb && mb->size() == 9 * sizeof(double)) {
++      double d[9];
++      __builtin_memcpy(d, mb->data(), sizeof(d));
++      text_metrics->OverrideFromBridge(d[0], d[1], d[2], d[3], d[4], d[5],
++                                       d[6], d[7], d[8]);
++      return text_metrics;
++    }
++  }
++
+   // Scale text metrics if enabled
+-  if (RuntimeEnabledFeatures::FingerprintingCanvasMeasureTextNoiseEnabled()) {
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++  if (command_line->HasSwitch(switches::kFingerprint)) {
++    // Per-site farbling: derive the seed from this context's eTLD+1 instead
++    // of the raw global switch value. Downstream hashing is unchanged.
++    const SecurityOrigin* origin =
++        GetTopExecutionContext() ? GetTopExecutionContext()->GetSecurityOrigin()
++                                 : nullptr;
++    std::string seed_str = ungoogled::GetFarbleSeedString(
++        origin ? origin->RegistrableDomain().Utf8() : std::string());
++    std::string combined_rects_x = seed_str + "clientrects_noise_x";
++    uint32_t hash_val_x = std::hash<std::string>{}(combined_rects_x);
++    // Map to [-0.5, 0.5] range
++    double norm_x = (hash_val_x & 0xFFFFFFFF) / 4294967295.0 - 0.5;
++    // clearcote: measureText perturbation disabled (factor 0); see docs/STEALTH-COHERENCE.md
++    double noise_x = norm_x * 0.0;
+     if (HostAsOffscreenCanvas()) {
+       if (auto* window = DynamicTo<LocalDOMWindow>(GetTopExecutionContext())) {
+-        if (window->GetFrame() && window->GetFrame()->GetDocument())
+-          text_metrics->Shuffle(window->GetFrame()->GetDocument()->GetNoiseFactorX());
++        if (window->GetFrame() && window->GetFrame()->GetDocument() && text.length() > 0) {
++          text_metrics->Shuffle(1.0 + noise_x);
++        }
+       }
+-    } else if (canvas) {
+-      text_metrics->Shuffle(canvas->GetDocument().GetNoiseFactorX());
++    } else if (canvas && text.length() > 0) {
++      text_metrics->Shuffle(1.0 + noise_x);
+     }
+   }
+   return text_metrics;
+diff -u --recursive a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h	2026-07-21 13:56:47.385014668 +0000
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h	2026-07-21 13:56:47.393014703 +0000
+@@ -338,6 +338,16 @@
+   void WillUseCurrentFont() const;
+ 
+   int num_readbacks_performed_ = 0;
++  // canvas-bridge: stable server-side surface id for this 2D context (0 = none yet).
++  uint32_t bridge_canvas_id_ = 0;
++  // WS-Policy: per-context cache of the origin gate (lazy).
++  bool bridge_policy_checked_ = false;
++  bool bridge_policy_allowed_ = false;
++  bool BridgeAllowedForThisContext();
++  void RecordBridgeOp(uint32_t op, const std::string& str,
++                      const std::vector<double>& args) override;
++  bool ReadBridgePixels(std::vector<uint8_t>* out, int width,
++                        int height) override;
+   unsigned read_count_ = 0;
+   Canvas2DColorParams color_params_;
+   base::RepeatingClosure on_restore_failed_callback_for_testing_;
+diff -u --recursive a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc	2026-07-21 13:56:47.385014668 +0000
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc	2026-07-21 13:56:47.397014720 +0000
+@@ -393,6 +393,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::save() {
++  RecordBridgeOp(1u /* Canvas2DOp::kSave */, std::string(), {});
+   if (isContextLost()) [[unlikely]] {
+     return;
+   }
+@@ -418,6 +419,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::restore(ExceptionState& exception_state) {
++  RecordBridgeOp(2u /* Canvas2DOp::kRestore */, std::string(), {});
+   if (isContextLost()) [[unlikely]] {
+     return;
+   }
+@@ -922,6 +924,8 @@
+   // from the string is expensive) so we keep a map of string to color.
+   if (value->IsString()) {
+     v8::Local<v8::String> v8_string = value.As<v8::String>();
++    RecordBridgeOp(51u /* Canvas2DOp::kSetStrokeStyle */,
++                   ToCoreString(isolate, v8_string).Utf8(), {});
+     if (state.IsUnparsedStrokeColor(v8_string)) {
+       return;
+     }
+@@ -1045,6 +1049,8 @@
+   // details on this.
+   if (value->IsString()) {
+     v8::Local<v8::String> v8_string = value.As<v8::String>();
++    RecordBridgeOp(50u /* Canvas2DOp::kSetFillStyle */,
++                   ToCoreString(isolate, v8_string).Utf8(), {});
+     if (state.IsUnparsedFillColor(v8_string)) {
+       return;
+     }
+@@ -1102,6 +1108,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::setLineWidth(double width) {
++  RecordBridgeOp(52u /* Canvas2DOp::kSetLineWidth */, std::string(), {width});
+   if (!std::isfinite(width) || width <= 0) {
+     return;
+   }
+@@ -1117,6 +1124,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::setLineCap(const String& s) {
++  RecordBridgeOp(58u /* Canvas2DOp::kSetLineCap */, s.Utf8(), {});
+   LineCap cap;
+   if (!ParseLineCap(s, cap)) {
+     return;
+@@ -1133,6 +1141,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::setLineJoin(const String& s) {
++  RecordBridgeOp(59u /* Canvas2DOp::kSetLineJoin */, s.Utf8(), {});
+   LineJoin join;
+   if (!ParseLineJoin(s, join)) {
+     return;
+@@ -1264,6 +1273,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::setGlobalAlpha(double alpha) {
++  RecordBridgeOp(56u /* Canvas2DOp::kSetGlobalAlpha */, std::string(), {alpha});
+   if (!(alpha >= 0 && alpha <= 1)) {
+     return;
+   }
+@@ -1293,6 +1303,7 @@
+ 
+ void Canvas2DRecorderContext::setGlobalCompositeOperation(
+     const String& operation) {
++  RecordBridgeOp(57u /* Canvas2DOp::kSetGlobalCompositeOperation */, operation.Utf8(), {});
+   CompositeOperator op = kCompositeSourceOver;
+   BlendMode blend_mode = BlendMode::kNormal;
+   if (!ParseCanvasCompositeAndBlendMode(operation, op, blend_mode)) {
+@@ -1353,6 +1364,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::scale(double sx, double sy) {
++  RecordBridgeOp(44u /* Canvas2DOp::kScale */, std::string(), {sx, sy});
+   // TODO(crbug.com/40153853): Investigate the performance impact of simply
+   // calling the 3d version of this function
+   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+@@ -1383,6 +1395,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::rotate(double angle_in_radians) {
++  RecordBridgeOp(43u /* Canvas2DOp::kRotate */, std::string(), {angle_in_radians});
+   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+   if (!c) {
+     return;
+@@ -1409,6 +1422,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::translate(double tx, double ty) {
++  RecordBridgeOp(42u /* Canvas2DOp::kTranslate */, std::string(), {tx, ty});
+   // TODO(crbug.com/40153853): Investigate the performance impact of simply
+   // calling the 3d version of this function
+   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+@@ -1448,6 +1462,7 @@
+                                         double m22,
+                                         double dx,
+                                         double dy) {
++  RecordBridgeOp(41u /* Canvas2DOp::kTransform */, std::string(), {m11, m12, m21, m22, dx, dy});
+   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+   if (!c) {
+     return;
+@@ -1490,6 +1505,7 @@
+ // |effective_zoom_| in resetTransform instead of setTransform, to avoid
+ // integrating it twice if we have resetTransform and setTransform API calls.
+ void Canvas2DRecorderContext::resetTransform() {
++  RecordBridgeOp(45u /* Canvas2DOp::kResetTransform */, std::string(), {});
+   cc::PaintCanvas* c = GetOrCreatePaintCanvas();
+   if (!c) {
+     return;
+@@ -1532,6 +1548,7 @@
+                                            double m22,
+                                            double dx,
+                                            double dy) {
++  RecordBridgeOp(40u /* Canvas2DOp::kSetTransform */, std::string(), {m11, m12, m21, m22, dx, dy});
+   if (!std::isfinite(m11) || !std::isfinite(m21) || !std::isfinite(dx) ||
+       !std::isfinite(m12) || !std::isfinite(m22) || !std::isfinite(dy)) {
+     return;
+@@ -1570,6 +1587,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::beginPath() {
++  RecordBridgeOp(3u /* Canvas2DOp::kBeginPath */, std::string(), {});
+   Clear();
+ }
+ 
+@@ -1668,10 +1686,12 @@
+ }
+ 
+ void Canvas2DRecorderContext::fill() {
++  RecordBridgeOp(5u /* Canvas2DOp::kFill */, std::string(), {});
+   FillImpl(SkPathFillType::kWinding);
+ }
+ 
+ void Canvas2DRecorderContext::fill(const V8CanvasFillRule& winding) {
++  RecordBridgeOp(5u /* Canvas2DOp::kFill */, std::string(), {});
+   FillImpl(CanvasFillRuleToSkiaFillType(winding));
+ }
+ 
+@@ -1696,6 +1716,7 @@
+ }
+ 
+ void Canvas2DRecorderContext::stroke() {
++  RecordBridgeOp(6u /* Canvas2DOp::kStroke */, std::string(), {});
+   DrawPathInternal(*this, CanvasRenderingContext2DState::kStrokePaintType,
+                    SkPathFillType::kWinding, UsePaintCache::kDisabled);
+ }
+@@ -1709,6 +1730,8 @@
+                                        double y,
+                                        double width,
+                                        double height) {
++  RecordBridgeOp(10u /* Canvas2DOp::kFillRect */, std::string(),
++                 {x, y, width, height});
+   if (!ValidateRectForCanvas(x, y, width, height)) {
+     return;
+   }
+@@ -1772,6 +1795,7 @@
+                                          double y,
+                                          double width,
+                                          double height) {
++  RecordBridgeOp(11u /* Canvas2DOp::kStrokeRect */, std::string(), {x, y, width, height});
+   if (!ValidateRectForCanvas(x, y, width, height)) {
+     return;
+   }
+@@ -1930,6 +1954,7 @@
+                                         double y,
+                                         double width,
+                                         double height) {
++  RecordBridgeOp(12u /* Canvas2DOp::kClearRect */, std::string(), {x, y, width, height});
+   if (!ValidateRectForCanvas(x, y, width, height)) {
+     return;
+   }
+diff -u --recursive a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_path.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_path.cc
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_path.cc	2026-07-21 13:56:47.389014685 +0000
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_path.cc	2026-07-21 13:56:47.397014720 +0000
+@@ -75,6 +75,7 @@
+ }  // namespace
+ 
+ void CanvasPath::closePath() {
++  RecordBridgeOp(4u /* closePath */, std::string(), {});
+   if (IsEmpty()) [[unlikely]] {
+     return;
+   }
+@@ -105,6 +106,7 @@
+ }
+ 
+ void CanvasPath::moveTo(double double_x, double double_y) {
++  RecordBridgeOp(30u /* moveTo */, std::string(), {double_x, double_y});
+   float x = base::saturated_cast<float>(double_x);
+   float y = base::saturated_cast<float>(double_y);
+   if (!std::isfinite(x) || !std::isfinite(y)) [[unlikely]] {
+@@ -123,6 +125,7 @@
+ }
+ 
+ void CanvasPath::lineTo(double double_x, double double_y) {
++  RecordBridgeOp(31u /* lineTo */, std::string(), {double_x, double_y});
+   float x = base::saturated_cast<float>(double_x);
+   float y = base::saturated_cast<float>(double_y);
+   if (!std::isfinite(x) || !std::isfinite(y)) [[unlikely]] {
+@@ -154,6 +157,7 @@
+                                   double double_cpy,
+                                   double double_x,
+                                   double double_y) {
++  RecordBridgeOp(35u /* quadraticCurveTo */, std::string(), {double_cpx, double_cpy, double_x, double_y});
+   float cpx = base::saturated_cast<float>(double_cpx);
+   float cpy = base::saturated_cast<float>(double_cpy);
+   float x = base::saturated_cast<float>(double_x);
+@@ -185,6 +189,7 @@
+                                double double_cp2y,
+                                double double_x,
+                                double double_y) {
++  RecordBridgeOp(36u /* bezierCurveTo */, std::string(), {double_cp1x, double_cp1y, double_cp2x, double_cp2y, double_x, double_y});
+   float cp1x = base::saturated_cast<float>(double_cp1x);
+   float cp1y = base::saturated_cast<float>(double_cp1y);
+   float cp2x = base::saturated_cast<float>(double_cp2x);
+@@ -220,6 +225,7 @@
+                        double double_y2,
+                        double double_r,
+                        ExceptionState& exception_state) {
++  RecordBridgeOp(34u /* arcTo */, std::string(), {double_x1, double_y1, double_x2, double_y2, double_r});
+   float x1 = base::saturated_cast<float>(double_x1);
+   float y1 = base::saturated_cast<float>(double_y1);
+   float x2 = base::saturated_cast<float>(double_x2);
+@@ -431,6 +437,7 @@
+                      double double_end_angle,
+                      bool anticlockwise,
+                      ExceptionState& exception_state) {
++  RecordBridgeOp(33u /* arc */, std::string(), {double_x, double_y, double_radius, double_start_angle, double_end_angle});
+   float x = base::saturated_cast<float>(double_x);
+   float y = base::saturated_cast<float>(double_y);
+   float radius = base::saturated_cast<float>(double_radius);
+@@ -486,6 +493,7 @@
+                          double double_end_angle,
+                          bool anticlockwise,
+                          ExceptionState& exception_state) {
++  RecordBridgeOp(37u /* ellipse */, std::string(), {double_x, double_y, double_radius_x, double_radius_y, double_rotation, double_start_angle, double_end_angle});
+   float x = base::saturated_cast<float>(double_x);
+   float y = base::saturated_cast<float>(double_y);
+   float radius_x = base::saturated_cast<float>(double_radius_x);
+@@ -540,6 +548,7 @@
+                       double double_y,
+                       double double_width,
+                       double double_height) {
++  RecordBridgeOp(32u /* rect */, std::string(), {double_x, double_y, double_width, double_height});
+   float x = base::saturated_cast<float>(double_x);
+   float y = base::saturated_cast<float>(double_y);
+   float width = base::saturated_cast<float>(double_width);
+diff -u --recursive a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_path.h b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_path.h
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_path.h	2026-07-21 13:56:47.389014685 +0000
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_path.h	2026-07-21 13:56:47.397014720 +0000
+@@ -176,6 +176,10 @@
+   gfx::RectF BoundingRect() const;
+ 
+  protected:
++  // canvas-bridge: forward one recorded 2D op to a remote render host. Default
++  // no-op; BaseRenderingContext2D supplies the real implementation.
++  virtual void RecordBridgeOp(uint32_t op, const std::string& str,
++                              const std::vector<double>& args) {}
+   CanvasPath() { path_builder_.SetIsVolatile(true); }
+   explicit CanvasPath(const Path& path) : path_builder_(path) {
+     path_builder_.SetIsVolatile(true);
+diff -u --recursive a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+--- a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc	2026-07-21 13:56:47.389014685 +0000
++++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc	2026-07-21 13:56:47.397014720 +0000
+@@ -32,8 +32,11 @@
+ 
+ #include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
+ 
++#include "base/command_line.h"
+ #include "base/compiler_specific.h"
+ #include "base/memory/ptr_util.h"
++#include "components/ungoogled/ungoogled_switches.h"
++#include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
+ #include "third_party/blink/renderer/platform/image-encoders/image_encoder_utils.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ #include "third_party/blink/renderer/platform/wtf/text/base64.h"
+@@ -130,8 +133,15 @@
+ 
+ bool ImageDataBuffer::EncodeImage(const ImageEncodingMimeType mime_type,
+                                   const double& quality,
+-                                  Vector<unsigned char>* encoded_image) const {
+-  return ImageEncoder::Encode(encoded_image, pixmap_, mime_type, quality);
++                                  Vector<unsigned char>* encoded_image,
++                                  uint64_t effective_seed) const {
++  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
++  if (command_line->HasSwitch(switches::kFingerprint)) {
++    // shuffle subchannel color data within the pixmap, keyed by the per-site
++    // seed threaded in from the caller (0 = global fallback).
++    StaticBitmapImage::ShuffleSubchannelColorData(pixmap_.writable_addr(), pixmap_.info(), 0, 0, effective_seed);
++  }
++  return ImageEncoder::Encode(encoded_image, pixmap_, mime_type, quality, effective_seed);
+ }
+ 
+ String ImageDataBuffer::ToDataURL(const ImageEncodingMimeType mime_type,
+diff -u --recursive a/third_party/blink/renderer/platform/graphics/image_data_buffer.h b/third_party/blink/renderer/platform/graphics/image_data_buffer.h
+--- a/third_party/blink/renderer/platform/graphics/image_data_buffer.h	2026-07-21 13:56:47.389014685 +0000
++++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.h	2026-07-21 13:56:47.397014720 +0000
+@@ -28,6 +28,7 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_IMAGE_DATA_BUFFER_H_
+ #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_IMAGE_DATA_BUFFER_H_
+ 
++#include <cstdint>
+ #include <memory>
+ 
+ #include "base/containers/span.h"
+@@ -55,7 +56,8 @@
+                    const double& quality) const;
+   bool EncodeImage(const ImageEncodingMimeType mime_type,
+                    const double& quality,
+-                   Vector<unsigned char>* encoded_image) const;
++                   Vector<unsigned char>* encoded_image,
++                   uint64_t effective_seed = 0) const;
+ 
+   base::span<const uint8_t> PixelData() const;
+ 
+diff -u --recursive a/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc b/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc
+--- a/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc	2026-07-21 13:56:47.389014685 +0000
++++ b/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc	2026-07-21 13:56:47.397014720 +0000
+@@ -4,9 +4,12 @@
+ 
+ #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
+ 
++#include <unordered_set>
++#include <vector>
+ #include "base/rand_util.h"
+ #include "base/logging.h"
+ #include "base/numerics/checked_math.h"
++#include "base/strings/string_number_conversions.h"
+ #include "gpu/command_buffer/client/gles2_interface.h"
+ #include "third_party/blink/renderer/platform/graphics/accelerated_static_bitmap_image.h"
+ #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
+@@ -124,144 +127,122 @@
+ 
+ #define writable_addr(T, p, stride, x, y) (T*)((const char *)p + y * stride + x * sizeof(T))
+ 
+-void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkImageInfo& info, int srcX, int srcY) {
+-  auto w = info.width() - srcX, h = info.height() - srcY;
++void StaticBitmapImage::ShuffleSubchannelColorData(const void *addr, const SkImageInfo& info, int srcX, int srcY, uint64_t effective_seed, bool bottom_up) {
++  // clearcote: the buffer IS the region. `info` describes the pixels handed to us; srcX/srcY
++  // say WHERE that region sits on the canvas. The previous `info.width() - srcX` conflated
++  // size with origin, so at the getImageData exit -- where info is the sw x sh region and
++  // srcX/srcY are absolute canvas coords -- any read at an offset >= its own width computed
++  // w <= 0 and fell out of the guard below with NO noise applied at all.
++  // Measured before this fix: getImageData(16,16,16,16) received 0 of 1024 noised channels
++  // while the full read received 43 of 16384.
++  auto w = info.width(), h = info.height();
+ 
+   // skip tiny images; info.width()/height() can also be 0
+   if ((w < 8) || (h < 8)) {
+     return;
+   }
+ 
+-  // generate the first random number here
+-  double shuffleX = base::RandDouble();
+-
+-  // cap maximum pixels to change
+-  auto pixels = (w + h) / 128;
+-  if (pixels > 10) {
+-    pixels = 10;
+-  } else if (pixels < 2) {
+-    pixels = 2;
++  const auto colorType = info.colorType();
++  const size_t fRowBytes = info.minRowBytes();  // stride
++  size_t bpp;
++  switch (colorType) {
++    case kGray_8_SkColorType: bpp = 1; break;
++    case kRGB_565_SkColorType: bpp = 2; break;
++    case kRGBA_8888_SkColorType:
++    case kBGRA_8888_SkColorType: bpp = 4; break;
++    default: return;  // unsupported layout -> leave the pixels untouched
+   }
+ 
+-  auto colorType = info.colorType();
+-  auto fRowBytes = info.minRowBytes(); // stride
+-
+-  DLOG(INFO) << "BRM: ShuffleSubchannelColorData() w=" << w << " h=" << h << " colorType=" << colorType << " fRowBytes=" << fRowBytes;
+-
+-  // second random number (for y/height)
+-  double shuffleY = base::RandDouble();
+-
+-  // calculate random coordinates using bisection
+-  auto currentW = w, currentH = h;
+-  for(;pixels >= 0; pixels--) {
+-    int x = currentW * shuffleX, y = currentH * shuffleY;
+-
+-    // calculate randomisation amounts for each RGB component
+-    uint8_t shuffleR = base::RandIntInclusive(0, 4);
+-    uint8_t shuffleG = (shuffleR + x) % 4;
+-    uint8_t shuffleB = (shuffleG + y) % 4;
+-
+-    // manipulate pixel data to slightly change the R, G, B components
+-    switch (colorType) {
+-      case kAlpha_8_SkColorType:
+-      {
+-         auto *pixel = writable_addr(uint8_t, addr, fRowBytes, x, y);
+-         auto r = SkColorGetR(*pixel), g = SkColorGetG(*pixel), b = SkColorGetB(*pixel), a = SkColorGetA(*pixel);
+-
+-         r = shuffleComponent(r, UINT8_MAX-1, shuffleR);
+-         g = shuffleComponent(g, UINT8_MAX-1, shuffleG);
+-         b = shuffleComponent(b, UINT8_MAX-1, shuffleB);
+-         // alpha is left unchanged
+-
+-         *pixel = SkColorSetARGB(a, r, g, b);
+-      }
+-      break;
+-      case kGray_8_SkColorType:
+-      {
+-         auto *pixel = writable_addr(uint8_t, addr, fRowBytes, x, y);
+-         *pixel = shuffleComponent(*pixel, UINT8_MAX-1, shuffleB);
+-      }
+-      break;
+-      case kRGB_565_SkColorType:
+-      {
+-         auto *pixel = writable_addr(uint16_t, addr, fRowBytes, x, y);
+-         unsigned    r = SkPacked16ToR32(*pixel);
+-         unsigned    g = SkPacked16ToG32(*pixel);
+-         unsigned    b = SkPacked16ToB32(*pixel);
+-
+-         r = shuffleComponent(r, 31, shuffleR);
+-         g = shuffleComponent(g, 63, shuffleG);
+-         b = shuffleComponent(b, 31, shuffleB);
+-
+-         unsigned r16 = (r & SK_R16_MASK) << SK_R16_SHIFT;
+-         unsigned g16 = (g & SK_G16_MASK) << SK_G16_SHIFT;
+-         unsigned b16 = (b & SK_B16_MASK) << SK_B16_SHIFT;
+-
+-         *pixel = r16 | g16 | b16;
+-      }
+-      break;
+-      case kARGB_4444_SkColorType:
+-      {
+-         auto *pixel = writable_addr(uint16_t, addr, fRowBytes, x, y);
+-         auto a = SkGetPackedA4444(*pixel), r = SkGetPackedR4444(*pixel), g = SkGetPackedG4444(*pixel), b = SkGetPackedB4444(*pixel);
+-
+-         r = shuffleComponent(r, 15, shuffleR);
+-         g = shuffleComponent(g, 15, shuffleG);
+-         b = shuffleComponent(b, 15, shuffleB);
+-         // alpha is left unchanged
+-
+-         unsigned a4 = (a & 0xF) << SK_A4444_SHIFT;
+-         unsigned r4 = (r & 0xF) << SK_R4444_SHIFT;
+-         unsigned g4 = (g & 0xF) << SK_G4444_SHIFT;
+-         unsigned b4 = (b & 0xF) << SK_B4444_SHIFT;
+-
+-         *pixel = r4 | b4 | g4 | a4;
+-      }
+-      break;
+-      case kRGBA_8888_SkColorType:
+-      {
+-         auto *pixel = writable_addr(uint32_t, addr, fRowBytes, x, y);
+-         auto a = SkGetPackedA32(*pixel), r = SkGetPackedR32(*pixel), g = SkGetPackedG32(*pixel), b = SkGetPackedB32(*pixel);
+-
+-         r = shuffleComponent(r, UINT8_MAX-1, shuffleR);
+-         g = shuffleComponent(g, UINT8_MAX-1, shuffleG);
+-         b = shuffleComponent(b, UINT8_MAX-1, shuffleB);
+-         // alpha is left unchanged
+-
+-         *pixel = (a << SK_A32_SHIFT) | (r << SK_R32_SHIFT) |
+-                  (g << SK_G32_SHIFT) | (b << SK_B32_SHIFT);
+-      }
+-      break;
+-      case kBGRA_8888_SkColorType:
+-      {
+-         auto *pixel = writable_addr(uint32_t, addr, fRowBytes, x, y);
+-         auto a = SkGetPackedA32(*pixel), b = SkGetPackedR32(*pixel), g = SkGetPackedG32(*pixel), r = SkGetPackedB32(*pixel);
+-
+-         r = shuffleComponent(r, UINT8_MAX-1, shuffleR);
+-         g = shuffleComponent(g, UINT8_MAX-1, shuffleG);
+-         b = shuffleComponent(b, UINT8_MAX-1, shuffleB);
+-         // alpha is left unchanged
+-
+-         *pixel = (a << SK_BGRA_A32_SHIFT) | (r << SK_BGRA_R32_SHIFT) |
+-                  (g << SK_BGRA_G32_SHIFT) | (b << SK_BGRA_B32_SHIFT);
++  // clearcote: leave a UNIFORM surface exactly as drawn.
++  //
++  // Complementary to the position-anchoring below, not replaced by it: anchoring makes the exits
++  // agree with EACH OTHER, but the per-pixel decision still varies with absolute x/y, so a flat
++  // buffer would come back speckled. Measured without this skip: rgb(255,102,0) read back as 7
++  // distinct colours, and a single glClear as 7 over 4096 pixels.
++  //
++  // One fillRect or one glClear writes a single colour to every pixel, so a readback returning
++  // more than one is not merely unusual -- it is impossible, and a page can prove it with no
++  // reference to real hardware. Skipping costs no unlinkability: a flat region is byte-identical
++  // on every machine, so there was never a per-machine signal there to farble. Real fingerprinting
++  // canvases (text, gradients, curves) are not uniform and are perturbed exactly as before.
++  //
++  // Early-exits on the first differing pixel, so non-uniform content pays only a few comparisons.
++  {
++    const char* const cc_base = reinterpret_cast<const char*>(addr);
++    const uint8_t* const cc_first = reinterpret_cast<const uint8_t*>(cc_base);
++    bool cc_uniform = true;
++    for (int y = 0; y < h && cc_uniform; ++y) {
++      const uint8_t* r0 = reinterpret_cast<const uint8_t*>(
++          cc_base + static_cast<size_t>(y) * fRowBytes);
++      for (int px = 0; px < w; ++px) {
++        const uint8_t* q = r0 + static_cast<size_t>(px) * bpp;
++        for (size_t c = 0; c < bpp; ++c) {
++          if (q[c] != cc_first[c]) { cc_uniform = false; break; }
++        }
++        if (!cc_uniform) break;
+       }
+-      break;
+-      default:
+-         // the remaining formats are not expected to be used in Chromium
+-         LOG(WARNING) << "BRM: ShuffleSubchannelColorData(): Ignoring pixel format";
+-         return;
+     }
+-
+-    // keep bisecting or reset current width/height as needed
+-    if (x == 0) {
+-       currentW = w;
+-    } else {
+-       currentW = x;
++    if (cc_uniform) {
++      return;
+     }
+-    if (y == 0) {
+-       currentH = h;
+-    } else {
+-       currentH = y;
++  }
++
++  // clearcote: PER-PIXEL, POSITION-ANCHORED perturbation.
++  //
++  // The old scheme hashed the whole handed-in buffer into one seed, then walked a PRNG stream
++  // picking positions RELATIVE TO THAT BUFFER. Both halves were region-dependent, so asking for a
++  // different rectangle over the same pixels produced a different mask -- measured at 42 of 1024
++  // channels between a windowed read and the same pixels of the full read. Two reads of one canvas
++  // cannot disagree; that is not entropy, it is a provable contradiction.
++  //
++  // Now each pixel decides for itself from (seed, absolute x, absolute y, its own value). Same
++  // pixel, same place, same value -> same decision, whatever shape the read was. getImageData,
++  // toDataURL, toBlob and readPixels therefore agree by construction rather than by coincidence.
++  //
++  // The density is a FIXED per-pixel probability, deliberately NOT derived from the area: the old
++  // clamp(area/600, 24, 512) is itself a function of the requested region, which would reintroduce
++  // exactly the bug being fixed. 1/171 reproduces the previous effective density at the canonical
++  // 64x64 fingerprinting canvas.
++  //
++  // Safety: this always runs on an OUTPUT COPY, never the canvas backing store (checked at all
++  // five call sites), so the incoming value is the TRUE value -- which is what makes keying on it
++  // idempotent instead of self-referential. Keying per pixel also means recovering the flip for
++  // value V at (x,y) reveals nothing about value W at the same position.
++  char* const pbase = const_cast<char*>(reinterpret_cast<const char*>(addr));
++  constexpr uint64_t kDensity = 171;
++
++  for (int y = 0; y < h; ++y) {
++    // The WebGL readPixels exit hands back a BOTTOM-UP buffer while every other exit is top-down.
++    // Without this the same physical pixel lands on two different absolute y values and the two
++    // exits of one drawing buffer disagree.
++    const int64_t cc_abs_y = srcY + (bottom_up ? (h - 1 - y) : y);
++    uint8_t* row = reinterpret_cast<uint8_t*>(pbase + static_cast<size_t>(y) * fRowBytes);
++    for (int px = 0; px < w; ++px) {
++      const int64_t cc_abs_x = srcX + px;
++      uint8_t* p = row + static_cast<size_t>(px) * bpp;
++
++      uint64_t k = effective_seed;
++      k ^= static_cast<uint64_t>(cc_abs_x) * 0x9E3779B97F4A7C15ULL;
++      k = (k ^ (k >> 29)) * 0xBF58476D1CE4E5B9ULL;
++      k ^= static_cast<uint64_t>(cc_abs_y) * 0xC2B2AE3D27D4EB4FULL;
++      k = (k ^ (k >> 32)) * 0x94D049BB133111EBULL;
++      for (size_t c = 0; c < bpp && c < 3; ++c) {
++        k ^= static_cast<uint64_t>(p[c]) << (8 * c);
++      }
++      k = (k ^ (k >> 31)) * 0xD6E8FEB86659FD93ULL;
++      k ^= k >> 32;
++
++      if ((k % kDensity) != 0) {
++        continue;
++      }
++      // Alpha is never touched -- a changed alpha is visible, not sub-perceptual.
++      if (bpp >= 3) {
++        p[0] ^= static_cast<uint8_t>((k >> 40) & 1u);
++        p[1] ^= static_cast<uint8_t>((k >> 41) & 1u);
++        p[2] ^= static_cast<uint8_t>((k >> 42) & 1u);
++      } else {
++        p[0] ^= static_cast<uint8_t>((k >> 40) & 1u);
++      }
+     }
+   }
+ }
+diff -u --recursive a/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc.perturbbak b/third_party/blink/renderer/platform/graphics/static_bitmap_image.cc.perturbbak
+--- a/third_party/blink/renderer/platform/graphics/static_bitmap_image.h	2026-07-21 13:56:47.389014685 +0000
++++ b/third_party/blink/renderer/platform/graphics/static_bitmap_image.h	2026-07-21 13:56:47.397014720 +0000
+@@ -38,7 +38,9 @@
+ 
+   StaticBitmapImage(ImageOrientation orientation) : orientation_(orientation) {}
+ 
+-  static void ShuffleSubchannelColorData(const void *addr, const SkImageInfo& info, int srcX, int srcY);
++  // `bottom_up` marks a buffer whose row 0 is the BOTTOM of the surface (WebGL readPixels);
++  // every other exit is top-down. It only affects which absolute y the noise is keyed on.
++  static void ShuffleSubchannelColorData(const void *addr, const SkImageInfo& info, int srcX, int srcY, uint64_t effective_seed, bool bottom_up = false);
+ 
+   bool IsStaticBitmapImage() const override { return true; }
+ 
+diff -u --recursive a/third_party/blink/renderer/platform/image-encoders/image_encoder.cc b/third_party/blink/renderer/platform/image-encoders/image_encoder.cc
+--- a/third_party/blink/renderer/platform/image-encoders/image_encoder.cc	2026-07-21 13:56:47.389014685 +0000
++++ b/third_party/blink/renderer/platform/image-encoders/image_encoder.cc	2026-07-21 13:56:47.397014720 +0000
+@@ -45,10 +45,12 @@
+ bool ImageEncoder::Encode(Vector<unsigned char>* dst,
+                           const SkPixmap& src,
+                           ImageEncodingMimeType mime_type,
+-                          double quality) {
++                          double quality,
++                          uint64_t effective_seed) {
+   if (RuntimeEnabledFeatures::FingerprintingCanvasImageDataNoiseEnabled()) {
+-    // shuffle subchannel color data within the pixmap
+-    StaticBitmapImage::ShuffleSubchannelColorData(src.writable_addr(), src.info(), 0, 0);
++    // shuffle subchannel color data within the pixmap, keyed by the per-site
++    // seed threaded in from the caller (0 = global fallback).
++    StaticBitmapImage::ShuffleSubchannelColorData(src.writable_addr(), src.info(), 0, 0, effective_seed);
+   }
+   switch (mime_type) {
+     case kMimeTypeJpeg: {
+diff -u --recursive a/third_party/blink/renderer/platform/image-encoders/image_encoder.h b/third_party/blink/renderer/platform/image-encoders/image_encoder.h
+--- a/third_party/blink/renderer/platform/image-encoders/image_encoder.h	2026-07-21 13:56:47.389014685 +0000
++++ b/third_party/blink/renderer/platform/image-encoders/image_encoder.h	2026-07-21 13:56:47.397014720 +0000
+@@ -5,6 +5,8 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_IMAGE_ENCODERS_IMAGE_ENCODER_H_
+ #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_IMAGE_ENCODERS_IMAGE_ENCODER_H_
+ 
++#include <cstdint>
++
+ #include "base/check_op.h"
+ #include "base/memory/raw_ptr.h"
+ #include "third_party/blink/renderer/platform/platform_export.h"
+@@ -64,7 +66,8 @@
+   static bool Encode(Vector<unsigned char>* dst,
+                      const SkPixmap& src,
+                      ImageEncodingMimeType mime_type,
+-                     double quality);
++                     double quality,
++                     uint64_t effective_seed = 0);
+ 
+   static int MaxDimension(ImageEncodingMimeType mime_type);
+ 
