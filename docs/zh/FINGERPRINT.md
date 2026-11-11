@@ -40,17 +40,20 @@ Clearcote 不是给每个 API 单独随机，而是用一个种子推导出一�
 |---|---|---|
 | Canvas 2D | `toDataURL` / `toBlob` / `getImageData` / `measureText` 按站点加噪；所有导出路径读到的像素一致（含局部读取），纯色区域按位置加噪 | `060` |
 | WebGL | `readPixels` 及 WebGL canvas 快照加噪 | `070` |
-| Audio | `AudioBuffer`、Analyser、离线渲染加噪；`sampleRate` / `baseLatency` / `outputLatency` 来自画像 | `020` |
+| Audio | 采样数据**不加噪**（`getChannelData`、`copyFromChannel`、离线渲染与原生 Chrome 一致）；只有 `sampleRate` / `baseLatency` / `outputLatency` 来自画像 | `020` |
 | ClientRects | **不加噪**，原样上报 | `050` |
 
-为什么 ClientRects 不加噪：它是字体、DPR、视口共同计算出来的**结果**，单独扰动只会制造矛盾
-（例如 `getClientRects()` 与 `getBoundingClientRect()` 对不上），所以继承自上游的 rects 噪声被删除了。
+为什么 ClientRects 和音频采样不加噪：
+
+- ClientRects 是字体、DPR、视口共同计算出来的**结果**，单独扰动只会制造矛盾
+  （例如 `getClientRects()` 与 `getBoundingClientRect()` 对不上），所以继承自上游的 rects 噪声被删除了。
+- 音频加噪会产生真实 Chrome 不可能输出的数值；离线渲染的采样率也不做扰动，因为 44099.99 这种非标准值本身就是破绽。
 
 关闭噪声的开关：
 
 | 开关 | 作用 |
 |---|---|
-| `--disable-fingerprint-noise` | 关闭全部按站点噪声（Canvas / WebGL / Audio），画像身份仍保留 |
+| `--disable-fingerprint-noise` | 关闭全部按站点噪声（Canvas / WebGL 等），画像身份仍保留 |
 | `--cc-no-farble` | 同上：保留整个画像（UA、屏幕、GPU、TLS），只关噪声（`220`） |
 | `--disable-canvas-noise` | 只关 Canvas 2D 读回噪声，WebGL 等其它面不变 |
 
