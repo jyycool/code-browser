@@ -349,7 +349,7 @@ foreach ($t in 'anti-detect-browser','chromium','fingerprint','playwright','ungo
 & $gh @editArgs
 ```
 
-> `docs/RELEASING.md` is linked from `CONTRIBUTING.md` and listed in `AGENTS.md` — keep those pointers intact so this runbook stays discoverable.
+> `docs/en/RELEASING.md` is linked from `CONTRIBUTING.md` and listed in `AGENTS.md` — keep those pointers intact so this runbook stays discoverable.
 
 ---
 
@@ -371,7 +371,7 @@ sha256sum -c clearcote-151.0.7922.108-windows-x64.zip.sha256    # OK
 unzip -p clearcote-151.0.7922.108-windows-x64.zip chrome.exe | sha256sum   # matches chrome.exe in SHA256SUMS.txt
 ```
 
-Then run the **stealth-coherence gate** against the shipped binary on real Windows — it asserts the persona/farble layer doesn't betray itself (text metrics on the 1/512 grid, main thread == worker, BCR == Range, render bytes origin-invariant, WebGPU vendor coheres with WebGL). It must report **no contract violation** (no REQUIRED check failing = no regression; no `KNOWN_GAP` newly passing without being promoted). See [docs/STEALTH-COHERENCE.md](STEALTH-COHERENCE.md).
+Then run the **stealth-coherence gate** against the shipped binary on real Windows — it asserts the persona/farble layer doesn't betray itself (text metrics on the 1/512 grid, main thread == worker, BCR == Range, render bytes origin-invariant, WebGPU vendor coheres with WebGL). It must report **no contract violation** (no REQUIRED check failing = no regression; no `KNOWN_GAP` newly passing without being promoted). See [docs/en/STEALTH-COHERENCE.md](STEALTH-COHERENCE.md).
 
 ```powershell
 py -3 -m pip install playwright
@@ -388,7 +388,7 @@ Drop the `-pre.N` suffix and `--prerelease` only when **all** hold:
 
 - [ ] Built + signed + verified per §§4–8.
 - [ ] **Validated on real Windows** against CreepJS / BrowserScan / Pixelscan: same seed ⇒ stable fingerprint, different seeds differ, `navigator.webdriver=false`, canvas/WebGL/audio shift with the seed.
-- [ ] **Stealth-coherence gate passes** (`scripts/stealth_coherence.py`, or the "Stealth coherence" workflow): no REQUIRED check regressed, and any `KNOWN_GAP` that now passes has been promoted into `REQUIRED`. See [docs/STEALTH-COHERENCE.md](STEALTH-COHERENCE.md).
+- [ ] **Stealth-coherence gate passes** (`scripts/stealth_coherence.py`, or the "Stealth coherence" workflow): no REQUIRED check regressed, and any `KNOWN_GAP` that now passes has been promoted into `REQUIRED`. See [docs/en/STEALTH-COHERENCE.md](STEALTH-COHERENCE.md).
 - [ ] `config/args.gn` / `config/args.linux.gn` match the shipped binaries (§4).
 - [ ] Signing key rotated to a `clearcote`-named UID (§6) so verification output is on-brand.
 - [ ] The caveats that gated "pre-release" (§9) are genuinely resolved or explicitly accepted.

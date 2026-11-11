@@ -92,5 +92,5 @@ These are now `REQUIRED` — a regression fails the build.
   downloads + checksum-verifies the SDK-pinned `chrome.exe`
   (`scripts/fetch_release_binary.py`) and runs the gate against that exact build.
 
-Run it locally as part of `docs/RELEASING.md` before publishing, and it gates the
+Run it locally as part of `docs/en/RELEASING.md` before publishing, and it gates the
 pre-release → stable promotion.

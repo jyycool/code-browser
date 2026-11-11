@@ -25,7 +25,7 @@ clearcote renders canvas/WebGL on whatever GPU the host machine actually has. If
 profile claims a *different* GPU than the host, strict anti-detect / browser-tampering
 checks that compare the rendered pixels against the claimed hardware can notice the
 mismatch (you cannot make one GPU emit another GPU's exact pixels in software — see
-[docs/RESEARCH.md](RESEARCH.md)). The canvas bridge removes the mismatch: instead of
+[docs/en/RESEARCH.md](RESEARCH.md)). The canvas bridge removes the mismatch: instead of
 rendering locally and only spoofing the GPU *string*, it **forwards the canvas/WebGL
 operations to a remote browser that has the GPU you want to present**, and returns
 that browser's real pixels.

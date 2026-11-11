@@ -89,12 +89,12 @@ Load-bearing pins are **bold** — these actually select source / are trust anch
 - [ ] `sdk/python/pyproject.toml` `version` → bump
 
 **Docs / cosmetic:**
-- [ ] `docs/BUILDING.md` three pins + ungoogled commit SHA, prose
-- [ ] `docs/RELEASING.md` worked-example values; **fix the `149.*.manifest` grep guard**
+- [ ] `docs/en/BUILDING.md` three pins + ungoogled commit SHA, prose
+- [ ] `docs/en/RELEASING.md` worked-example values; **fix the `149.*.manifest` grep guard**
 - [ ] `README.md` — badge `Chromium-149`→`150`, status/tag, audit-table Build/UA/UA-CH (re-run CreepJS audit), asset name. *Note UA-CH minor ≠ build patch — refresh from the real 150 binary.*
 - [ ] `scripts/creepjs_audit.py` hardcoded `Build 149.0.7827.114` → read from `chrome/VERSION`/`UPSTREAM_REVISION` instead of hardcoding
 - [ ] `build.sh` stage banner `149`→`150` (cosmetic)
-- [ ] `docs/PATCHES.md`, `RESEARCH-DOSSIER.md`, `RESEARCH.md`, `patches/README.md` — re-verify regression assertions (TLS feature defaults, `time_clamper.h`, `ssl_client_socket_impl.cc` line numbers) against the 150 tree; `149`→`150`, port target becomes `142→150`
+- [ ] `docs/en/PATCHES.md`, `RESEARCH-DOSSIER.md`, `RESEARCH.md`, `patches/README.md` — re-verify regression assertions (TLS feature defaults, `time_clamper.h`, `ssl_client_socket_impl.cc` line numbers) against the 150 tree; `149`→`150`, port target becomes `142→150`
 
 ---
 
@@ -175,7 +175,7 @@ A clean build is **necessary but not sufficient** — Skia Graphite can silently
 1. **Build the artifact**, package via `05-package.sh` (confirm `150.*.manifest` in the zip).
 2. **Recompute trust anchors** from the *actual* 150 zip: `sha256` (zip), `exeSha256`/`exe_sha256` (chrome.exe inside), `size`. Never guess.
 3. **Update both SDKs** (`release.ts` + `release.py`) with new `tag`/`version`/`asset`/`url`/hashes; bump SDK package versions (`package.json` / `pyproject.toml`). Keep node and python byte-identical.
-4. **Follow `docs/RELEASING.md`** end-to-end; cut **`v0.1.x-pre.N`** for 150. The release tag is orthogonal to the Chromium version.
+4. **Follow `docs/en/RELEASING.md`** end-to-end; cut **`v0.1.x-pre.N`** for 150. The release tag is orthogonal to the Chromium version.
 5. **Run from the LOCAL Windows PC** for `gh`/`git push`/release upload. `$BOX` has no `gh`/token. **No self `Co-Authored-By` trailer** on commits/PRs.
 6. **Update the site** (`site/`): `llms.txt` + `llms-full.txt` + `app/` docs, and the repo README/docs, with the 150 features — for LLMs/agents AND humans.
 7. **Rollback:** **KEEP the previous (149) release published.** If 150 regresses (esp. a Graphite fingerprint leak that slips past validation), pin the SDKs back to the `149.0.7827.114` asset + its tag — a one-line revert in `release.ts`/`release.py`. Don't delete the 149 artifact.

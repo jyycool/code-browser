@@ -34,7 +34,7 @@ docker build -t clearcote-build .                                    # the build
 docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build linux     # -> chrome tar.xz
 docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build windows   # -> chrome.exe zip
 
-# verify against the release (see docs/VERIFY.md):
+# verify against the release (see docs/en/VERIFY.md):
 sha256sum -c out/clearcote-151.0.7922.108-linux-x64.tar.xz.sha256
 gpg --verify out/SHA256SUMS.txt.asc out/SHA256SUMS.txt   # against the release's SHA256SUMS.txt.asc
 ```

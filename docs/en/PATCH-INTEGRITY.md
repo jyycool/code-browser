@@ -67,7 +67,7 @@ what forces the standard to stay honest as patches are added:
    immediately after applying the series. A silent apply failure aborts the build *before any
    compilation*, not after a multi-hour build. (`CLEARCOTE_SKIP_PATCH_VERIFY=1` for local
    debugging only — never in a release build.)
-2. **Release time** — [`docs/RELEASING.md`](RELEASING.md) §11.0a runs the **full** gate
+2. **Release time** — [`docs/en/RELEASING.md`](RELEASING.md) §11.0a runs the **full** gate
    (`--tree` after `gen_patches.sh` regenerates `patches/`, **and** `--binary` against the
    staged `chrome.dll`) as a mandatory step. Layer 1 here proves the *committed* patch set
    reproduces the built tree; Layer 2 proves that tree's code is in the artifact being signed.
