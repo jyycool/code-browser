@@ -2,9 +2,9 @@ import inspect
 
 import pytest
 
-from clearcote import async_api
-from clearcote._humanize_async import attach_humanize, install_humanize
-from clearcote._isolated import DESCRIBE, HIT_IN_BOX
+from code_browser import async_api
+from code_browser._humanize_async import attach_humanize, install_humanize
+from code_browser._isolated import DESCRIBE, HIT_IN_BOX
 
 
 def test_async_surface_is_coroutines():
@@ -179,7 +179,7 @@ async def test_humanize_click_presses_after_gliding():
 
 
 async def test_humanize_typing_is_per_character_not_paste(monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
     page = _FakePage()
     await attach_humanize(None, page, humanize=True)
     await page.fill("#email", "abc")
@@ -305,7 +305,7 @@ class _ShiftKeyboard(_FakeKeyboard):
 def no_typos(monkeypatch):
     """These tests pin exact key sequences; a planned fat-finger slip (2 % per letter by default)
     would add its wrong key and Backspace to them."""
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
 
 
 async def test_humanize_types_capitals_and_symbols_behind_a_real_shift(no_typos):

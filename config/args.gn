@@ -1,4 +1,4 @@
-# Clearcote reference build configuration — Windows x64, cross-compiled on Linux.
+# CodeBrowser reference build configuration — Windows x64, cross-compiled on Linux.
 #
 # This is the effective build configuration used to produce the published pre-release
 # (v0.1.0-pre.25, Chromium 151; same flags and values as the build host's out/Default/args.gn; only ordering/comments
@@ -18,8 +18,8 @@ enable_mdns = true
 enable_remoting = false
 enable_reporting = false
 enable_service_discovery = false
-# Widevine EME *plumbing* only — clearcote does NOT bundle Google's proprietary CDM blob; the SDK
-# fetches it opt-in at runtime (see sdk/python/clearcote/_widevine.py). This makes
+# Widevine EME *plumbing* only — code-browser does NOT bundle Google's proprietary CDM blob; the SDK
+# fetches it opt-in at runtime (see sdk/python/code_browser/_widevine.py). This makes
 # requestMediaKeySystemAccess('com.widevine.alpha') resolvable instead of a no-Widevine tell.
 enable_widevine = true
 exclude_unwind_tables = true

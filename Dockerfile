@@ -1,4 +1,4 @@
-# Clearcote — reproducible build environment.
+# CodeBrowser — reproducible build environment.
 #
 # A pinned Ubuntu image with the base tools the build scripts need. It fetches the exact pinned
 # Chromium source, applies the same patch series, installs Chromium's own build deps + toolchain,
@@ -6,14 +6,14 @@
 # distributable archive as the published release, which you verify against SHA256SUMS.txt.
 #
 #   # build the image once (the build ENVIRONMENT, not the browser)
-#   docker build -t clearcote-build .
+#   docker build -t code-browser-build .
 #
 #   # then build a target (official ThinLTO build, many hours; needs ~32 GB RAM, ~120 GB disk). Artifacts land in ./out:
-#   docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build linux
-#   docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build windows
+#   docker run --rm -v "$PWD/out:/code-browser-build/dist" code-browser-build linux
+#   docker run --rm -v "$PWD/out:/code-browser-build/dist" code-browser-build windows
 #
 #   # verify (see docs/en/VERIFY.md):
-#   sha256sum -c out/clearcote-151.0.7922.108-linux-x64.tar.xz.sha256
+#   sha256sum -c out/code-browser-151.0.7922.108-linux-x64.tar.xz.sha256
 #
 # For byte-for-byte reproducibility pin the base image to a digest (see docs/en/BUILDING.md).
 FROM ubuntu:22.04
@@ -29,11 +29,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       sudo lsb-release file pkg-config \
  && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /clearcote
-COPY . /clearcote
+WORKDIR /code-browser
+COPY . /code-browser
 
 # The build scripts write everything (source tree, toolchains, dist) under $WORK.
-ENV WORK=/clearcote-build
+ENV WORK=/code-browser-build
 
-ENTRYPOINT ["/clearcote/build.sh"]
+ENTRYPOINT ["/code-browser/build.sh"]
 CMD ["windows"]

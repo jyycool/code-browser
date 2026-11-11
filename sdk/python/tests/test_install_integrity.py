@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from clearcote.download import (
+from code_browser.download import (
     MANIFEST,
     _cached,
     _scanned,
@@ -148,7 +148,7 @@ def test_error_message_for_caller_supplied_tree_does_not_promise_a_redownload(tm
     _base, browser = _tree(str(tmp_path))
     text = str(broken_install_error(browser, ["icudtl.dat — missing"], repairable=False))
     assert "re-download it" not in text
-    assert "CLEARCOTE_BINARY" in text
+    assert "CODE_BROWSER_BINARY" in text
 
 
 def test_many_problems_are_truncated(tmp_path):

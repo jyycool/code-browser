@@ -1,4 +1,4 @@
-from clearcote._humanize import CURSOR_OVERLAY, install_humanize
+from code_browser._humanize import CURSOR_OVERLAY, install_humanize
 
 
 def _fake_browser():
@@ -32,7 +32,7 @@ def test_install_wraps_when_show_cursor_on():
 def test_cursor_overlay_is_idempotent_iife():
     # runs as both an add_init_script source and via page.evaluate, so it must be a self-calling
     # IIFE guarded against double-injection.
-    assert "__clearcoteCursor" in CURSOR_OVERLAY
+    assert "__code_browserCursor" in CURSOR_OVERLAY
     body = CURSOR_OVERLAY.strip()
     assert body.startswith("(()") and body.endswith(")();")
 
@@ -72,8 +72,8 @@ class _SyncPage:
 
 
 def test_sync_typing_holds_shift_for_capitals_and_symbols(monkeypatch):
-    from clearcote._humanize import attach_humanize
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")   # an exact key sequence: no slips
+    from code_browser._humanize import attach_humanize
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")   # an exact key sequence: no slips
     page = _SyncPage()
     attach_humanize(None, page, humanize=True)
     page.keyboard.type("Hi!")
@@ -86,7 +86,7 @@ def test_sync_typing_holds_shift_for_capitals_and_symbols(monkeypatch):
 
 
 def test_needs_shift_is_the_us_layout():
-    from clearcote._humanize import _needs_shift
+    from code_browser._humanize import _needs_shift
     assert all(_needs_shift(c) for c in 'AZ~!@#$%^&*()_+{}|:"<>?')
     assert not any(_needs_shift(c) for c in "az09`-=[];',./ \t\\\u00f6")
 
@@ -123,7 +123,7 @@ class _ClickPage(_SyncPage):
 
 def test_click_fallback_reaches_playwright_once():
     # 0.21.0-0.31.1: the fallback helper called itself, so every fallback raised RecursionError.
-    from clearcote._humanize import attach_humanize
+    from code_browser._humanize import attach_humanize
     page = _ClickPage()
     attach_humanize(None, page, humanize=True)
     page.click("#b", timeout=1234)
@@ -152,11 +152,11 @@ class _SyncCtx:
 
 
 def _humanized(page):
-    return page.__dict__.get("_clearcote_humanized") is True
+    return page.__dict__.get("_code_browser_humanized") is True
 
 
 def test_sync_persistent_context_without_a_browser_attaches():
-    from clearcote._humanize import install_humanize_on_context
+    from code_browser._humanize import install_humanize_on_context
     first = _SyncPage()
     ctx = _SyncCtx([first])
     install_humanize_on_context(ctx, humanize=True, seed="persist")
@@ -169,7 +169,7 @@ def test_sync_persistent_context_without_a_browser_attaches():
 
 
 def test_sync_popup_of_the_implicit_context_of_browser_new_page_is_humanized():
-    from clearcote._humanize import install_humanize
+    from code_browser._humanize import install_humanize
     ctx = _SyncCtx()
 
     class _B:
@@ -194,7 +194,7 @@ def test_sync_popup_of_the_implicit_context_of_browser_new_page_is_humanized():
 
 
 def test_sync_native_select_args_translates_option_dicts():
-    from clearcote._humanize import native_select_args
+    from code_browser._humanize import native_select_args
     assert native_select_args("a", {"timeout": 5}) == ("a", {"timeout": 5})
     v, o = native_select_args([{"value": "v1"}, {"label": "L"}, {"index": 2}, "plain"], {"index": 0})
     assert v == ["v1", "plain"] and o == {"index": [0, 2], "label": ["L"]}

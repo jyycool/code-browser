@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { attached, protoCalls } from "./helpers/humanize-fake.js";
-import { ClearcoteStrictError, applyToPersona, humanizePayload, resolveHumanize } from "../src/hzoptions.js";
+import { CodeBrowserStrictError, applyToPersona, humanizePayload, resolveHumanize } from "../src/hzoptions.js";
 import { perCallOff } from "../src/humanize.js";
 import { clickHold, dblclickGap, dragDwell, hashSeed, keyDwell, makePersona, moveOffDelayMs, mulberry32, pauseMs } from "../src/motion.js";
 import { readPauseMs } from "../src/attention.js";
@@ -17,7 +17,7 @@ import { prepareLaunch } from "../src/cloud.js";
 const SLOW = 60_000;
 const here = dirname(fileURLToPath(import.meta.url));
 const PINS = JSON.parse(readFileSync(join(here, "..", "..", "testdata", "humanize_persona_pins.json"), "utf8"));
-const ENV = "CLEARCOTE_HUMANIZE_TYPO_RATE";
+const ENV = "CODE_BROWSER_HUMANIZE_TYPO_RATE";
 const saved = process.env[ENV];
 afterEach(() => {
   if (saved === undefined) delete process.env[ENV]; else process.env[ENV] = saved;
@@ -52,21 +52,21 @@ describe("the options object", () => {
     expect(() => resolveHumanize({ attention: "no" } as never)).toThrow(TypeError);
   });
 
-  it("ClearcoteStrictError is a Playwright-style Error with api, reason and selector", () => {
-    const e = new ClearcoteStrictError("page.click", "covered", "#b");
+  it("CodeBrowserStrictError is a Playwright-style Error with api, reason and selector", () => {
+    const e = new CodeBrowserStrictError("page.click", "covered", "#b");
     expect(e).toBeInstanceOf(Error);
-    expect(e).toMatchObject({ name: "ClearcoteStrictError", api: "page.click", reason: "covered", selector: "#b" });
+    expect(e).toMatchObject({ name: "CodeBrowserStrictError", api: "page.click", reason: "covered", selector: "#b" });
   });
 
   it("lands on the page and the persona as plain fields", async () => {
     const f = await attached({}, { ambient: "load", handedness: "left", deviceHz: 250, inputDevice: "trackpad", engine: "off" });
-    const p = f.page._clearcotePersona;
+    const p = f.page._code_browserPersona;
     expect([p.handedness, p.inputDevice, p.deviceHz, p.tempo]).toEqual(["left", "trackpad", 250, 1]);
-    expect(f.page._clearcoteAutoAmbient).toBe(true);
-    expect(f.page._clearcoteAmbient).toBe("load");
+    expect(f.page._code_browserAutoAmbient).toBe(true);
+    expect(f.page._code_browserAmbient).toBe("load");
     const g = await attached();
-    expect(g.page._clearcoteAutoAmbient).toBe(false);
-    expect(g.page._clearcoteAmbient).toBe("off");
+    expect(g.page._code_browserAutoAmbient).toBe(false);
+    expect(g.page._code_browserAmbient).toBe("off");
   });
 });
 
@@ -84,7 +84,7 @@ describe("fallback report and strict mode", () => {
   it("strict throws on a covered target and runs nothing", async () => {
     const f = await attached({ covered: true }, "strict");
     const err = await f.page.click("#btn").catch((e: any) => e);
-    expect(err).toBeInstanceOf(ClearcoteStrictError);
+    expect(err).toBeInstanceOf(CodeBrowserStrictError);
     expect(err.api).toBe("page.click");
     expect(String(err.message)).toMatch(/^page\.click: humanize strict/);
     expect(f.natives).toEqual([]);
@@ -94,7 +94,7 @@ describe("fallback report and strict mode", () => {
   it("strict throws on an option object the humane route cannot take", async () => {
     const f = await attached({ field: countryField() as never }, { strict: true });
     const err = await f.page.selectOption("#country", { value: "ger", label: "Germany" }).catch((e: any) => e);
-    expect(err).toBeInstanceOf(ClearcoteStrictError);
+    expect(err).toBeInstanceOf(CodeBrowserStrictError);
     expect(err.api).toBe("page.selectOption");
     expect(err.reason).toMatch(/option object/);
     expect(f.natives).toEqual([]);
@@ -103,7 +103,7 @@ describe("fallback report and strict mode", () => {
   it("strict throws on a frame locator, worded by the locator API", async () => {
     const f = await attached({}, "strict");
     const err = await f.page.locator("#fr >> internal:control=enter-frame >> #fi").fill("new").catch((e: any) => e);
-    expect(err).toBeInstanceOf(ClearcoteStrictError);
+    expect(err).toBeInstanceOf(CodeBrowserStrictError);
     expect(err.api).toBe("locator.fill");
     // lane F: a frame locator takes the frame route; strict throws when that route cannot run (the fake proves no point)
     expect(err.reason).toMatch(/^frame: /);
@@ -266,8 +266,8 @@ describe("same seed, same persona", () => {
       const f = await attached({}, h);
       // handedness fixes the SIGN of the drawn approach bias (integration of lanes A + B); the draw is unchanged
       const abs = (v: number[]) => v.map((x, i) => (BASE[i] === "approachBias" ? Math.abs(x) : x));
-      expect(abs(pick(f.page._clearcotePersona))).toEqual(abs(pick(makePersona("forms-unit"))));
-      if (typeof h === "object" && h.handedness === "right") expect(f.page._clearcotePersona.approachBias).toBeGreaterThanOrEqual(0);
+      expect(abs(pick(f.page._code_browserPersona))).toEqual(abs(pick(makePersona("forms-unit"))));
+      if (typeof h === "object" && h.handedness === "right") expect(f.page._code_browserPersona.approachBias).toBeGreaterThanOrEqual(0);
     }
   });
 });

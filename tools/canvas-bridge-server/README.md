@@ -9,7 +9,7 @@ It has two backends:
 
 | `--backend` | Renders on | Use when |
 |---|---|---|
-| `local` | a local headless clearcote (this host's GPU) | you have a real-GPU machine to render on |
+| `local` | a local headless code_browser (this host's GPU) | you have a real-GPU machine to render on |
 | `cdp` | **any browser you reach over CDP** | you want the canvas identity to be some *other* host's GPU — e.g. a real consumer GPU from a browser-hosting provider, or a browser on a spare PC |
 
 ## Run it
@@ -18,7 +18,7 @@ It has two backends:
 pip install playwright
 
 # A) render on this host's GPU
-python server.py --backend local --chrome /path/to/clearcote/chrome.exe --port 9099
+python server.py --backend local --chrome /path/to/code-browser/chrome.exe --port 9099
 
 # B) render on a browser you reach over the DevTools Protocol (bring your own host)
 python server.py --backend cdp --cdp-url 'ws(s)://<your-render-browser>/...' --port 9099
@@ -28,7 +28,7 @@ python server.py --backend cdp --cdp-url 'ws(s)://<your-render-browser>/...' --p
 |---|---|
 | `--backend` | `local` or `cdp` (default `local`). |
 | `--port` / `--host` | Where to listen (default `127.0.0.1:9099`). |
-| `--chrome` | `local`: path to the clearcote `chrome.exe`. |
+| `--chrome` | `local`: path to the code-browser `chrome.exe`. |
 | `--fingerprint` | `local`: optional persona seed for the render browser. |
 | `--cdp-url` | `cdp`: CDP/WebSocket endpoint of the render browser. |
 
@@ -40,7 +40,7 @@ Then point clients at it (over a private network or tunnel — see the
 [main doc](../../docs/en/CANVAS-BRIDGE.md)):
 
 ```
-clearcote --canvas-bridge-url=ws://<host>:9099 --no-sandbox --fingerprint=<seed>
+code-browser --canvas-bridge-url=ws://<host>:9099 --no-sandbox --fingerprint=<seed>
 ```
 
 ## Bringing your own CDP render host
@@ -62,7 +62,7 @@ environment; never hard-code them.
 
 ## How it works
 
-1. Speaks the clearcote bridge protocol (a compact little-endian binary message
+1. Speaks the code-browser bridge protocol (a compact little-endian binary message
    stream over a WebSocket).
 2. Buffers the Canvas2D / WebGL op stream per server-side canvas id.
 3. On a readback (`getImageData` / `toDataURL` / `readPixels`) or `measureText`,

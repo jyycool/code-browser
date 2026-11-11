@@ -40,7 +40,7 @@ import { ISO_SCROLLER } from "../src/scroll.js";
 
 import { SLOW, timeoutError, protoCalls, allExpressions, makeFake, attached, type Fake, type FakeOpts, type Field, type Box } from "./helpers/humanize-fake.js";
 
-const ENV = "CLEARCOTE_HUMANIZE_TYPO_RATE";
+const ENV = "CODE_BROWSER_HUMANIZE_TYPO_RATE";
 const savedRate = process.env[ENV];
 afterEach(() => {
   if (savedRate === undefined) delete process.env[ENV]; else process.env[ENV] = savedRate;
@@ -529,7 +529,7 @@ describe("one input action at a time per page", () => {
 });
 
 describe("typos", () => {
-  it("the rate comes from CLEARCOTE_HUMANIZE_TYPO_RATE at call time (default 0.02, 0 disables, clamped)", () => {
+  it("the rate comes from CODE_BROWSER_HUMANIZE_TYPO_RATE at call time (default 0.02, 0 disables, clamped)", () => {
     delete process.env[ENV];
     expect(typoRate()).toBe(0.02);
     for (const [v, want] of [["0", 0], ["0.35", 0.35], [" 0.5 ", 0.5], ["5", 1], ["-1", 0], ["junk", 0.02], ["", 0.02],
@@ -1060,7 +1060,7 @@ describe("label-aware checkbox aim", () => {
       "#lab": { tag: "label", type: "", control: "#cb", box: { x: 96, y: 96, width: 420, height: 24 }, textRect: { x: 124, y: 100, width: 110, height: 16 } },
     } as any });
     await attachHumanize({} as never, fk.page, { humanize: true, seed: "label-hit" });
-    (fk.page as any)._clearcotePersona.labelShare = 1; // this click: the label (the trait is not the question)
+    (fk.page as any)._code_browserPersona.labelShare = 1; // this click: the label (the trait is not the question)
     await fk.page.check("#cb");
     expect(fk.fields["#cb"].checked).toBe(true);
     expect(fk.of("label-click").length).toBe(1);
@@ -1082,7 +1082,7 @@ describe("label-aware checkbox aim", () => {
       "#lab": { tag: "label", type: "", control: "#cb", box: WRAP_LABEL, wraps: true, textRect },
     } as any });
     await attachHumanize({} as never, fk.page, { humanize: true, seed: "label-wrap" });
-    (fk.page as any)._clearcotePersona.labelShare = 1; // this click would be the label's
+    (fk.page as any)._code_browserPersona.labelShare = 1; // this click would be the label's
     await fk.page.check("#cb");
     expect(fk.fields["#cb"].checked).toBe(true);
     return fk;
@@ -1133,7 +1133,7 @@ describe("label draws: the seed fixes the trait, each click is unseeded", () => 
 
 describe("tap on a touch context", () => {
   it("raises in strict mode and sends nothing", async () => {
-    // strict through the real options object (lane A): ClearcoteStrictError names the reason
+    // strict through the real options object (lane A): CodeBrowserStrictError names the reason
     const f = makeFake({ field: { tag: "button", type: "" } });
     await attachHumanize({} as never, f.page, { humanize: "strict", seed: "forms-unit" });
     await expect(f.page.locator("#b").tap()).rejects.toThrow("tap is not humanized for touch contexts yet");
@@ -1143,8 +1143,8 @@ describe("tap on a touch context", () => {
   it("otherwise reports the fallback and clicks", async () => {
     const f = await attached({ field: { tag: "button", type: "" } });
     await f.page.locator("#b").tap();
-    expect(f.page._clearcoteLastFallback).toMatchObject({ api: "locator.tap", selector: "#b" });
-    expect(String(f.page._clearcoteLastFallback.reason)).toContain("not humanized for touch");
+    expect(f.page._code_browserLastFallback).toMatchObject({ api: "locator.tap", selector: "#b" });
+    expect(String(f.page._code_browserLastFallback.reason)).toContain("not humanized for touch");
     expect(f.of("down").length).toBe(1);
   }, SLOW);
 });
@@ -1155,7 +1155,7 @@ describe("frame locators take the frame route", () => {
     const loc: any = f.page.locator("#fr >> internal:control=enter-frame >> #x");
     await loc.fill("new");
     expect(protoCalls.map((c) => c.m)).toEqual(["fill"]);
-    expect(f.page._clearcoteLastFallback?.api).toBe("locator.fill");
+    expect(f.page._code_browserLastFallback?.api).toBe("locator.fill");
   });
 });
 
@@ -1254,9 +1254,9 @@ describe("lane D: Tab between fields, presses on buttons, focus / blur / selectT
         await drive(f.page.fill("#a", "some text"));
         await drive(f.page.focus("#b"));
         await drive(f.page.focus("#a"));
-        await drive((f.page as any)._clearcoteSelectText("#a"));
+        await drive((f.page as any)._code_browserSelectText("#a"));
         expect(f.of("press").some((e) => e.a.k === "Home") || f.of("up").some((e) => e.a.clickCount === 3), seed).toBe(true);
-        await drive((f.page as any)._clearcoteBlur("#a"));
+        await drive((f.page as any)._code_browserBlur("#a"));
         expect(f.natives, seed).toEqual([]);
       }
     } finally { vi.useRealTimers(); }

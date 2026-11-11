@@ -4,8 +4,8 @@ import urllib.request
 
 import pytest
 
-from clearcote import Server, serve
-from clearcote._serve import _parse_proxy
+from code_browser import Server, serve
+from code_browser._serve import _parse_proxy
 
 
 def test_parse_proxy():
@@ -24,10 +24,10 @@ def test_server_handle_urls():
     assert s.is_alive() is True
 
 
-@pytest.mark.skipif(not os.environ.get("CLEARCOTE_TEST_BINARY"),
-                    reason="set CLEARCOTE_TEST_BINARY to run the serve smoke test against a real binary")
+@pytest.mark.skipif(not os.environ.get("CODE_BROWSER_TEST_BINARY"),
+                    reason="set CODE_BROWSER_TEST_BINARY to run the serve smoke test against a real binary")
 def test_serve_smoke_stealthy():
-    srv = serve(executable_path=os.environ["CLEARCOTE_TEST_BINARY"], headless=True, quiet=True,
+    srv = serve(executable_path=os.environ["CODE_BROWSER_TEST_BINARY"], headless=True, quiet=True,
                 fingerprint="t", platform="windows",
                 args=["--no-sandbox", "--use-gl=angle", "--use-angle=swiftshader",
                       "--enable-unsafe-swiftshader"])

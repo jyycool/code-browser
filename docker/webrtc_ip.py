@@ -3,7 +3,7 @@
 With CC_WEBRTC_IP unset, the engine gathers no ICE candidates at all (not even a .local host candidate), with or
 without a proxy, which a regular Chrome never does. So when it is unset this fills it the way the SDKs' geoip fills
 ``webrtc_ip`` for a launch of their own: with the egress IP, looked up through CC_PROXY when one is set (the
-proxy's exit), else the container's own public address. The lookup is the SDK's own (clearcote.geoip: the same
+proxy's exit), else the container's own public address. The lookup is the SDK's own (code_browser.geoip: the same
 IP-echo services, CLEARCOTE_GEOIP_ECHO_URL and the same proxy handling), only the IP, not the region.
 
 * An explicit address is used as given.
@@ -49,8 +49,8 @@ def egress_ip(proxy, timeout):
     """The egress IP through ``proxy`` (a URL with its login, or None for this container's own address), by the
     SDK's geoip lookup, or None. Never raises."""
     try:
-        from clearcote import geoip
-        from clearcote._net import to_proxy_spec
+        from code_browser import geoip
+        from code_browser._net import to_proxy_spec
         spec = to_proxy_spec(proxy) if proxy else None
         return geoip._exit_ip(spec, time.monotonic() + timeout, True)
     except Exception:  # noqa: BLE001 -- an older SDK in the image, a bad proxy URL, no network: start without it
@@ -62,16 +62,16 @@ def resolve(raw, proxy, licensed, lookup=egress_ip, environ=None):
     exit", "own address", "off", or "lookup failed"."""
     action, value = plan(raw, proxy, licensed)
     if action == "use":
-        return value, "env", "[clearcote] WebRTC IP: %s (CC_WEBRTC_IP)" % value
+        return value, "env", "[code-browser] WebRTC IP: %s (CC_WEBRTC_IP)" % value
     if action == "off":
-        return None, "off", "[clearcote] WebRTC IP: none (%s); the browser reports no ICE candidates" % value
+        return None, "off", "[code-browser] WebRTC IP: none (%s); the browser reports no ICE candidates" % value
     timeout = lookup_timeout(environ)
     ip = lookup(proxy, timeout)
     if not ip:
-        return None, "lookup failed", ("[clearcote] WARNING: WebRTC IP: could not look up the %s within %g s; "
+        return None, "lookup failed", ("[code-browser] WARNING: WebRTC IP: could not look up the %s within %g s; "
                                        "starting without one (the browser reports no ICE candidates). Set "
                                        "CC_WEBRTC_IP to choose it." % ("proxy's exit IP" if proxy else
                                                                        "container's public IP", timeout))
     source = "proxy exit" if proxy else "own address"
-    return ip, source, "[clearcote] WebRTC IP: %s (%s, looked up at start; set CC_WEBRTC_IP to choose it)" % (
+    return ip, source, "[code-browser] WebRTC IP: %s (%s, looked up at start; set CC_WEBRTC_IP to choose it)" % (
         ip, "the proxy's exit" if proxy else "this container's public address")

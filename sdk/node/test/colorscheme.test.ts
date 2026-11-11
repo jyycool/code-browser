@@ -44,7 +44,7 @@ import { COLOR_SCHEME_SWITCH, defaultColorScheme, engineDecidesColorScheme, inst
 
 let dir: string;
 const saved: Record<string, string | undefined> = {};
-const ENV = ["HOME", "USERPROFILE", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD"];
+const ENV = ["HOME", "USERPROFILE", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD"];
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cc-colorscheme-"));

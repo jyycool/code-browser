@@ -16,7 +16,7 @@ import math
 import os
 import statistics
 
-from clearcote._motion import make_persona, mulberry32, plan_move
+from code_browser._motion import make_persona, mulberry32, plan_move
 
 IDS = ["ha-1", "ha-2", "ha-3", "ha-4", "ha-5", "ha-6"]
 # SC 209 fixture targets: centre x, centre y, width, height
@@ -129,7 +129,7 @@ def test_aimed_moves_overshoot_and_come_back_in_15_to_40_percent():
 
 
 def test_overshoot_rate_is_a_per_persona_trait():
-    from clearcote._motion import shape_traits
+    from code_browser._motion import shape_traits
     for pid in IDS:
         p = make_persona(pid)
         rate = shape_traits(p).overshoot_rate
@@ -215,7 +215,7 @@ def test_a_move_with_the_button_held_is_planned_as_a_drag():
 # --- shared vectors: Python, Node and .NET plan the same path -------------------------------------
 
 def test_shared_motion_vectors():
-    from clearcote._motion import shape_traits
+    from code_browser._motion import shape_traits
     with open(VECTORS, encoding="utf-8") as f:
         vec = json.load(f)
     for t in vec["shape_traits"]:

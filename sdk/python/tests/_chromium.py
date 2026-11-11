@@ -1,7 +1,7 @@
 """A real Chromium with a CDP endpoint, for the cloud tests that must talk to an actual browser.
 
 The hosted API hands the SDK a CDP WebSocket URL; these tests stand a local Chromium in for the
-hosted one. Which binary: ``CLEARCOTE_TEST_BINARY`` (a Clearcote build, as the serve smoke tests
+hosted one. Which binary: ``CODE_BROWSER_TEST_BINARY`` (a CodeBrowser build, as the serve smoke tests
 use), else Playwright's own Chromium if one is installed. Neither -> the tests skip.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ import time
 
 
 def find_chromium():
-    env = os.environ.get("CLEARCOTE_TEST_BINARY")
+    env = os.environ.get("CODE_BROWSER_TEST_BINARY")
     if env and os.path.exists(env):
         return env
     # Any Chromium Playwright has downloaded (the newest), not just the one this Playwright pins:

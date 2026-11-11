@@ -1,8 +1,8 @@
-# clearcote — Complete Research Dossier
+# code-browser — Complete Research Dossier
 
 *A 100% open-source, reproducible anti-detect / fingerprint-hardened Chromium. Target: Windows x64, cross-compiled on a Linux box. This document consolidates all research conducted to date.*
 
-- **Repo:** github.com/clearcotelabs/clearcote-browser
+- **Repo:** github.com/jyycool/code-browser
 - **Base:** ungoogled-chromium 149.0.7827.114 (de-Googled) + adryfish/fingerprint-chromium patches (engine-level spoofing)
 - **Build host:** a dedicated Linux box (8 vCPU / 32 GB RAM + 16 GB swap / ~640 GB disk, Ubuntu 22.04) that cross-compiles the Windows binary
 - **Companion docs:** `RESEARCH.md` (landscape synthesis), `PATCHES.md` (file-level stealth-patch manifest)
@@ -11,7 +11,7 @@
 
 ## 0. Executive summary
 
-clearcote is built on the exact same foundation the commercial anti-detect Chromium forks use, but ships **100% open and reproducible** — no proprietary binary. The foundation is:
+code-browser is built on the exact same foundation the commercial anti-detect Chromium forks use, but ships **100% open and reproducible** — no proprietary binary. The foundation is:
 
 ```
 Chromium (Google)
@@ -20,11 +20,11 @@ ungoogled-chromium  ── de-Google: strips Google services/telemetry, build wi
         │
 adryfish/fingerprint-chromium  ── C++ source patches: canvas/WebGL/audio/fonts/WebRTC/UA spoofing
         │
-clearcote-native upgrades  ── per-eTLD+1 farbling coherence, TLS group-table version pinning,
+code-browser-native upgrades  ── per-eTLD+1 farbling coherence, TLS group-table version pinning,
                               QUIC/STUN-over-SOCKS5, full de-Google, engine-level humanize
 ```
 
-The single most important design insight from the research: **a good fingerprint is not random and not static — it is per-eTLD+1 deterministic and internally coherent.** Every stealth fork except Brave gets this wrong (they use one global seed, which is itself a cross-site linking supercookie). clearcote adopts Brave's farbling model as its core.
+The single most important design insight from the research: **a good fingerprint is not random and not static — it is per-eTLD+1 deterministic and internally coherent.** Every stealth fork except Brave gets this wrong (they use one global seed, which is itself a cross-site linking supercookie). code-browser adopts Brave's farbling model as its core.
 
 ---
 
@@ -34,7 +34,7 @@ The commercial forks (CloakBrowser, ChromiumFish) market "42/49/57 source-level 
 
 - **CloakBrowser** — patched Chromium, closed binary. README claims 42→57 patches, humanize, geoip, persistent profiles, TLS match.
 - **ChromiumFish** (arman-bd) — patched Chromium, closed binary, but publishes select example patches + pins `UPSTREAM_REVISION`. Best public TLS + persona-seed patches.
-- **The open base both imitate** = **`adryfish/fingerprint-chromium`** (a Chinese project) "a fingerprint browser based on Ungoogled Chromium." This is clearcote's real starting point.
+- **The open base both imitate** = **`adryfish/fingerprint-chromium`** (a Chinese project) "a fingerprint browser based on Ungoogled Chromium." This is code-browser's real starting point.
 
 ### adryfish delayed-source policy (critical operational fact)
 adryfish's **main branch has no patches**. Source ships in **git tags**, released **~1 month after** the binary. Available source tags: `129, 130, 131, 132, 133, 134, 135, 136, 138, 139, 142, 144`. The **newest published source is `142.0.7444.175`** — the 144 binary is out but its source is not. Each tag is a **full ungoogled-chromium source tree**, not standalone `.patch` files, so the port is *diff(adryfish-142-tree vs vanilla 142) → replay onto 149*.
@@ -47,11 +47,11 @@ adryfish's **main branch has no patches**. Source ships in **git tags**, release
 
 All cloned to the box under `~/research/`.
 
-| Repo | Engine | Approach | Open? | Key takeaway for clearcote |
+| Repo | Engine | Approach | Open? | Key takeaway for code-browser |
 |---|---|---|---|---|
 | **brave-core** | Chromium | per-site **farbling** | ✅ full | The correct randomization model: per-eTLD+1 deterministic |
 | **cromite** | Chromium | Brave farbling on ungoogled-style base | ✅ full | The exact port pattern + academic FP papers |
-| **fingerprint-chromium** (adryfish) | Chromium | seed→fingerprint on ungoogled | ⚠️ tags | clearcote's base spoofing layer |
+| **fingerprint-chromium** (adryfish) | Chromium | seed→fingerprint on ungoogled | ⚠️ tags | code-browser's base spoofing layer |
 | **ungoogled-chromium-149** | Chromium | de-Google + build wiring | ✅ full | The base (149.0.7827.114) |
 | **CloakBrowser** | Chromium | patches + humanize + geoip | ❌ binary | Humanize presets, geoip, persistent-profile UX |
 | **chromiumfish** | Chromium | engine patches + persona + TLS | ⚠️ patches | TLS pinning, persona-seed plumbing, canvas bridge |
@@ -66,14 +66,14 @@ All cloned to the box under `~/research/`.
 | **SeleniumBase** | — | automation framework + evasion | ✅ | Baseline detection vectors |
 | **undetected-chromedriver** | — | flag/artifact scrub | ✅ | Classic detection vectors |
 
-**Two camps:** *engine-level forks* (clearcote's category — top rows = the blueprint) and *client-side/CDP patchers* (bottom rows = the catalogue of detection vectors to neutralize in-engine).
+**Two camps:** *engine-level forks* (code-browser's category — top rows = the blueprint) and *client-side/CDP patchers* (bottom rows = the catalogue of detection vectors to neutralize in-engine).
 
 ---
 
 ## 3. The core thesis: engine-level + per-eTLD+1 coherence
 
 ### 3.1 Engine-level, never JavaScript
-Every serious fork agrees: spoof in the C++ engine, never via injected JS. JS shims (`playwright-stealth`, `puppeteer-extra`, `undetected-chromedriver`) leave tamper marks exactly where fingerprinting auditors look — and break on every Chrome update. adryfish (clearcote's base) already patches at the C++ level.
+Every serious fork agrees: spoof in the C++ engine, never via injected JS. JS shims (`playwright-stealth`, `puppeteer-extra`, `undetected-chromedriver`) leave tamper marks exactly where fingerprinting auditors look — and break on every Chrome update. adryfish (code-browser's base) already patches at the C++ level.
 
 ### 3.2 Per-eTLD+1 deterministic coherence (the key upgrade)
 Brave's **farbling** derives every semi-identifying value from a `(session_token × eTLD+1)` seed, so:
@@ -83,7 +83,7 @@ Brave's **farbling** derives every semi-identifying value from a `(session_token
 
 Evidence in `brave-core`: a dedicated `components/brave_shields/content/browser/brave_farbling_service.cc` plus per-surface browsertests under `browser/farbling/` — canvas, audio, webgl, **webgpu**, screen, plugins, useragent, languages, hardwareConcurrency, deviceMemory, speech-synthesis, USB, enumerateDevices.
 
-**Why it matters:** CloakBrowser / ChromiumFish / adryfish all use a **single global `--fingerprint` seed** → every site sees the same canvas → cross-site linkable. Adopting Brave's per-eTLD+1 model is clearcote's single biggest correctness advantage, and nobody in the *stealth* niche has done it.
+**Why it matters:** CloakBrowser / ChromiumFish / adryfish all use a **single global `--fingerprint` seed** → every site sees the same canvas → cross-site linkable. Adopting Brave's per-eTLD+1 model is code-browser's single biggest correctness advantage, and nobody in the *stealth* niche has done it.
 
 ### 3.3 Internal (vertical) coherence
 Every surface must describe **one plausible real machine**, and that machine must match the **actual render backend the binary ships with**. A WebGL renderer string cannot coexist with a contradictory `MAX_TEXTURE_SIZE`, an off-distribution `hardwareConcurrency + deviceMemory`, a Berlin geolocation under a New York timezone, or — the strongest GPU tell — a `readPixels` hash that came from a different GPU than the renderer string claims. Surfaces are drawn **tier-first** from curated real-device distributions, never independently randomized.
@@ -92,9 +92,9 @@ Every surface must describe **one plausible real machine**, and that machine mus
 
 ## 4. Detection-surface matrix
 
-✅ covered by adryfish base · ➕ clearcote adds/upgrades · ★ differentiator
+✅ covered by adryfish base · ➕ code-browser adds/upgrades · ★ differentiator
 
-| Surface | adryfish base | Best reference | clearcote action |
+| Surface | adryfish base | Best reference | code-browser action |
 |---|:-:|---|---|
 | UA + full Client Hints | ✅ | Camoufox navigator | keep, enforce congruence |
 | navigator.webdriver / cdc_ scrub | ✅ | BotBrowser removeHeadless | keep + audit |
@@ -123,14 +123,14 @@ Every surface must describe **one plausible real machine**, and that machine mus
 ## 5. Per-fork deep findings
 
 ### 5.1 Brave (the farbling gold standard)
-Dedicated farbling service + per-surface browsertests; deterministic per-eTLD+1, per-session seed. The canonical open implementation of "randomize, don't block." This is the model clearcote's L0 seed engine copies.
+Dedicated farbling service + per-surface browsertests; deterministic per-eTLD+1, per-session seed. The canonical open implementation of "randomize, don't block." This is the model code-browser's L0 seed engine copies.
 
 ### 5.2 ChromiumFish (best public TLS + persona)
 - `persona-seed.patch` — shows the exact plumbing: `--persona-seed` forwarded to every renderer via `kSwitchNames[]` in `render_process_host_impl.cc`, read by `fingerprint_profile.cc DeriveFromSeed`.
 - `tls-fingerprint.patch` — the most instructive network patch found (see §6).
 - **Canvas Bridge** — an *optional* render service on a real Windows GPU; the headless Linux browser routes canvas/WebGL reads to it for genuine hardware results. The strongest answer to "SwiftShader gives you away." None of the others have it.
 - Pins `UPSTREAM_REVISION` for reproducibility.
-- **Its own published audit caught it phoning Google** (component updater + GCM push on port 5228) — a real privacy gap clearcote can beat.
+- **Its own published audit caught it phoning Google** (component updater + GCM push on port 5228) — a real privacy gap code-browser can beat.
 
 ### 5.3 BotBrowser (different model worth stealing from)
 Mostly proprietary (only the GUI launcher + example patches open: `webglAttrs.diff`, `timezone.diff`, `removeHeadless.diff`, `video_capture_device_descriptor.cc.diff`). Its open architecture docs reveal:
@@ -140,10 +140,10 @@ Mostly proprietary (only the GUI launcher + example patches open: `webglAttrs.di
 - Port protection (localhost service scanning defense).
 
 ### 5.4 Camoufox (the surface breadth reference)
-Firefox fork, but the **most complete open spoofing surface list**: anti-font-fingerprinting, audio-context + audio-fingerprint-manager, fingerprint-injection, font-hijacker, font-list + system-ui-font, geolocation, locale, media-device, navigator, screen, timezone, voice/speech-voices, webgl, webrtc-ip, shadow-root-bypass. Config schema `additions/camoucfg/MaskConfig.hpp` (`webGl:parameters`, `voices`, `humanize:minTime/maxTime`, ranges with `precision`) is a good model for clearcote's config.
+Firefox fork, but the **most complete open spoofing surface list**: anti-font-fingerprinting, audio-context + audio-fingerprint-manager, fingerprint-injection, font-hijacker, font-list + system-ui-font, geolocation, locale, media-device, navigator, screen, timezone, voice/speech-voices, webgl, webrtc-ip, shadow-root-bypass. Config schema `additions/camoucfg/MaskConfig.hpp` (`webGl:parameters`, `voices`, `humanize:minTime/maxTime`, ranges with `precision`) is a good model for code-browser's config.
 
 ### 5.5 Cromite
-ungoogled-style Chromium that pulls Brave-derived fingerprint mitigations as standalone patches (`build/patches/*fingerprint*`, `Multiple-fingerprinting-mitigations.patch`) — proves the Brave-onto-ungoogled port pattern clearcote needs. Also ships `docs/Papers/` — the academic fingerprinting literature underpinning all of this.
+ungoogled-style Chromium that pulls Brave-derived fingerprint mitigations as standalone patches (`build/patches/*fingerprint*`, `Multiple-fingerprinting-mitigations.patch`) — proves the Brave-onto-ungoogled port pattern code-browser needs. Also ships `docs/Papers/` — the academic fingerprinting literature underpinning all of this.
 
 ---
 
@@ -151,7 +151,7 @@ ungoogled-style Chromium that pulls Brave-derived fingerprint mitigations as sta
 
 ChromiumFish's `tls-fingerprint.patch` touches `net/base/features.cc` (`kTlsMldsaSignatures`) and `net/socket/ssl_client_socket_impl.cc`. Original RESEARCH.md framing was: "149 adds ML-DSA sigalgs `0x904–0x906`; disable them so the ClientHello matches an older Chrome."
 
-**Grounded correction (verified against the stock 149 tree):** `kTlsMldsaSignatures` **and** `kTLSTrustAnchorIDs` are **already `FEATURE_DISABLED_BY_DEFAULT` in stock 149**. So a stock 149 build's JA4 already matches a real Chrome 149 — the "1-bit not-real-148 tell" framing was backwards. The genuine TLS work for clearcote is:
+**Grounded correction (verified against the stock 149 tree):** `kTlsMldsaSignatures` **and** `kTLSTrustAnchorIDs` are **already `FEATURE_DISABLED_BY_DEFAULT` in stock 149**. So a stock 149 build's JA4 already matches a real Chrome 149 — the "1-bit not-real-148 tell" framing was backwards. The genuine TLS work for code-browser is:
 - a **version-selectable `supported_groups` / `key_share` table coordinated with the UA generator** (so the ClientHello matches the *advertised* Chrome version), and
 - **regression assertions** that the adryfish port didn't accidentally toggle the PQ sigalgs on (do NOT hardcode the classical branch — that desyncs from a server-triggered PQ handshake a real 149 completes).
 
@@ -163,7 +163,7 @@ This is the kind of correction that only comes from reading the actual source, n
 
 66 candidate patches across 10 domains, organized in **3 layers**:
 
-- **L0 — farbling-core + persona engine** (P0): `--clearcote-seed` root → per-eTLD+1 token → `FingerprintProfile` persona struct (UA/screen/HW/GPU drawn tier-first from real clusters). Two readers, one root. Everything resolves through `SessionCache::From(context)` / `fingerprinting::Current()`.
+- **L0 — farbling-core + persona engine** (P0): `--code-browser-seed` root → per-eTLD+1 token → `FingerprintProfile` persona struct (UA/screen/HW/GPU drawn tier-first from real clusters). Two readers, one root. Everything resolves through `SessionCache::From(context)` / `fingerprinting::Current()`.
 - **L1 — adryfish 142→149 base port**: baseline spoofing; its single global seed is **upgraded to per-eTLD+1**, not double-patched. An audit gate with a **build-time `static_assert`** fails compilation if any surface still reads the global seed.
 - **L2 — per-surface patches**: canvas/webgl/webgpu/audio/fonts/navigator/screen/TLS/webrtc/geo-media/sensors/timing/de-google/humanize.
 
@@ -193,7 +193,7 @@ P0 = seed + persona + GPU resolution + coherence + version-freeze + TLS group ta
 ### 8.2 Source preparation (done)
 1. Provisioned box: 16 GB swap (Chromium link is RAM-hungry), build-essential, depot_tools.
 2. Downloaded + hash-verified Chromium 149 source (1.5 GB lite tarball → 9.7 GB unpacked).
-3. `prune_binaries.py` → `patches.py apply` (111 ungoogled patches) → `domain_substitution.py` → vanilla ungoogled-149 tree at `~/clearcoat/build/src` (7.9 GB).
+3. `prune_binaries.py` → `patches.py apply` (111 ungoogled patches) → `domain_substitution.py` → vanilla ungoogled-149 tree at `~/code-browser/build/src` (7.9 GB).
 
 ### 8.3 Toolchain gotchas encountered & solved (Linux host)
 - **Domain substitution breaks toolchain download URLs.** ungoogled obfuscates Google domains in source — including in `tools/clang/scripts/update.py` (`commondatastorage.googleapis.com` → `commondatastorage.9oo91eapis.qjz9zk`). Fix: revert domain substitution, fetch toolchain against real URLs (clang/rust/sysroot), then build. (Re-apply domain sub later in the de-Google hardening pass.)
@@ -204,7 +204,7 @@ P0 = seed + persona + GPU resolution + coherence + version-freeze + TLS group ta
 ### 8.4 Windows cross-compile approach (in progress)
 Cross-compiling Chromium for Windows on Linux uses **clang-cl + lld-link** (already in the tree) but needs the **MSVC + Windows SDK** headers/libs. Chromium's official path packages them from a Windows machine (`package_from_installed.py`) — ruled out (SSH-only, local PC inadequate).
 
-**Solution: `xwin`** — downloads Microsoft's official Windows 11 SDK + CRT directly from MS's CDN (license accepted) onto the Linux box, no Windows machine needed. **Done: 630 MB SDK/CRT splatted to `~/clearcoat/winsdk`.**
+**Solution: `xwin`** — downloads Microsoft's official Windows 11 SDK + CRT directly from MS's CDN (license accepted) onto the Linux box, no Windows machine needed. **Done: 630 MB SDK/CRT splatted to `~/code-browser/winsdk`.**
 
 **Remaining wiring:** Chromium (with `DEPOT_TOOLS_WIN_TOOLCHAIN=0`) reads `GYP_MSVS_OVERRIDE_PATH` + `WINDOWSSDKDIR`, and for cross-builds loads include/lib paths from a `win_sdk/bin/SetEnv.x64.json` (normally produced by `package_from_installed.py`). xwin's flat sysroot must be mapped into that `package_from_installed`-style layout:
 - xwin `crt/{include,lib/x86_64}` → `VC/Tools/MSVC/<ver>/{include,lib/x64}`
@@ -237,7 +237,7 @@ ffmpeg_branding="Chrome"
 4. **Immediate next step:** finish the xwin→gn Windows wiring → first `chrome.exe` cross-build → verify Playwright drives it via `executablePath` (the hard drop-in requirement) → then layer adryfish 142→149 → then PATCHES.md P0.
 
 ### Required end-state: Playwright drop-in (hard requirement)
-clearcote must work exactly like CloakBrowser: a `launch()` returning a standard Playwright `Browser`, plus raw `chromium.launch(executablePath=...)`. Python + JS SDKs that fetch → verify (SHA-256) → cache → launch. Reproducible build + Sigstore/cosign attestation = the "100% open + verifiable" trust differentiator.
+code-browser must work exactly like CloakBrowser: a `launch()` returning a standard Playwright `Browser`, plus raw `chromium.launch(executablePath=...)`. Python + JS SDKs that fetch → verify (SHA-256) → cache → launch. Reproducible build + Sigstore/cosign attestation = the "100% open + verifiable" trust differentiator.
 
 ---
 
@@ -249,12 +249,12 @@ clearcote must work exactly like CloakBrowser: a `launch()` returning a standard
                             camoufox, invisible_playwright, kameleo,
                             undetectable-fingerprint-browser, rebrowser-patches,
                             patchright-python, nodriver, SeleniumBase, undetected-chromedriver)
-~/clearcoat/build/src       vanilla ungoogled-149 source tree (pruned, patched)
-~/clearcoat/build/src/out/Release/gn_build/gn   in-tree-built gn binary
-~/clearcoat/winsdk          xwin: Windows 11 SDK + CRT (630 MB)
-~/clearcoat/bin/            gn, xwin
-~/clearcoat/logs/           build/toolchain logs + status files
-~/clearcoat/*.sh            prepare/toolchain build scripts
+~/code-browser/build/src       vanilla ungoogled-149 source tree (pruned, patched)
+~/code-browser/build/src/out/Release/gn_build/gn   in-tree-built gn binary
+~/code-browser/winsdk          xwin: Windows 11 SDK + CRT (630 MB)
+~/code-browser/bin/            gn, xwin
+~/code-browser/logs/           build/toolchain logs + status files
+~/code-browser/*.sh            prepare/toolchain build scripts
 ~/depot_tools/              depot_tools (gn/ninja wrappers unusable as root; use in-tree gn)
 ```
 

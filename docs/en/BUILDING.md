@@ -1,8 +1,8 @@
-# Building Clearcote from source
+# Building CodeBrowser from source
 
-Clearcote is meant to be rebuilt by anyone with a capable Linux box. This guide reproduces the published **Windows x64** (cross-compiled) and **Linux x64** (native) binaries on a Linux host — no Windows machine required. The easiest path is the pinned **[Docker build](#the-container-path--recommended--same-environment-for-everyone)** below. **You should be able to produce a binary yourself and confirm it matches a published release** (see the reproducibility note at the end).
+CodeBrowser is meant to be rebuilt by anyone with a capable Linux box. This guide reproduces the published **Windows x64** (cross-compiled) and **Linux x64** (native) binaries on a Linux host — no Windows machine required. The easiest path is the pinned **[Docker build](#the-container-path--recommended--same-environment-for-everyone)** below. **You should be able to produce a binary yourself and confirm it matches a published release** (see the reproducibility note at the end).
 
-> Clearcote = Chromium → ungoogled-chromium (de-Google) → Windows overlay + Clearcote fingerprint patches → cross-build. Every layer is open and pinned.
+> CodeBrowser = Chromium → ungoogled-chromium (de-Google) → Windows overlay + CodeBrowser fingerprint patches → cross-build. Every layer is open and pinned.
 
 ## Pinned versions (what this release was built from)
 
@@ -20,31 +20,31 @@ Clearcote is meant to be rebuilt by anyone with a capable Linux box. This guide 
 
 - 64-bit Linux host. **~32 GB RAM** (the official ThinLTO link of the Windows target peaks at ~31 GB; a large swap file helps), **~120 GB free disk**, a many-core CPU, and **a long time**: since 151 the build is official, and the Windows cross ThinLTO build takes ~12 h on 8 cores.
 - `git`, `python3`, `curl`, `ninja`, `zip`, and **`ciopfs`** (case-insensitive FUSE, for the MSVC headers). The rest of Chromium's system build packages are installed by `scripts/02` via `build/install-build-deps.py` (Debian/Ubuntu; run as root or with sudo — other distros: install the equivalents).
-- No system MSVC and no Windows machine — the toolchain is assembled from Microsoft's redistributable SDK packages via `xwin` (you accept Microsoft's license when xwin downloads them; Clearcote ships none of them).
+- No system MSVC and no Windows machine — the toolchain is assembled from Microsoft's redistributable SDK packages via `xwin` (you accept Microsoft's license when xwin downloads them; CodeBrowser ships none of them).
 
 ## The container path (recommended — same environment for everyone)
 
 The most reproducible way is to build inside the pinned [`Dockerfile`](../../Dockerfile), so the OS + tools are identical to what we build with — you only need Docker (+ RAM/disk/time):
 
 ```bash
-git clone https://github.com/clearcotelabs/clearcote-browser.git && cd clearcote-browser
-docker build -t clearcote-build .                                    # the build environment (fast)
+git clone https://github.com/jyycool/code-browser.git && cd code-browser-browser
+docker build -t code-browser-build .                                    # the build environment (fast)
 
 # then build a target — many hours (official ThinLTO); ~32 GB RAM, ~120 GB disk. Artifacts land in ./out:
-docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build linux     # -> chrome tar.xz
-docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build windows   # -> chrome.exe zip
+docker run --rm -v "$PWD/out:/code-browser-build/dist" code-browser-build linux     # -> chrome tar.xz
+docker run --rm -v "$PWD/out:/code-browser-build/dist" code-browser-build windows   # -> chrome.exe zip
 
 # verify against the release (see docs/en/VERIFY.md):
-sha256sum -c out/clearcote-151.0.7922.108-linux-x64.tar.xz.sha256
+sha256sum -c out/code-browser-151.0.7922.108-linux-x64.tar.xz.sha256
 gpg --verify out/SHA256SUMS.txt.asc out/SHA256SUMS.txt   # against the release's SHA256SUMS.txt.asc
 ```
 
 ## The fast path (scripted, on a bare Linux host)
 
 ```bash
-git clone https://github.com/clearcotelabs/clearcote-browser.git
-cd clearcote-browser
-WORK=~/clearcote-build ./build.sh linux       # or: ./build.sh windows   (default is windows)
+git clone https://github.com/jyycool/code-browser.git
+cd code-browser-browser
+WORK=~/code-browser-build ./build.sh linux       # or: ./build.sh windows   (default is windows)
 ```
 
 [`build.sh`](../../build.sh) takes the target OS (`windows` | `linux`) and runs the stages below in order, dropping the packaged archive in `$WORK/dist`. Every stage reads `$TARGET`, so you can also run them individually from [`scripts/`](../../scripts):
@@ -52,7 +52,7 @@ WORK=~/clearcote-build ./build.sh linux       # or: ./build.sh windows   (defaul
 | Stage | Script | What it does |
 |---|---|---|
 | 00 | `scripts/00-fetch-source.sh` | clone the pinned ungoogled tooling, retrieve + unpack Chromium 151, prune binaries |
-| 01 | `scripts/01-apply-patches.sh` | apply the patch series (ungoogled base + windows overlay + Clearcote set) — the **same tree for both targets**: since 150 one patched tree builds the Windows and the Linux binary |
+| 01 | `scripts/01-apply-patches.sh` | apply the patch series (ungoogled base + windows overlay + CodeBrowser set) — the **same tree for both targets**: since 150 one patched tree builds the Windows and the Linux binary |
 | 02 | `scripts/02-host-toolchain.sh` | fetch clang/rust/sysroot/node; build `gn` from in-tree source (both targets) |
 | 03 | `scripts/03-windows-sdk.sh` | **Windows only** — xwin → assemble the `package_from_installed`-style Windows SDK/CRT sysroot |
 | 04 | `scripts/04-configure-build.sh` | fetch the Windows PGO profile (Windows only), copy `config/args.gn` (Win) or `config/args.linux.gn` (Linux), `gn gen`, `ninja` (Linux also builds `chrome_sandbox` + `chrome_crashpad_handler`) |
@@ -68,11 +68,11 @@ The identity/privacy behavior is defined **entirely by the patch set** — read 
 
 1. **ungoogled-chromium base patches** — removes Google integration/telemetry (`utils/patches.py apply`).
 2. **ungoogled-chromium-windows overlay** — the Windows-specific patches. Applied for the Linux target too: the released Linux binary is built from the same tree, and `905-rc-invoked-guard` expects the overlay's `chrome_command_ids.h`.
-3. **Clearcote fingerprint patches** — engine-level canvas/WebGL/audio/UA/fonts/etc. spoofing, in [`patches/`](../../patches), listed in `patches/series`. See [PATCHES.md](PATCHES.md).
+3. **CodeBrowser fingerprint patches** — engine-level canvas/WebGL/audio/UA/fonts/etc. spoofing, in [`patches/`](../../patches), listed in `patches/series`. See [PATCHES.md](PATCHES.md).
 
 `scripts/01-apply-patches.sh` applies them with the ungoogled patch tooling. Every patch is a plain unified diff against the pinned revision.
 
-> **Domain substitution** (ungoogled's URL-rewriting hardening) is **not** applied at this stage: it rewrites Google download URLs and would break the toolchain fetch in stage 02. Since Chromium 151 the released binaries are built from a tree *with* it, so `scripts/04-configure-build.sh` applies it after stage 02, just before `gn gen` (applying it after the Clearcote series gives the same tree as applying it before). Re-running stage 02 reverts it; stage 04 applies it again.
+> **Domain substitution** (ungoogled's URL-rewriting hardening) is **not** applied at this stage: it rewrites Google download URLs and would break the toolchain fetch in stage 02. Since Chromium 151 the released binaries are built from a tree *with* it, so `scripts/04-configure-build.sh` applies it after stage 02, just before `gn gen` (applying it after the CodeBrowser series gives the same tree as applying it before). Re-running stage 02 reverts it; stage 04 applies it again.
 
 ## 3. Host toolchain
 

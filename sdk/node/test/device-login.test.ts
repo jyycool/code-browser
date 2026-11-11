@@ -1,7 +1,7 @@
-// `clearcote login --device` against a local stand-in for the site's device endpoints, every branch of
+// `code-browser login --device` against a local stand-in for the site's device endpoints, every branch of
 // the contract: pending, slow_down (+5 s, kept), 429 (+5 s, Retry-After honoured), expired_token,
 // access_denied, invalid_request, a dropped connection and a 5xx mid-poll (retried), an unreachable or
-// older server, Ctrl-C, and the expiry `clearcote info --json` then reports. Mirrors
+// older server, Ctrl-C, and the expiry `code-browser info --json` then reports. Mirrors
 // sdk/python/tests/test_device_login.py.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -16,7 +16,7 @@ import { startOrigin } from "./helpers/proxies.js";
 import { tempDir } from "./helpers/temp.js";
 
 const SDK_VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version as string;
-const ENV_KEYS = ["HOME", "USERPROFILE", "CLEARCOTE_CACHE", "CLEARCOTE_BINARY", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_RELEASE_CHANNEL", "CLEARCOTE_LICENSE_API"];
+const ENV_KEYS = ["HOME", "USERPROFILE", "CODE_BROWSER_CACHE", "CODE_BROWSER_BINARY", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_RELEASE_CHANNEL", "CODE_BROWSER_LICENSE_API"];
 const saved: Record<string, string | undefined> = {};
 let home: string;
 let out = "";
@@ -28,8 +28,8 @@ beforeEach(() => {
   for (const k of ENV_KEYS) saved[k] = process.env[k];
   process.env.HOME = home;
   process.env.USERPROFILE = home;
-  process.env.CLEARCOTE_CACHE = join(home, "cache");
-  for (const k of ["CLEARCOTE_BINARY", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_RELEASE_CHANNEL", "CLEARCOTE_LICENSE_API"]) delete process.env[k];
+  process.env.CODE_BROWSER_CACHE = join(home, "cache");
+  for (const k of ["CODE_BROWSER_BINARY", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_RELEASE_CHANNEL", "CODE_BROWSER_LICENSE_API"]) delete process.env[k];
   out = "";
   errOut = "";
   vi.spyOn(process.stdout, "write").mockImplementation(((c: string | Uint8Array) => { out += String(c); return true; }) as never);
@@ -45,7 +45,7 @@ afterEach(async () => {
 async function serve(script: string[], o: FakeDeviceOptions = {}): Promise<FakeDevice> {
   const fake = await startFakeDevice(script, o);
   cleanups.push(() => fake.close());
-  process.env.CLEARCOTE_LICENSE_API = fake.url;
+  process.env.CODE_BROWSER_LICENSE_API = fake.url;
   return fake;
 }
 
@@ -57,8 +57,8 @@ function recordingSleep(seen: number[]) {
   };
 }
 
-const keyFile = () => join(home, ".clearcote", "license.key");
-const metaFile = () => join(home, ".clearcote", "license.meta.json");
+const keyFile = () => join(home, ".code-browser", "license.key");
+const metaFile = () => join(home, ".code-browser", "license.meta.json");
 
 async function infoJson(): Promise<Record<string, any>> {
   out = "";
@@ -66,9 +66,9 @@ async function infoJson(): Promise<Record<string, any>> {
   return JSON.parse(out);
 }
 
-describe("clearcote login --device", () => {
+describe("code-browser login --device", () => {
   it("is documented", () => {
-    expect(USAGE).toContain("clearcote login --device");
+    expect(USAGE).toContain("code-browser login --device");
   });
 
   it("saves the key exactly like paste login, and never prints it", async () => {
@@ -85,7 +85,7 @@ describe("clearcote login --device", () => {
     expect(errOut).toContain(`Code: ${USER_CODE}`);
     expect(out + errOut).not.toContain(LICENSE_KEY);
     expect(fake.log[0].path).toBe("/api/v1/device/code");
-    expect(fake.log[0].body).toEqual({ client_name: "clearcote-node", client_version: SDK_VERSION });
+    expect(fake.log[0].body).toEqual({ client_name: "code-browser-node", client_version: SDK_VERSION });
     expect(fake.log[0].headers["user-agent"]).toBe(`clearcote-sdk-node/${SDK_VERSION}`);
     expect(fake.tokenPolls().map((e) => e.body)).toEqual([{ device_code: DEVICE_CODE }, { device_code: DEVICE_CODE }, { device_code: DEVICE_CODE }]);
     expect(sleeps).toEqual([5, 5, 5]);
@@ -117,14 +117,14 @@ describe("clearcote login --device", () => {
   });
 
   for (const [step, message] of [
-    ["expired", "the code expired before it was approved. Nothing was saved. Run `clearcote login --device` again."],
+    ["expired", "the code expired before it was approved. Nothing was saved. Run `code-browser login --device` again."],
     ["denied", "the sign-in was denied in the browser. Nothing was saved."],
     ["invalid", "the licence server rejected the device login request (invalid_request). Nothing was saved."],
   ] as const) {
     it(`${step}: exits 1 and saves nothing`, async () => {
       const fake = await serve(["pending", step]);
       await expect(deviceLogin({ sleep: recordingSleep([]) })).rejects.toThrow("exit 1");
-      expect(errOut).toContain(`clearcote: ${message}`);
+      expect(errOut).toContain(`code-browser: ${message}`);
       expect(existsSync(keyFile())).toBe(false);
       expect(existsSync(metaFile())).toBe(false);
       expect(fake.tokenPolls()).toHaveLength(2);
@@ -142,7 +142,7 @@ describe("clearcote login --device", () => {
   });
 
   it("an unreachable server fails before any code", async () => {
-    process.env.CLEARCOTE_LICENSE_API = "http://127.0.0.1:1";
+    process.env.CODE_BROWSER_LICENSE_API = "http://127.0.0.1:1";
     const sleeps: number[] = [];
     await expect(deviceLogin({ sleep: recordingSleep(sleeps) })).rejects.toThrow("exit 1");
     expect(errOut).toContain("could not reach the licence server at http://127.0.0.1:1");
@@ -172,7 +172,7 @@ describe("clearcote login --device", () => {
       if (signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
     };
     await expect(deviceLogin({ sleep })).rejects.toThrow("exit 130");
-    expect(errOut).toContain("clearcote: cancelled. Nothing was saved.");
+    expect(errOut).toContain("code-browser: cancelled. Nothing was saved.");
     expect(existsSync(keyFile())).toBe(false);
     expect(fake.tokenPolls()).toHaveLength(1); // the approval after Ctrl-C was never fetched
     expect(process.listenerCount("SIGINT")).toBe(listeners);
@@ -217,7 +217,7 @@ describe("clearcote login --device", () => {
       const sleeps: number[] = [];
       await expect(deviceLogin({ sleep: recordingSleep(sleeps) })).rejects.toThrow("exit 1");
       expect(errOut).toContain("the sign-in may have been approved");
-      expect(errOut).toContain("Run `clearcote login --device` again.");
+      expect(errOut).toContain("Run `code-browser login --device` again.");
       expect(errOut).not.toContain("the code expired before it was approved");
       expect(sleeps).toEqual([5, 5, 10]); // the timeout doubled the interval (RFC 8628 section 3.5)
       expect(fake.tokenPolls()).toHaveLength(3);
@@ -235,7 +235,7 @@ describe("clearcote login --device", () => {
     await expect(deviceLogin({ sleep: recordingSleep([]) })).rejects.toThrow("exit 130");
     expect(Date.now() - t0).toBeLessThan(3000); // did not wait for the 5 s answer
     expect(errOut).toContain("press Ctrl-C again to stop at once"); // the first Ctrl-C said what it waits for
-    expect(errOut).toContain("clearcote: stopped at once (second Ctrl-C). Nothing was saved.");
+    expect(errOut).toContain("code-browser: stopped at once (second Ctrl-C). Nothing was saved.");
     expect(existsSync(keyFile())).toBe(false);
   });
 
@@ -291,7 +291,7 @@ describe("clearcote login --device", () => {
 
     const api = await startOrigin(() => ({ body: '{"used":0,"limit":null,"plan":"pro"}' }));
     cleanups.push(() => api.close());
-    process.env.CLEARCOTE_LICENSE_API = `http://127.0.0.1:${api.port}`;
+    process.env.CODE_BROWSER_LICENSE_API = `http://127.0.0.1:${api.port}`;
     await main(["login", "cc_lic_pasted_key_abcdefgh"]);
     expect(existsSync(metaFile())).toBe(false);
     expect((await infoJson()).license.expiry.source).toBe("unknown");

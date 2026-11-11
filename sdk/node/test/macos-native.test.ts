@@ -27,7 +27,7 @@ const FRAMEWORK = path.join("Chromium.app", "Contents", "Frameworks", "Chromium 
 let tmp: string;
 let platformDesc: PropertyDescriptor;
 const savedEnv: Record<string, string | undefined> = {};
-const ENV_KEYS = ["CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_DOCKER", TEST_ONLY_ASSUME_MACOS, "HOME", "USERPROFILE"];
+const ENV_KEYS = ["CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_DOCKER", TEST_ONLY_ASSUME_MACOS, "HOME", "USERPROFILE"];
 
 function on(platform: string, arch = "arm64"): void {
   Object.defineProperty(process, "platform", { ...platformDesc, value: platform });

@@ -7,9 +7,9 @@
 # case-insensitive overlay (ciopfs). The *Lib* tree does not need this — xwin already
 # emits per-case symlinks for libraries.
 #
-#   WORK   working dir (default: ~/clearcote-build)
+#   WORK   working dir (default: ~/code-browser-build)
 set -euo pipefail
-WORK="${WORK:-$HOME/clearcote-build}"
+WORK="${WORK:-$HOME/code-browser-build}"
 XWIN_VER="0.9.0"
 SDK_VERSION="10.0.26100"            # pin the MS SDK payload xwin fetches
 WINSDK="$WORK/winsdk"

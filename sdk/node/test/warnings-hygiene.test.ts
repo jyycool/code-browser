@@ -39,22 +39,22 @@ describe("automation hygiene warnings", () => {
 });
 
 describe("emitWarnings", () => {
-  const saved = process.env.CLEARCOTE_NO_WARN;
+  const saved = process.env.CODE_BROWSER_NO_WARN;
   afterEach(() => {
     vi.restoreAllMocks();
-    if (saved === undefined) delete process.env.CLEARCOTE_NO_WARN;
-    else process.env.CLEARCOTE_NO_WARN = saved;
+    if (saved === undefined) delete process.env.CODE_BROWSER_NO_WARN;
+    else process.env.CODE_BROWSER_NO_WARN = saved;
   });
 
-  it("prints unless quiet or CLEARCOTE_NO_WARN", () => {
-    delete process.env.CLEARCOTE_NO_WARN;
+  it("prints unless quiet or CODE_BROWSER_NO_WARN", () => {
+    delete process.env.CODE_BROWSER_NO_WARN;
     const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     emitWarnings(serveExposureWarnings("0.0.0.0", "*"), true);
     expect(spy).not.toHaveBeenCalled();
     emitWarnings(serveExposureWarnings("0.0.0.0", "*"));
     expect(spy).toHaveBeenCalledTimes(2);
     spy.mockClear();
-    process.env.CLEARCOTE_NO_WARN = "1";
+    process.env.CODE_BROWSER_NO_WARN = "1";
     emitWarnings(serveExposureWarnings("0.0.0.0", "*"));
     expect(spy).not.toHaveBeenCalled();
   });

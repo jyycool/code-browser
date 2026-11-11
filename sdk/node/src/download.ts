@@ -1,4 +1,4 @@
-// Resolve the Clearcote browser binary: use an explicit path / env override if given, otherwise
+// Resolve the CodeBrowser browser binary: use an explicit path / env override if given, otherwise
 // download a release, verify it, extract it to a per-version cache, and return chrome.exe.
 //
 // Two modes:
@@ -77,20 +77,20 @@ export interface DownloadOptions {
    * into this SDK, so you don't have to upgrade the package for every browser build. Verified
    * against the release's own SHA256SUMS.txt (+ GPG signature when `gpg` is installed). Falls back
    * to the pinned release if GitHub can't be reached. Default: false.
-   * Also enabled by setting the env var `CLEARCOTE_AUTO_UPDATE=1`.
+   * Also enabled by setting the env var `CODE_BROWSER_AUTO_UPDATE=1`.
    */
   autoUpdate?: boolean;
   /**
    * Select a specific browser build from the version catalog: a bare major (`"150"`), an exact
    * version (`"150.0.7871.115"`), or `"latest"`. Validated against the catalog before download.
    * PRO-tier versions require a license key. Pin a specific PRO rebuild with `"150.0.7871.114-r7"`
-   * (or bare `"r7"`), which also requires a license. Also set via `CLEARCOTE_BROWSER_VERSION`.
+   * (or bare `"r7"`), which also requires a license. Also set via `CODE_BROWSER_BROWSER_VERSION`.
    */
   version?: string;
   /**
    * PRO release channel: `"stable"` (default) or `"preview"`. Preview selects the newest build
    * available for this platform — a newer preview when one exists, otherwise stable. An exact
-   * version pin overrides the channel. Also set via `CLEARCOTE_RELEASE_CHANNEL`.
+   * version pin overrides the channel. Also set via `CODE_BROWSER_RELEASE_CHANNEL`.
    */
   releaseChannel?: ReleaseChannel;
 }
@@ -112,25 +112,25 @@ function launchIntegrity(rel: ResolvedRelease): LaunchIntegrity | undefined {
 }
 
 function log(quiet: boolean | undefined, msg: string): void {
-  if (!quiet) process.stderr.write(`[clearcote] ${msg}\n`);
+  if (!quiet) process.stderr.write(`[code-browser] ${msg}\n`);
 }
 
 export function autoUpdateRequested(opt: boolean | undefined): boolean {
   if (opt !== undefined) return opt;
-  const env = process.env.CLEARCOTE_AUTO_UPDATE;
+  const env = process.env.CODE_BROWSER_AUTO_UPDATE;
   return env === "1" || env === "true";
 }
 
-/** Per-OS cache root for downloaded browsers (CLEARCOTE_CACHE overrides). */
+/** Per-OS cache root for downloaded browsers (CODE_BROWSER_CACHE overrides). */
 export function defaultCacheRoot(): string {
-  if (process.env.CLEARCOTE_CACHE) return process.env.CLEARCOTE_CACHE;
+  if (process.env.CODE_BROWSER_CACHE) return process.env.CODE_BROWSER_CACHE;
   if (process.platform === "win32") {
-    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "clearcote", "Cache");
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "code-browser", "Cache");
   }
   if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Caches", "clearcote");
+    return path.join(os.homedir(), "Library", "Caches", "code-browser");
   }
-  return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "clearcote");
+  return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "code-browser");
 }
 
 /**
@@ -249,13 +249,13 @@ export async function downloadTo(url: string, dest: string, expectedSize: number
   let idle: ReturnType<typeof setTimeout> | undefined;
   const bump = () => {
     if (idle) clearTimeout(idle);
-    idle = setTimeout(() => ctrl.abort(new Error("clearcote download stalled (no data for 60s)")), IDLE_MS);
+    idle = setTimeout(() => ctrl.abort(new Error("code-browser download stalled (no data for 60s)")), IDLE_MS);
   };
   bump();
   try {
     const res = await fetch(url, { redirect: "follow", headers: { "User-Agent": DOWNLOAD_USER_AGENT }, signal: ctrl.signal });
     if (!res.ok || !res.body) {
-      throw new DownloadHttpError(`Clearcote download failed: HTTP ${res.status} ${res.statusText} for ${url}`,
+      throw new DownloadHttpError(`CodeBrowser download failed: HTTP ${res.status} ${res.statusText} for ${url}`,
         res.status, retryAfterSeconds(res.headers.get("retry-after")));
     }
     const total = Number(res.headers.get("content-length")) || expectedSize;
@@ -268,7 +268,7 @@ export async function downloadTo(url: string, dest: string, expectedSize: number
         const pct = total ? Math.floor((seen / total) * 100) : 0;
         if (!quiet && pct !== lastPct && pct % 5 === 0) {
           lastPct = pct;
-          process.stderr.write(`\r[clearcote] downloading ${pct}% (${(seen / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB)`);
+          process.stderr.write(`\r[code-browser] downloading ${pct}% (${(seen / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB)`);
         }
         controller.enqueue(chunk);
       },
@@ -314,8 +314,8 @@ async function resolveLatest(quiet: boolean | undefined): Promise<ResolvedReleas
   const pin = platformRelease();
   if (!pin) return null; // unsupported OS -> nothing to auto-resolve
   const { assetGlob: glob, binary, os: pinOs, archive } = pin;
-  const assetRe = new RegExp(`^clearcote-.*-${reEscape(glob)}\\.(?:zip|tar\\.xz)$`);
-  const verRe = new RegExp(`^clearcote-(.+)-${reEscape(glob)}\\.(?:zip|tar\\.xz)$`);
+  const assetRe = new RegExp(`^code-browser-.*-${reEscape(glob)}\\.(?:zip|tar\\.xz)$`);
+  const verRe = new RegExp(`^code-browser-(.+)-${reEscape(glob)}\\.(?:zip|tar\\.xz)$`);
   let list: any[];
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
@@ -560,22 +560,22 @@ export function brokenInstallError(browserDir: string, problems: string[], repai
   const shown = problems.slice(0, 8).map((p) => `    ${p}`).join("\n");
   const more = problems.length > 8 ? `\n    ... and ${problems.length - 8} more` : "";
   const fix = repairable
-    ? `Delete the folder and let Clearcote re-download it:\n    ${path.dirname(browserDir)}\n`
-    : "Re-create this browser directory from a complete copy (or unset CLEARCOTE_BINARY /\nexecutablePath and let Clearcote download and verify its own build).\n";
+    ? `Delete the folder and let CodeBrowser re-download it:\n    ${path.dirname(browserDir)}\n`
+    : "Re-create this browser directory from a complete copy (or unset CODE_BROWSER_BINARY /\nexecutablePath and let CodeBrowser download and verify its own build).\n";
   return new Error(
-    `Clearcote browser install is incomplete or corrupted:\n    ${browserDir}\n${shown}${more}\n\n` +
+    `CodeBrowser browser install is incomplete or corrupted:\n    ${browserDir}\n${shown}${more}\n\n` +
       "The browser cannot start without these files — it would crash during startup with an\n" +
       "ICU / 'Check failed' error before Playwright can attach.\n\n" +
       `${fix}\n` +
       "Common causes: antivirus quarantined a file, the disk filled up mid-install, or the\n" +
       "directory was copied by something that did not finish (e.g. a bundled app copying it out\n" +
-      "of a packaged-app temp dir). Excluding the Clearcote cache directory from real-time\n" +
+      "of a packaged-app temp dir). Excluding the CodeBrowser cache directory from real-time\n" +
       "antivirus scanning prevents a repeat.",
   );
 }
 
 /**
- * Validate the tree around a caller-supplied binary (`executablePath` / `CLEARCOTE_BINARY` — e.g. a
+ * Validate the tree around a caller-supplied binary (`executablePath` / `CODE_BROWSER_BINARY` — e.g. a
  * browser bundled into a packaged app). Throws with a clear message when it is damaged.
  *
  * Deliberately lenient about LAYOUT, strict about COMPLETENESS: a caller may point at something
@@ -834,7 +834,7 @@ const SDK_NAMES: Record<string, string> = { python: "Python", node: "Node", dotn
 function lockHolder(rec: LockRecord | null): string {
   if (!rec || !rec.pid) return "a process that left no details";
   const sdk = SDK_NAMES[String(rec.sdk)] ?? String(rec.sdk ?? "unknown");
-  return `process ${String(rec.pid)} on ${typeof rec.host === "string" && rec.host ? rec.host : "an unknown machine"} (Clearcote ${sdk} SDK)`;
+  return `process ${String(rec.pid)} on ${typeof rec.host === "string" && rec.host ? rec.host : "an unknown machine"} (CodeBrowser ${sdk} SDK)`;
 }
 
 function waitWords(ms: number): string {
@@ -980,7 +980,7 @@ export async function acquireInstallLock(base: string, opts: { timeoutMs?: numbe
     tookOver = false;
     const s = readLock(p);
     if (s.state !== "gone") refused = 0;
-    else if (refused > 40) throw new Error(`Clearcote cannot create ${p}: permission denied`); // not a race: a real error
+    else if (refused > 40) throw new Error(`CodeBrowser cannot create ${p}: permission denied`); // not a race: a real error
     const now = performance.now();
     const key = lockKey(s);
     if (key !== seen) {
@@ -996,8 +996,8 @@ export async function acquireInstallLock(base: string, opts: { timeoutMs?: numbe
       const here = s.state === "ok" && s.rec && fromHere(s.rec) ? ownerState(s.rec) : null;
       const note = here === "alive" ? ", which is still running" : here === "unknown" ? "; that process number may now belong to another program" : "";
       throw new Error(
-        `Gave up after ${waitWords(wait)} waiting for another program to finish installing the Clearcote browser in\n    ${base}\n` +
-          `The other installer is ${lockHolder(s.rec)}${note}. If no Clearcote program is installing this build, delete this file and try again:\n    ${p}`,
+        `Gave up after ${waitWords(wait)} waiting for another program to finish installing the CodeBrowser browser in\n    ${base}\n` +
+          `The other installer is ${lockHolder(s.rec)}${note}. If no CodeBrowser program is installing this build, delete this file and try again:\n    ${p}`,
       );
     }
     if (!told && s.state === "ok") {
@@ -1043,8 +1043,8 @@ function moveAside(base: string, browserDir: string): void {
   } catch (e) {
     if (errCode(e) === "ENOENT") return;
     throw new InUseError(
-      `Clearcote cannot replace the browser files in\n    ${browserDir}\nbecause another program is still using them (${(e as Error).message}).\n` +
-        "Close every program that uses this Clearcote browser, then try again.",
+      `CodeBrowser cannot replace the browser files in\n    ${browserDir}\nbecause another program is still using them (${(e as Error).message}).\n` +
+        "Close every program that uses this CodeBrowser browser, then try again.",
     );
   }
   try {
@@ -1145,7 +1145,7 @@ async function fetchAndVerify(rel: ResolvedRelease, base: string, opts: Download
       await lock.release();
     }
   }
-  throw new Error(`Clearcote could not install ${rel.tag}: other processes kept taking over the install in ${base}`);
+  throw new Error(`CodeBrowser could not install ${rel.tag}: other processes kept taking over the install in ${base}`);
 }
 
 /**
@@ -1169,14 +1169,14 @@ async function installInto(
   const browserDir = path.join(base, "browser");
   const zipPath = path.join(tmp, rel.asset);
 
-  log(opts.quiet, `fetching Clearcote ${rel.version} (${rel.tag}${rel.unpinned ? ", latest" : ""}, ~${(rel.size / 1e6).toFixed(0)} MB)`);
+  log(opts.quiet, `fetching CodeBrowser ${rel.version} (${rel.tag}${rel.unpinned ? ", latest" : ""}, ~${(rel.size / 1e6).toFixed(0)} MB)`);
   await downloadTo(rel.url, zipPath, rel.size, opts.quiet);
 
   log(opts.quiet, "verifying SHA-256");
   const got = await sha256File(zipPath);
   if (got.toLowerCase() !== rel.sha256.toLowerCase()) {
     await rm(zipPath, { force: true });
-    throw new Error(`Clearcote archive SHA-256 mismatch — refusing to use it.\n  expected ${rel.sha256}\n  got      ${got}`);
+    throw new Error(`CodeBrowser archive SHA-256 mismatch — refusing to use it.\n  expected ${rel.sha256}\n  got      ${got}`);
   }
 
   // For an auto-resolved (un-pinned) release, also confirm authenticity via the signed checksum file.
@@ -1187,7 +1187,7 @@ async function installInto(
       if (verdict === "failed") {
         await rm(zipPath, { force: true });
         throw new Error(
-          `Clearcote ${rel.tag}: GPG signature verification FAILED against the pinned key ${SIGNING_KEY_FPR} — refusing to use it.`,
+          `CodeBrowser ${rel.tag}: GPG signature verification FAILED against the pinned key ${SIGNING_KEY_FPR} — refusing to use it.`,
         );
       }
       if (verdict === "ok") log(opts.quiet, `auto-update: GPG signature OK (key ${SIGNING_KEY_FPR})`);
@@ -1213,12 +1213,12 @@ async function installInto(
 
   const binaryName = rel.binary || "chrome.exe";
   const found = findFile(incoming, binaryName);
-  if (!found) throw new Error(`Clearcote archive verified but ${binaryName} was not found inside it.`);
+  if (!found) throw new Error(`CodeBrowser archive verified but ${binaryName} was not found inside it.`);
   let exe = found;
   if (rel.exeSha256) {
     const exeHash = await sha256File(exe);
     if (exeHash.toLowerCase() !== rel.exeSha256.toLowerCase()) {
-      throw new Error(`Clearcote ${binaryName} SHA-256 mismatch — refusing to use it.\n  expected ${rel.exeSha256}\n  got      ${exeHash}`);
+      throw new Error(`CodeBrowser ${binaryName} SHA-256 mismatch — refusing to use it.\n  expected ${rel.exeSha256}\n  got      ${exeHash}`);
     }
   }
 
@@ -1299,7 +1299,7 @@ export async function extractMacBundle(asset: string, zipPath: string, dest: str
       await macExtractHooks.run(file, args);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") continue; // that tool is not on this Mac
-      throw new Error(`Clearcote could not unpack ${asset} with ${file}: ${String((e as Error).message).slice(0, 300)}`);
+      throw new Error(`CodeBrowser could not unpack ${asset} with ${file}: ${String((e as Error).message).slice(0, 300)}`);
     }
     let apps: string[] = [];
     try {
@@ -1312,7 +1312,7 @@ export async function extractMacBundle(asset: string, zipPath: string, dest: str
     }
     return;
   }
-  throw new Error("Clearcote needs /usr/bin/ditto or /usr/bin/unzip to unpack the macOS build.");
+  throw new Error("CodeBrowser needs /usr/bin/ditto or /usr/bin/unzip to unpack the macOS build.");
 }
 
 // ── Version catalog resolver ─────────────────────────────────────────────────
@@ -1371,7 +1371,7 @@ export function isProRevisionSelector(selector: string | undefined): boolean {
  */
 export async function resolveVersion(selector: string, hasLicense: boolean, quiet?: boolean, catalog?: Catalog): Promise<VersionPlan> {
   const plat = platKey();
-  if (!plat) throw new Error("Clearcote ships Windows x64, Linux x64 and (PRO) macOS arm64 only.");
+  if (!plat) throw new Error("CodeBrowser ships Windows x64, Linux x64 and (PRO) macOS arm64 only.");
   const cat = catalog ?? (await fetchCatalog(quiet)); // a given catalog (the bundled one): no network
   const builds = cat.builds.filter((b) => b.platforms[plat]);
   const sel = String(selector || "").trim();
@@ -1385,7 +1385,7 @@ export async function resolveVersion(selector: string, hasLicense: boolean, quie
     cands = builds.filter((b) => b.version === sel); // exact version
   }
   if (!cands.length) {
-    throw new Error(`No Clearcote build matches version '${selector}' for ${plat}. Available: ${catalogAvailable(cat, plat)}.`);
+    throw new Error(`No CodeBrowser build matches version '${selector}' for ${plat}. Available: ${catalogAvailable(cat, plat)}.`);
   }
   const pick = cands.reduce((a, b) => (verCmp(b.version, a.version) > 0 ? b : a));
   const tier = pick.tier || "free";
@@ -1393,14 +1393,14 @@ export async function resolveVersion(selector: string, hasLicense: boolean, quie
   if (tier === "pro" && !hasLicense) {
     const free = builds.filter((b) => (b.tier || "free") === "free").map((b) => b.version);
     throw new Error(
-      `Clearcote ${pick.version} is a PRO build and isn't public yet — set a license key (CLEARCOTE_LICENSE_KEY, or pass licenseKey) to use it.\n` +
+      `CodeBrowser ${pick.version} is a PRO build and isn't public yet — set a license key (CLEARCOTE_LICENSE_KEY, or pass licenseKey) to use it.\n` +
         `  Free versions you can use without a key: ${free.join(", ") || "none"}.`,
     );
   }
   if (tier === "pro") return { kind: "pro", version: pick.version };
 
   const p = pick.platforms[plat]!;
-  if (!p.url || !p.sha256) throw new Error(`Clearcote ${pick.version} is marked free but the catalog has no download for ${plat}.`);
+  if (!p.url || !p.sha256) throw new Error(`CodeBrowser ${pick.version} is marked free but the catalog has no download for ${plat}.`);
   const rel: ResolvedRelease = {
     tag: pick.tag || `v-${pick.version}`,
     version: pick.version,
@@ -1455,7 +1455,7 @@ export async function ensureVersion(
   if (isProRevisionSelector(selector)) {
     if (!opts.licenseKey) {
       throw new Error(
-        `Clearcote '${selector}' is a PRO revision — set a license key (CLEARCOTE_LICENSE_KEY, or pass licenseKey) to pin it.`,
+        `CodeBrowser '${selector}' is a PRO revision — set a license key (CLEARCOTE_LICENSE_KEY, or pass licenseKey) to pin it.`,
       );
     }
     return proEnsureBinary(opts.licenseKey, { apiBase: opts.apiBase, cacheDir: opts.cacheDir, quiet: opts.quiet, version: selector, releaseChannel });
@@ -1476,14 +1476,14 @@ export async function ensureVersion(
 export type ReleaseChannel = "stable" | "preview";
 
 /**
- * Resolve the release channel: explicit option > CLEARCOTE_RELEASE_CHANNEL > "stable".
+ * Resolve the release channel: explicit option > CODE_BROWSER_RELEASE_CHANNEL > "stable".
  * Unknown values throw, so a typo never silently selects a different build.
  */
 export function resolveReleaseChannel(explicit?: string, env: Record<string, string | undefined> = process.env): ReleaseChannel {
-  const raw = (explicit ?? env.CLEARCOTE_RELEASE_CHANNEL ?? "").trim().toLowerCase();
+  const raw = (explicit ?? env.CODE_BROWSER_RELEASE_CHANNEL ?? "").trim().toLowerCase();
   if (!raw || raw === "stable") return "stable";
   if (raw === "preview") return "preview";
-  throw new Error(`Unknown release channel '${explicit ?? env.CLEARCOTE_RELEASE_CHANNEL}'. Use "stable" or "preview".`);
+  throw new Error(`Unknown release channel '${explicit ?? env.CODE_BROWSER_RELEASE_CHANNEL}'. Use "stable" or "preview".`);
 }
 
 /** The PRO download URL for a platform, version selector and channel. */
@@ -1498,7 +1498,7 @@ export function proDownloadUrl(baseUrl: string, plat: "windows" | "linux" | "mac
 
 /** Options for {@link proEnsureBinary}. */
 export interface ProDownloadOptions {
-  /** License API base (default: `CLEARCOTE_LICENSE_API` env or clearcotelabs.com). */
+  /** License API base (default: `CODE_BROWSER_LICENSE_API` env or clearcotelabs.com). */
   apiBase?: string;
   /** Override the cache directory (default: per-OS user cache dir). */
   cacheDir?: string;
@@ -1522,7 +1522,7 @@ interface ProMeta {
 
 // ── PRO metadata cache ──────────────────────────────────────────────────────
 // The answer of /api/v1/download/pro, kept for PRO_META_TTL_SEC per process and in
-// ~/.clearcote/pro-meta-<16 hex of sha256(key + "\n" + request url)>.json as {at, meta} (`at` in epoch
+// ~/.code-browser/pro-meta-<16 hex of sha256(key + "\n" + request url)>.json as {at, meta} (`at` in epoch
 // seconds), so a launch of an installed build does not ask for it again. Only a build that is installed
 // and passes the cached-build check (which re-hashes the protected files with the cached hashes) is
 // launched from it: a download always follows a fresh answer, whose signed url has not expired.
@@ -1531,7 +1531,7 @@ const proMetaMemo = new Map<string, { at: number; meta: ProMeta }>();
 
 function proMetaPath(licenseKey: string, proUrl: string): string {
   const id = createHash("sha256").update(`${licenseKey}\n${proUrl}`).digest("hex").slice(0, 16);
-  return path.join(os.homedir(), ".clearcote", `pro-meta-${id}.json`);
+  return path.join(os.homedir(), ".code-browser", `pro-meta-${id}.json`);
 }
 
 /** The cached answer for this key and request, while younger than the TTL; null otherwise (unreadable = none). */
@@ -1669,9 +1669,9 @@ function proMetaUsable(meta: ProMeta, plat: "windows" | "linux" | "macos"): bool
  * launch a binary the engine gate then refuses).
  */
 export async function proEnsureBinary(licenseKey: string, opts: ProDownloadOptions = {}): Promise<string> {
-  const baseUrl = (opts.apiBase || process.env.CLEARCOTE_LICENSE_API || "https://www.clearcotelabs.com").replace(/\/$/, "");
+  const baseUrl = (opts.apiBase || process.env.CODE_BROWSER_LICENSE_API || "https://www.clearcotelabs.com").replace(/\/$/, "");
   const plat = proPlatformKey(); // throws on an Intel Mac: the macOS build is Apple Silicon only
-  if (!plat) throw new Error("Clearcote PRO ships Windows x64, Linux x64 and macOS arm64 only.");
+  if (!plat) throw new Error("CodeBrowser PRO ships Windows x64, Linux x64 and macOS arm64 only.");
 
   const channel = resolveReleaseChannel(opts.releaseChannel);
   const proUrl = proDownloadUrl(baseUrl, plat, opts.version, channel);
@@ -1696,7 +1696,7 @@ export async function proEnsureBinary(licenseKey: string, opts: ProDownloadOptio
   if (!res.ok) {
     const body = (await res.text().catch(() => "")).slice(0, 200);
     throw new Error(
-      `Clearcote PRO download not authorized (HTTP ${res.status}): ${body}\n` +
+      `CodeBrowser PRO download not authorized (HTTP ${res.status}): ${body}\n` +
         "Check your license key and that your plan is active.",
     );
   }
@@ -1717,7 +1717,7 @@ export async function proEnsureBinary(licenseKey: string, opts: ProDownloadOptio
   const fallback = () => (mayFallBack ? proFallbackBuild(cacheRoot, rel, opts.version, opts.quiet) : null);
   const standIn = (fb: { tag: string; path: string }, why: string, until: number) => {
     // Always said, even when quiet: the caller asked for one build and is getting another.
-    process.stderr.write(`[clearcote] ${rel.tag} is not installed and ${why}; launching the installed ${fb.tag} instead ` +
+    process.stderr.write(`[code-browser] ${rel.tag} is not installed and ${why}; launching the installed ${fb.tag} instead ` +
       `(the download is tried again after ${new Date(until).toISOString()}).\n`);
     return fb.path;
   };
@@ -1727,7 +1727,7 @@ export async function proEnsureBinary(licenseKey: string, opts: ProDownloadOptio
     const fb = fallback();
     if (fb) return standIn(fb, `its download is paused (${pending.reason})`, pending.until);
     if (pending.status === 429) {
-      throw new Error(`Clearcote PRO ${rel.tag} is not installed and its download is paused until ` +
+      throw new Error(`CodeBrowser PRO ${rel.tag} is not installed and its download is paused until ` +
         `${new Date(pending.until).toISOString()} (${pending.reason}). ${PRO_CACHE_HINT}`);
     }
   }
@@ -1755,7 +1755,7 @@ export async function proEnsureBinary(licenseKey: string, opts: ProDownloadOptio
 
 /** The site's own advice on a 429, kept short here; the route's error text has the full sentence. */
 const PRO_CACHE_HINT =
-  "Keep the downloaded build: point CLEARCOTE_CACHE at a directory that survives restarts, " +
+  "Keep the downloaded build: point CODE_BROWSER_CACHE at a directory that survives restarts, " +
   "so each machine downloads a new build once instead of on every start.";
 
 function logResolvedChannel(meta: ProMeta, plat: "windows" | "linux" | "macos", channel: ReleaseChannel, quiet?: boolean): void {
@@ -1767,7 +1767,7 @@ function logResolvedChannel(meta: ProMeta, plat: "windows" | "linux" | "macos", 
 /** The release a /download/pro answer names. Throws when it names no download for this platform. */
 function proRelease(meta: ProMeta, plat: "windows" | "linux" | "macos"): ResolvedRelease {
   if (!proMetaUsable(meta, plat)) {
-    throw new Error(`Clearcote PRO build is not currently available for ${plat} (the server returned no download).`);
+    throw new Error(`CodeBrowser PRO build is not currently available for ${plat} (the server returned no download).`);
   }
 
   return {
@@ -1789,7 +1789,7 @@ function proRelease(meta: ProMeta, plat: "windows" | "linux" | "macos"): Resolve
 
 /**
  * Refuse a binary this OS has no build for -- but never one the caller named. An existing
- * `executablePath` / CLEARCOTE_BINARY is theirs to run on any OS (this used to throw on macOS even
+ * `executablePath` / CODE_BROWSER_BINARY is theirs to run on any OS (this used to throw on macOS even
  * when handed one, while telling the caller to pass executablePath). macOS has a native PRO build
  * (Apple Silicon), which the PRO download resolves itself.
  */
@@ -1803,7 +1803,7 @@ export function ensureRunnableHere(exe: string): void {
   }
   if (platformRelease() === undefined && pro === null) {
     throw new Error(
-      `Clearcote ships Windows x64, Linux x64 and macOS arm64 binaries — there is no build for this '${process.platform}' machine.\n` +
+      `CodeBrowser ships Windows x64, Linux x64 and macOS arm64 binaries — there is no build for this '${process.platform}' machine.\n` +
         `Run on Windows, Linux or an Apple Silicon Mac (an Intel Mac can use docker: true), or pass executablePath to a compatible binary.\n` +
         `(The binary downloaded and verified fine; it is cached at: ${exe})`
     );
@@ -1811,7 +1811,7 @@ export function ensureRunnableHere(exe: string): void {
 }
 
 /**
- * Ensure the Clearcote binary is present and verified; return the path to chrome.exe.
+ * Ensure the CodeBrowser binary is present and verified; return the path to chrome.exe.
  * Cached per release tag, so subsequent calls are instant.
  */
 export async function ensureBinary(opts: DownloadOptions = {}): Promise<string> {
@@ -1823,7 +1823,7 @@ export async function ensureBinary(opts: DownloadOptions = {}): Promise<string> 
       ? "The macOS builds are Apple Silicon only: on an Intel Mac use the Docker image (docker: true). "
       : "";
     throw new Error(
-      `The free Clearcote build ships Windows x64, Linux x64 and macOS arm64 binaries — there is none for this '${process.platform}' machine. ` +
+      `The free CodeBrowser build ships Windows x64, Linux x64 and macOS arm64 binaries — there is none for this '${process.platform}' machine. ` +
         `${hint}Or pass executablePath to a compatible binary.`,
     );
   }

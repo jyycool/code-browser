@@ -1,4 +1,4 @@
-// An in-memory stand-in for the hosted Clearcote API (PLAN §3), for the cloud client and CLI tests.
+// An in-memory stand-in for the hosted CodeBrowser API (PLAN §3), for the cloud client and CLI tests.
 // Mirrors sdk/python/tests/_fake_cloud.py: the same endpoints, shapes and canned data, so both SDKs
 // are tested against the same server behaviour.
 import * as http from "node:http";

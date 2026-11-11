@@ -1,4 +1,4 @@
-"""`clearcote cloud ...` (the hosted API from the command line) against the fake API: exact output,
+"""`code-browser cloud ...` (the hosted API from the command line) against the fake API: exact output,
 exit codes, the refusal to upload every cookie, and PARITY with the Node CLI.
 
 The golden outputs below are asserted, byte for byte, in sdk/node/test/parity-cloud-cli.test.ts too.
@@ -14,10 +14,10 @@ import subprocess
 
 import pytest
 from _fake_cloud import API_KEY, RECORDING, start_fake_cloud, stop_fake_cloud
-from clearcote import _commands
+from code_browser import _commands
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NODE_CLI = os.path.join(HERE, "..", "..", "node", "dist", "clearcote-cli.js")
+NODE_CLI = os.path.join(HERE, "..", "..", "node", "dist", "code-browser-cli.js")
 
 STATE = {"cookies": [
     {"name": "sid", "value": "1", "domain": ".example.com", "path": "/", "expires": -1, "httpOnly": True,
@@ -73,8 +73,8 @@ GOLDEN = {
 def api(monkeypatch, tmp_path):
     a = start_fake_cloud()
     a.run_statuses = ["succeeded"]
-    monkeypatch.setenv("CLEARCOTE_API_KEY", API_KEY)
-    monkeypatch.setenv("CLEARCOTE_API_URL", a.url)
+    monkeypatch.setenv("CODE_BROWSER_API_KEY", API_KEY)
+    monkeypatch.setenv("CODE_BROWSER_API_URL", a.url)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "state.json").write_text(json.dumps(STATE))
     yield a
@@ -88,8 +88,8 @@ def run_cli(capsys, *argv):
 
 
 def test_usage_documents_cloud():
-    assert "clearcote cloud run <task>" in _commands.usage()
-    assert "CLEARCOTE_API_KEY" in _commands.usage()
+    assert "code-browser cloud run <task>" in _commands.usage()
+    assert "CODE_BROWSER_API_KEY" in _commands.usage()
     for flag in ("--url", "--schema", "--secret", "--secret-domain", "--handoff", "--record", "--json", "sessions",
                  "stop <id>", "events <id>", "recording <id>", "-o <file.mp4>", "profile sync", "--from-profile",
                  "--from-cdp", "--from-file", "--login", "--domain", "--all-domains", "--replace", "webhooks add",
@@ -110,7 +110,7 @@ def test_run_prints_the_result_and_exits_on_its_status(api, capsys, tmp_path):
                              "--schema", "schema.json", "--secret", "pw=hunter2", "--secret", "otp=x=y",
                              "--secret-domain", "pw=Example.com", "--handoff", "--record")
     assert (code, out) == (0, GOLDEN["run"])
-    assert "[clearcote] run bs_run1: succeeded" in err
+    assert "[code-browser] run bs_run1: succeeded" in err
     assert api.requests("POST", "/api/v1/runs")[0]["body"] == {
         "task": "Find the price", "url": "https://example.com/", "schema": {"type": "object"},
         "secrets": {"pw": {"value": "hunter2", "domains": ["example.com"]}, "otp": "x=y"},
@@ -228,12 +228,12 @@ def test_webhooks(api, capsys):
 
 def test_errors(api, capsys, monkeypatch):
     assert run_cli(capsys, "frobnicate")[0] == 2
-    monkeypatch.setenv("CLEARCOTE_API_KEY", "wrong")
+    monkeypatch.setenv("CODE_BROWSER_API_KEY", "wrong")
     code, _, err = run_cli(capsys, "sessions")
-    assert code == 1 and "clearcote: Missing or invalid API key. (HTTP 401)" in err
-    monkeypatch.delenv("CLEARCOTE_API_KEY")
+    assert code == 1 and "code-browser: Missing or invalid API key. (HTTP 401)" in err
+    monkeypatch.delenv("CODE_BROWSER_API_KEY")
     code, _, err = run_cli(capsys, "sessions")
-    assert code == 1 and "CLEARCOTE_API_KEY" in err
+    assert code == 1 and "CODE_BROWSER_API_KEY" in err
 
 
 # ── the same commands through the Node CLI ───────────────────────────────────────────────────────
@@ -292,8 +292,8 @@ def _with_fake_api(cwd, run):
 
 def _python_cli(argv, cwd, monkeypatch):
     def run(api):
-        monkeypatch.setenv("CLEARCOTE_API_KEY", API_KEY)
-        monkeypatch.setenv("CLEARCOTE_API_URL", api.url)
+        monkeypatch.setenv("CODE_BROWSER_API_KEY", API_KEY)
+        monkeypatch.setenv("CODE_BROWSER_API_URL", api.url)
         monkeypatch.chdir(cwd)
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -304,8 +304,8 @@ def _python_cli(argv, cwd, monkeypatch):
 
 def _node_cli(argv, cwd):
     def run(api):
-        env = dict(os.environ, CLEARCOTE_API_KEY=API_KEY, CLEARCOTE_API_URL=api.url)
-        env.pop("CLEARCOTE_CLOUD", None)
+        env = dict(os.environ, CODE_BROWSER_API_KEY=API_KEY, CODE_BROWSER_API_URL=api.url)
+        env.pop("CODE_BROWSER_CLOUD", None)
         p = subprocess.run(["node", NODE_CLI, "cloud", *argv], cwd=cwd, env=env, capture_output=True,
                            text=True, encoding="utf-8", timeout=120, check=False)
         return p.returncode, p.stdout
@@ -316,7 +316,7 @@ def _node_cli(argv, cwd):
                     reason="needs node and a built Node SDK (cd sdk/node && npm run build)")
 @pytest.mark.parametrize("argv", CASES, ids=[" ".join(c)[:60] for c in CASES])
 def test_node_cli_matches_python(argv, tmp_path, monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_CLOUD", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_CLOUD", raising=False)
     py = _python_cli(argv, str(tmp_path / "py"), monkeypatch)
     node = _node_cli(argv, str(tmp_path / "node"))
     assert py[0] == node[0], f"exit code: python {py[0]} vs node {node[0]}"

@@ -10,9 +10,9 @@ import pytest
 
 import test_humanize_forms_async as SIM
 from _hz_sync_sim import sync_page
-from clearcote import _humanize as HS
-from clearcote import _humanize_async as HA
-from clearcote._motion import hash_seed, make_persona, mulberry32
+from code_browser import _humanize as HS
+from code_browser import _humanize_async as HA
+from code_browser._motion import hash_seed, make_persona, mulberry32
 
 PINS = json.load(open(os.path.join(os.path.dirname(__file__), "..", "..", "testdata", "humanize_persona_pins.json")))
 
@@ -24,8 +24,8 @@ def fast(monkeypatch):
         return None
     monkeypatch.setattr(HA.asyncio, "sleep", nosleep)
     monkeypatch.setattr(HS.time, "sleep", lambda s: None)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", raising=False)
 
 
 def _btn(**kw):
@@ -58,8 +58,8 @@ class Mode:
 
     @property
     def strict_error(self):
-        from clearcote import ClearcoteStrictError
-        return ClearcoteStrictError
+        from code_browser import CodeBrowserStrictError
+        return CodeBrowserStrictError
 
 
 MODES = [Mode("sync"), Mode("async")]
@@ -67,8 +67,8 @@ MODES = [Mode("sync"), Mode("async")]
 
 # ------------------------------------------------------------------------------------------ options
 def test_humanize_accepts_bool_strict_object_and_dict():
-    from clearcote import HumanizeOptions
-    from clearcote._hzoptions import resolve
+    from code_browser import HumanizeOptions
+    from code_browser._hzoptions import resolve
     assert resolve(False) is None and resolve(None) is None
     assert resolve(True) == HumanizeOptions()
     assert resolve("strict") == HumanizeOptions(strict=True)
@@ -87,7 +87,7 @@ def test_humanize_accepts_bool_strict_object_and_dict():
 
 
 def test_launch_validates_humanize_before_anything_starts():
-    from clearcote._hzoptions import normalize
+    from code_browser._hzoptions import normalize
     assert normalize(False) is False and normalize(True).preset == "default"
     with pytest.raises(TypeError):
         normalize({"nope": 1})
@@ -95,9 +95,9 @@ def test_launch_validates_humanize_before_anything_starts():
 
 def test_strict_error_is_a_playwright_error():
     from playwright.sync_api import Error as PlaywrightError
-    from clearcote import ClearcoteStrictError
-    from clearcote.async_api import ClearcoteStrictError as A
-    assert A is ClearcoteStrictError and issubclass(ClearcoteStrictError, PlaywrightError)
+    from code_browser import CodeBrowserStrictError
+    from code_browser.async_api import CodeBrowserStrictError as A
+    assert A is CodeBrowserStrictError and issubclass(CodeBrowserStrictError, PlaywrightError)
 
 
 # ------------------------------------------------------------------------- fallback report + strict
@@ -298,7 +298,7 @@ def _planned_ms(mode, monkeypatch, humanize):
 
 @pytest.mark.parametrize("mode", MODES, ids=lambda m: m.name)
 def test_presets_scale_the_planned_durations(monkeypatch, mode):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
     base = _planned_ms(mode, monkeypatch, True)
     quick = _planned_ms(mode, monkeypatch, {"preset": "quick"})
     careful = _planned_ms(mode, monkeypatch, {"preset": "careful"})
@@ -312,18 +312,18 @@ def test_presets_scale_the_planned_durations(monkeypatch, mode):
 def test_options_land_on_the_page_and_persona(fast, mode):
     sim, page = mode.page(_btn(), humanize={"ambient": "load", "handedness": "left", "device_hz": 250,
                                            "input_device": "trackpad", "typo_rate": 0.25, "engine": "off"})
-    p = page._clearcote_persona
+    p = page._code_browser_persona
     assert (p.handedness, p.input_device, p.device_hz, p.tempo) == ("left", "trackpad", 250, 1.0)
-    assert page._clearcote_auto_ambient is True and page._clearcote_ambient == "load"
-    from clearcote._hzoptions import engine_mode, typo_rate_for
-    os.environ["CLEARCOTE_HUMANIZE_ENGINE_CLICKS"] = "all"
+    assert page._code_browser_auto_ambient is True and page._code_browser_ambient == "load"
+    from code_browser._hzoptions import engine_mode, typo_rate_for
+    os.environ["CODE_BROWSER_HUMANIZE_ENGINE_CLICKS"] = "all"
     try:
         assert engine_mode(page, HS._engine_clicks_mode) == "off"
     finally:
-        del os.environ["CLEARCOTE_HUMANIZE_ENGINE_CLICKS"]
+        del os.environ["CODE_BROWSER_HUMANIZE_ENGINE_CLICKS"]
     assert typo_rate_for(page, HS.typo_rate) == 0.25
     sim2, page2 = mode.page(_btn())
-    assert page2._clearcote_auto_ambient is False and page2._clearcote_ambient == "off"
+    assert page2._code_browser_auto_ambient is False and page2._code_browser_ambient == "off"
     assert typo_rate_for(page2, HS.typo_rate) == 0.0   # the env (fast sets 0)
 
 
@@ -350,18 +350,18 @@ def test_the_seed_to_persona_map_is_pinned(pin):
 def test_options_never_change_the_persona_draws(fast, mode, humanize):
     sim, page = mode.page(_btn(), humanize=humanize)
     want = make_persona("opts")
-    got = {k: getattr(page._clearcote_persona, k) for k in _BASE}
+    got = {k: getattr(page._code_browser_persona, k) for k in _BASE}
     exp = {k: getattr(want, k) for k in _BASE}
     if isinstance(humanize, dict) and humanize.get("handedness"):
         # handedness fixes the SIGN of the drawn approach bias (integration of lanes A + B); the draw is unchanged
         assert abs(got.pop("approach_bias")) == abs(exp.pop("approach_bias"))
-        assert page._clearcote_persona.approach_bias >= 0 if humanize["handedness"] == "right" else True
+        assert page._code_browser_persona.approach_bias >= 0 if humanize["handedness"] == "right" else True
     assert got == exp
 
 
 # --------------------------------------------------------------------------------- cloud payload
 def test_cloud_launch_forwards_the_options_object():
-    from clearcote.cloud import _prepare_launch
+    from code_browser.cloud import _prepare_launch
     sdk, body = _prepare_launch({"humanize": True, "country": "us"})
     assert body == {"country": "us", "humanize": False}, "humanize=True: the 0.51.0 body"
     sdk, body = _prepare_launch({"country": "us"})
@@ -382,9 +382,9 @@ def test_presets_scale_the_timing_medians_and_the_after_action_pauses():
     dwell, grab/release, double-click gap, deliberation pauses) and the after-action pauses (move-off delay, read
     pause) -- not only the glide samples. The same draw (rng 0.5 = the median) on the default and on the
     careful / quick copies gives an exact ratio."""
-    from clearcote._attention import read_pause_ms
-    from clearcote._hzoptions import apply_to_persona, resolve
-    from clearcote._motion import click_hold, dblclick_gap, drag_dwell, key_dwell, move_off_delay_ms, pause_ms
+    from code_browser._attention import read_pause_ms
+    from code_browser._hzoptions import apply_to_persona, resolve
+    from code_browser._motion import click_hold, dblclick_gap, drag_dwell, key_dwell, move_off_delay_ms, pause_ms
 
     def mid():
         return 0.5

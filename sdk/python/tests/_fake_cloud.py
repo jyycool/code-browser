@@ -1,4 +1,4 @@
-"""An in-memory stand-in for the hosted Clearcote API (PLAN §3), for the cloud client and CLI tests.
+"""An in-memory stand-in for the hosted CodeBrowser API (PLAN §3), for the cloud client and CLI tests.
 
 Implements exactly the endpoints the SDK calls, with the documented shapes, so a test can assert both
 what the SDK sent and what it made of the answer. Deterministic on purpose: the cross-language CLI

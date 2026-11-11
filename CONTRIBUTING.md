@@ -1,6 +1,6 @@
-# Contributing to Clearcote
+# Contributing to CodeBrowser
 
-Thanks for your interest! Clearcote is built in the open and contributions are welcome — from typo fixes to new engine-level controls.
+Thanks for your interest! CodeBrowser is built in the open and contributions are welcome — from typo fixes to new engine-level controls.
 
 ## Ground rules
 

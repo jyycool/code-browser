@@ -1,7 +1,7 @@
-# Publishing the Clearcote .NET SDK to NuGet
+# Publishing the CodeBrowser .NET SDK to NuGet
 
-The package id is **`Clearcote`**. It lives in `sdk/dotnet/` (library: `src/Clearcote`, tests:
-`tests/Clearcote.Tests`). Versioned in lockstep with the npm/PyPI SDKs via the csproj `<Version>`.
+The package id is **`CodeBrowser`**. It lives in `sdk/dotnet/` (library: `src/CodeBrowser`, tests:
+`tests/CodeBrowser.Tests`). Versioned in lockstep with the npm/PyPI SDKs via the csproj `<Version>`.
 
 There are two ways to publish: **CI (recommended)** and **manual**.
 
@@ -18,15 +18,15 @@ to publish if the tag version doesn't match the csproj `<Version>`.
 
 | Field | Value |
 |---|---|
-| Policy Name | `clearcote-github-actions` (any label) |
+| Policy Name | `code-browser-github-actions` (any label) |
 | Package Owner | `pim97` |
 | Repository Owner | `clearcotelabs` |
-| Repository | `clearcote-browser` |
+| Repository | `code-browser-browser` |
 | Workflow File | `nuget.yml` |
 | Environment | *leave blank* (or set one + see below) |
 
 Notes:
-- The `Clearcote` package does **not** need to exist yet — the first trusted publish creates it under owner
+- The `CodeBrowser` package does **not** need to exist yet — the first trusted publish creates it under owner
   `pim97`.
 - The workflow already has `permissions: id-token: write` and uses `NuGet/login@v1` (`user: pim97`) to get the
   temporary key — no `NUGET_API_KEY` secret needed. If you change your nuget.org username, update `user:`.
@@ -38,8 +38,8 @@ Notes:
 
 ```bash
 # 1. bump the version in the csproj + the SDK constant, commit
-#    - sdk/dotnet/src/Clearcote/Clearcote.csproj  <Version>0.15.4</Version>
-#    - sdk/dotnet/src/Clearcote/Clearcote.cs        public const string Version = "0.15.4";
+#    - sdk/dotnet/src/CodeBrowser/CodeBrowser.csproj  <Version>0.15.4</Version>
+#    - sdk/dotnet/src/CodeBrowser/CodeBrowser.cs        public const string Version = "0.15.4";
 git commit -am "release(dotnet-sdk): 0.15.4"
 git push origin main
 
@@ -49,10 +49,10 @@ git push origin dotnet-v0.15.4
 ```
 
 Watch it: **Actions → Publish NuGet SDK**. The package appears at
-<https://www.nuget.org/packages/Clearcote> within a few minutes (nuget.org indexing/validation adds a short
+<https://www.nuget.org/packages/CodeBrowser> within a few minutes (nuget.org indexing/validation adds a short
 delay before it's installable).
 
-> **API-key alternative** (for local/unsupported CI): create a nuget.org API key scoped to push `Clearcote`
+> **API-key alternative** (for local/unsupported CI): create a nuget.org API key scoped to push `CodeBrowser`
 > (glob `*` for the first publish), and `dotnet nuget push --api-key <key>` — see §2.
 
 ---
@@ -61,9 +61,9 @@ delay before it's installable).
 
 ```bash
 cd sdk/dotnet
-dotnet test  Clearcote.sln -c Release            # must be green
-dotnet pack  src/Clearcote/Clearcote.csproj -c Release -o ./artifacts
-dotnet nuget push "./artifacts/Clearcote.<version>.nupkg" \
+dotnet test  CodeBrowser.sln -c Release            # must be green
+dotnet pack  src/CodeBrowser/CodeBrowser.csproj -c Release -o ./artifacts
+dotnet nuget push "./artifacts/CodeBrowser.<version>.nupkg" \
   --api-key "<YOUR_NUGET_API_KEY>" \
   --source https://api.nuget.org/v3/index.json \
   --skip-duplicate
@@ -78,12 +78,12 @@ dotnet nuget push "./artifacts/Clearcote.<version>.nupkg" \
 - **First publish** creates the package and makes you its owner on nuget.org. Add co-owners there afterwards.
 - **Versions are immutable** on nuget.org — you cannot overwrite `X.Y.Z`; bump to publish again (`--skip-duplicate`
   makes re-runs of the same version a no-op instead of an error).
-- **README on the listing:** `Clearcote.csproj` sets `PackageReadmeFile=README.md`, so `src/Clearcote/README.md`
+- **README on the listing:** `CodeBrowser.csproj` sets `PackageReadmeFile=README.md`, so `src/CodeBrowser/README.md`
   is the package's front page — update it when features change.
 - **Local smoke test of the package** before publishing:
   ```bash
-  dotnet pack src/Clearcote/Clearcote.csproj -c Release -o ./artifacts
+  dotnet pack src/CodeBrowser/CodeBrowser.csproj -c Release -o ./artifacts
   dotnet new console -o /tmp/cc-consume && cd /tmp/cc-consume
-  dotnet nuget add source "$(pwd)/../../artifacts" -n local-clearcote   # point at ./artifacts
-  dotnet add package Clearcote --source local-clearcote
+  dotnet nuget add source "$(pwd)/../../artifacts" -n local-code-browser   # point at ./artifacts
+  dotnet add package CodeBrowser --source local-code-browser
   ```

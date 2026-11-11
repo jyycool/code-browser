@@ -2,7 +2,7 @@
  * Lane F (SC 232) live, Node: select inside a frame through frameLocator is ONE trusted change (6/6, a direct
  * and a nested frame); option objects on the page; a hidden custom checkbox is checked through its label; a
  * cross-origin (out-of-process) frame falls back to Playwright with the fallback reported. Headless only;
- * skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary. Mirrors test_humanize_coverage_live.py.
+ * skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary. Mirrors test_humanize_coverage_live.py.
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, Frame, Page } from "playwright-core";
 import { launch } from "../src/index.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const T = 90_000;
 
 const REC = `<script>
@@ -79,7 +79,7 @@ describe.runIf(LIVE)("live lane F coverage (node)", () => {
       const ch = await ev(f, "change", "cs");
       expect(ch.length).toBe(1);
       expect(ch[0].tr).toBe(true);
-      expect((page as any)._clearcoteLastFallback).toBeUndefined();
+      expect((page as any)._code_browserLastFallback).toBeUndefined();
     }, T);
   }
 
@@ -111,9 +111,9 @@ describe.runIf(LIVE)("live lane F coverage (node)", () => {
   }
 
   it("a cross-origin frame falls back to Playwright, reported", async () => {
-    (page as any)._clearcoteLastFallback = undefined;
+    (page as any)._code_browserLastFallback = undefined;
     expect(await page.frameLocator("#cross").locator("#cs").selectOption("Peru")).toEqual(["v7"]);
-    const fb = (page as any)._clearcoteLastFallback;
+    const fb = (page as any)._code_browserLastFallback;
     expect(fb?.api).toBe("locator.selectOption");
     expect(String(fb?.reason)).toContain("cross-origin");
   }, T);

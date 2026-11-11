@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const DIST = new URL("../dist/index.js", import.meta.url);
-const CLI = fileURLToPath(new URL("../dist/clearcote-cli.js", import.meta.url));
+const CLI = fileURLToPath(new URL("../dist/code-browser-cli.js", import.meta.url));
 
 describe.skipIf(!existsSync(DIST))("the built package (dist/) is current", () => {
   it("verifyWebhook refuses a missing secret and an oversized header", async () => {
@@ -33,7 +33,7 @@ describe.skipIf(!existsSync(DIST))("the built package (dist/) is current", () =>
   });
 
   it("the CLI never echoes a --secret argument and knows the run options", () => {
-    const env = { ...process.env, CLEARCOTE_API_KEY: "cc_live_x", CLEARCOTE_API_URL: "http://127.0.0.1:9" };
+    const env = { ...process.env, CODE_BROWSER_API_KEY: "cc_live_x", CODE_BROWSER_API_URL: "http://127.0.0.1:9" };
     const r = spawnSync(process.execPath, [CLI, "cloud", "run", "t", "--secret", "hunter2"], { env, encoding: "utf8" });
     expect(r.status).toBe(2);
     expect(r.stderr).not.toContain("hunter2");

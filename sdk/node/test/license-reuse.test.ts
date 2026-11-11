@@ -37,21 +37,21 @@ function isolateHome(): void {
 
 function writeCacheFile(key: string, obj: unknown): void {
   const id = createHash("sha256").update(key).digest("hex").slice(0, 16);
-  const dir = join(process.env.HOME!, ".clearcote");
+  const dir = join(process.env.HOME!, ".code-browser");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `lease-${id}.json`), JSON.stringify(obj));
 }
 
 describe("acquireLease — per-machine token reuse", () => {
   const OLD = {
-    key: process.env.CLEARCOTE_LICENSE_KEY, api: process.env.CLEARCOTE_LICENSE_API,
-    home: process.env.HOME, prof: process.env.USERPROFILE, iid: process.env.CLEARCOTE_INSTANCE_ID,
+    key: process.env.CLEARCOTE_LICENSE_KEY, api: process.env.CODE_BROWSER_LICENSE_API,
+    home: process.env.HOME, prof: process.env.USERPROFILE, iid: process.env.CODE_BROWSER_INSTANCE_ID,
   };
   afterEach(() => {
     globalThis.fetch = realFetch;
     const restore: Record<string, string | undefined> = {
-      CLEARCOTE_LICENSE_KEY: OLD.key, CLEARCOTE_LICENSE_API: OLD.api,
-      HOME: OLD.home, USERPROFILE: OLD.prof, CLEARCOTE_INSTANCE_ID: OLD.iid,
+      CLEARCOTE_LICENSE_KEY: OLD.key, CODE_BROWSER_LICENSE_API: OLD.api,
+      HOME: OLD.home, USERPROFILE: OLD.prof, CODE_BROWSER_INSTANCE_ID: OLD.iid,
     };
     for (const [k, v] of Object.entries(restore)) {
       if (v === undefined) delete process.env[k];
@@ -62,7 +62,7 @@ describe("acquireLease — per-machine token reuse", () => {
 
   it("shares ONE checkout across N launches in a process; stop() does not checkin", async () => {
     isolateHome();
-    process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+    process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
     process.env.CLEARCOTE_LICENSE_KEY = "cc_lic_reuse_" + Date.now();
     const calls = mockBackend();
     const h1 = await acquireLease({ quiet: true });
@@ -86,7 +86,7 @@ describe("acquireLease — per-machine token reuse", () => {
 
   it("throws on a definitive concurrency-limit verdict (cold checkout)", async () => {
     isolateHome();
-    process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+    process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
     process.env.CLEARCOTE_LICENSE_KEY = "cc_lic_limit_" + Date.now();
     globalThis.fetch = (async (url: unknown) => {
       const ep = String(url).split("/").pop();
@@ -99,7 +99,7 @@ describe("acquireLease — per-machine token reuse", () => {
 
   it("reuses a valid on-disk token from another process (0 checkout)", async () => {
     isolateHome();
-    process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+    process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
     const key = "cc_lic_disk_" + Date.now();
     process.env.CLEARCOTE_LICENSE_KEY = key;
     writeCacheFile(key, { token: "DISK-TOK", exp: Math.floor(Date.now() / 1000) + 800, lease_id: "Ld", scope: "machine" });
@@ -111,7 +111,7 @@ describe("acquireLease — per-machine token reuse", () => {
 
   it("checkout body carries sdk_version + resolved engine_version (resolver runs once)", async () => {
     isolateHome();
-    process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+    process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
     process.env.CLEARCOTE_LICENSE_KEY = "cc_lic_tel_" + Date.now();
     const bodies: Record<string, unknown>[] = [];
     globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
@@ -136,7 +136,7 @@ describe("acquireLease — per-machine token reuse", () => {
 
   it("a throwing engine resolver is soft — checkout still succeeds, field omitted", async () => {
     isolateHome();
-    process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+    process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
     process.env.CLEARCOTE_LICENSE_KEY = "cc_lic_soft_" + Date.now();
     let body: Record<string, unknown> = {};
     globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
@@ -156,7 +156,7 @@ describe("acquireLease — per-machine token reuse", () => {
 
   it("reads a cache without lease_id (backwards compat, 0 checkout)", async () => {
     isolateHome();
-    process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+    process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
     const key = "cc_lic_legacy_" + Date.now();
     process.env.CLEARCOTE_LICENSE_KEY = key;
     writeCacheFile(key, { token: "LEGACY", exp: Math.floor(Date.now() / 1000) + 800, scope: "machine" }); // no lease_id
@@ -168,7 +168,7 @@ describe("acquireLease — per-machine token reuse", () => {
 });
 
 // ── shared by the two suites below ───────────────────────────────────────────────────────────────────
-const ENV_KEYS = ["CLEARCOTE_LICENSE_KEY", "CLEARCOTE_LICENSE_API", "HOME", "USERPROFILE", "CLEARCOTE_INSTANCE_ID"] as const;
+const ENV_KEYS = ["CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_LICENSE_API", "HOME", "USERPROFILE", "CODE_BROWSER_INSTANCE_ID"] as const;
 function snapshotEnv() {
   const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
   return () => {
@@ -184,7 +184,7 @@ function tempHome(): void {
   homes.push(home);
   process.env.HOME = home;
   process.env.USERPROFILE = home;
-  delete process.env.CLEARCOTE_INSTANCE_ID;
+  delete process.env.CODE_BROWSER_INSTANCE_ID;
 }
 
 // ── heartbeat 409: reclaimed/expired -> re-checkout ─────────────────────────────────────────────────
@@ -223,7 +223,7 @@ describe("acquireLease — machine lease heartbeat 409 recovery", () => {
   function setup() {
     restoreEnv = snapshotEnv();
     tempHome();
-    process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+    process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
     process.env.CLEARCOTE_LICENSE_KEY = "cc_lic_hb409_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     vi.useFakeTimers();
   }
@@ -325,7 +325,7 @@ describe("licence calls — User-Agent on the wire", () => {
   it("direct: checkout and seats each carry exactly one User-Agent naming the SDK version", async () => {
     setup("cc_lic_ua_direct_");
     const { base, seen } = await listen();
-    process.env.CLEARCOTE_LICENSE_API = base;
+    process.env.CODE_BROWSER_LICENSE_API = base;
     await acquireLease({ quiet: true });
     expect((await getSessionSeats({})).state).toBe("ok");
     expect(seen).toEqual([
@@ -339,7 +339,7 @@ describe("licence calls — User-Agent on the wire", () => {
     const { base, seen } = await listen();
     // An http:// API through an http:// proxy goes absolute-form, straight to the proxy: the local server
     // plays the proxy and sees the exact request the SDK wrote.
-    process.env.CLEARCOTE_LICENSE_API = "http://licence.test";
+    process.env.CODE_BROWSER_LICENSE_API = "http://licence.test";
     await acquireLease({ quiet: true, licenseThroughProxy: true, proxy: base });
     expect(seen).toEqual([{ target: "http://licence.test/api/v1/lease/checkout", uas: [WANT] }]);
   });

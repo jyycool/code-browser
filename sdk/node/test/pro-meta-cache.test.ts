@@ -1,5 +1,5 @@
 // The PRO download route's answer is kept for 10 minutes (SDK 0.55), per process and in
-// ~/.clearcote/pro-meta-<hash>.json, so a launch of an installed PRO build makes no request for it. Only an
+// ~/.code-browser/pro-meta-<hash>.json, so a launch of an installed PRO build makes no request for it. Only an
 // installed build that passes the cached-build check (re-hashing its protected files with the kept hashes)
 // is launched from a kept answer; anything else asks again, and a download always follows a fresh answer.
 // A local server stands in for the route and the archive; HOME and the browser cache are temp dirs.
@@ -14,7 +14,7 @@ import { tempDir } from "./helpers/temp.js";
 
 const proPlatform = process.platform === "win32" || process.platform === "linux"; // the PRO route serves these
 const plat = process.platform === "win32" ? "windows" : "linux";
-const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CLEARCOTE_LICENSE_API", "CLEARCOTE_RELEASE_CHANNEL"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_RELEASE_CHANNEL"] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const servers: Server[] = [];
 
@@ -36,8 +36,8 @@ async function setup() {
   process.env.HOME = home;
   process.env.USERPROFILE = home;
   process.env.LOCALAPPDATA = home;
-  delete process.env.CLEARCOTE_LICENSE_API;
-  delete process.env.CLEARCOTE_RELEASE_CHANNEL;
+  delete process.env.CODE_BROWSER_LICENSE_API;
+  delete process.env.CODE_BROWSER_RELEASE_CHANNEL;
   return { home, cache: tempDir("cc-prometa-cache-"), dl: await freshModule() };
 }
 
@@ -86,7 +86,7 @@ async function route() {
 }
 
 const metaFile = (home: string, key: string, url: string) =>
-  path.join(home, ".clearcote", `pro-meta-${createHash("sha256").update(`${key}\n${url}`).digest("hex").slice(0, 16)}.json`);
+  path.join(home, ".code-browser", `pro-meta-${createHash("sha256").update(`${key}\n${url}`).digest("hex").slice(0, 16)}.json`);
 
 describe.runIf(proPlatform)("PRO download metadata cache", () => {
   it("a second launch within 10 minutes makes no request to the download route", async () => {

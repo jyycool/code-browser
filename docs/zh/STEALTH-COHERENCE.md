@@ -34,9 +34,9 @@
 ## 运行
 
 ```bash
-# gate the local build (auto-finds win-x64/chrome.exe, or set CLEARCOTE_BINARY)
+# gate the local build (auto-finds win-x64/chrome.exe, or set CODE_BROWSER_BINARY)
 py -3 scripts/stealth_coherence.py
-py -3 scripts/stealth_coherence.py --binary C:\clearcote\chrome.exe --json out.json
+py -3 scripts/stealth_coherence.py --binary C:\code-browser\chrome.exe --json out.json
 
 # prove the checks themselves are correct: stock Chrome must pass all of them
 py -3 scripts/stealth_coherence.py --baseline

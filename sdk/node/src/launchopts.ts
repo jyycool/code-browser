@@ -79,7 +79,7 @@ export const PLAYWRIGHT_DISABLED_FEATURES = [
  *   SecurityError from localStorage. Measured 2026-10-06 (r30, genuine Chrome 154.0.8037.98 on the
  *   same host): genuine gives the iframe an empty partition (null, no error) with third-party
  *   cookies allowed AND blocked; genuine launched with Playwright's defaults reproduces both
- *   clearcote results exactly.
+ *   code-browser results exactly.
  * - AcceptCHFrame: client hints requested in the TLS/HTTP2 ACCEPT_CH frame reach the server on the
  *   first request.
  * - HttpsUpgrades: an http:// navigation is tried over https first — the server sees which. Note
@@ -438,7 +438,7 @@ export function extensionArgs(paths?: string[]): string[] {
  * shape) makes launch() fail outright. Route such a proxy through the --proxy-server engine switch
  * so the launch proceeds, and drop it from the Playwright options.
  *
- * The credentials are forwarded to the engine as --socks5-credentials: clearcote implements RFC
+ * The credentials are forwarded to the engine as --socks5-credentials: code-browser implements RFC
  * 1929 username/password authentication, which stock Chromium does not, so no local relay is
  * needed. Everything else (http/https, or SOCKS without credentials) is left to Playwright. */
 const switchCache = new Map<string, boolean>();
@@ -553,20 +553,20 @@ export function warnUnsupportedEngineOptions(exe: string | undefined, fingerprin
     // derives that one instead, silently. r45 left no marker, so 5 is only caught on engines before r37.
     const schema = String(fingerprint.personaSchema ?? "");
     if (schema === "2" && !engineSupportsSwitch(exe, "fingerprint-schema"))
-      out.push("clearcote: personaSchema: 2 (engine r19+) is not supported by this engine build and is ignored; upgrade the engine to use it.");
+      out.push("code-browser: personaSchema: 2 (engine r19+) is not supported by this engine build and is ignored; upgrade the engine to use it.");
     if (schema === "3" && !engineSupportsSwitch(exe, "block-third-party-cookies"))
-      out.push("clearcote: personaSchema: 3 (engine 154 r36+) is not supported by this engine build, which derives its own newest identity model instead; upgrade the engine to use it.");
+      out.push("code-browser: personaSchema: 3 (engine 154 r36+) is not supported by this engine build, which derives its own newest identity model instead; upgrade the engine to use it.");
     if (schema === "4" && !engineSupportsSwitch(exe, SCHEMA4_ENGINE_MARKER))
-      out.push("clearcote: personaSchema: 4 (engine 154 r37+) is not supported by this engine build, which derives its own newest identity model instead; upgrade the engine to use it.");
+      out.push("code-browser: personaSchema: 4 (engine 154 r37+) is not supported by this engine build, which derives its own newest identity model instead; upgrade the engine to use it.");
     if (schema === "5" && !engineSupportsSwitch(exe, SCHEMA4_ENGINE_MARKER))
-      out.push("clearcote: personaSchema: 5 (engine 155 r45+) is not supported by this engine build, which derives its own newest identity model instead; upgrade the engine to use it.");
+      out.push("code-browser: personaSchema: 5 (engine 155 r45+) is not supported by this engine build, which derives its own newest identity model instead; upgrade the engine to use it.");
     if (schema === "7" && !engineSupportsSwitch(exe, PERSONA_SERVICE_MARKER))
-      out.push("clearcote: personaSchema: 7 (engine 156 r51+) is not supported by this engine build, which derives its own newest identity model instead; upgrade the engine to use it.");
+      out.push("code-browser: personaSchema: 7 (engine 156 r51+) is not supported by this engine build, which derives its own newest identity model instead; upgrade the engine to use it.");
     if (fingerprint.realGpuHost && !engineSupportsSwitch(exe, "fingerprint-gpu-backend-real"))
-      out.push("clearcote: realGpuHost (engine r19+) is not supported by this engine build and is ignored; upgrade the engine to use it.");
+      out.push("code-browser: realGpuHost (engine r19+) is not supported by this engine build and is ignored; upgrade the engine to use it.");
     const { server, username, password } = proxy ? proxyCredentials(proxy) : { server: "", username: "", password: "" };
     if (server && /^socks/i.test(server) && (username || password) && !engineSupportsSwitch(exe, "socks5-credentials"))
-      out.push("clearcote: this engine build cannot authenticate to a SOCKS5 proxy (needs r17+); the proxy will reject the connection.");
+      out.push("code-browser: this engine build cannot authenticate to a SOCKS5 proxy (needs r17+); the proxy will reject the connection.");
     if (!quiet) for (const m of out) console.warn(m);
   } catch { /* never block a launch over a warning */ }
   return out;
@@ -618,7 +618,7 @@ export function resolveProxy(proxy: PwProxy | undefined, engineSupportsProxyAuth
     // `server` has no userinfo; the engine takes it via its own switch. Userinfo left in
     // --proxy-server is rejected by Chromium's proxy parser and the entry dropped: every request
     // then fails with ERR_NO_SUPPORTED_PROXIES (measured on r27).
-    // An http(s) proxy WITH credentials also goes to the engine (--proxy-auth, clearcote r19+):
+    // An http(s) proxy WITH credentials also goes to the engine (--proxy-auth, code-browser r19+):
     // credentials given to Playwright make its driver enable Fetch interception and
     // Network.setCacheDisabled for the whole context -- a transport tell unrelated to the persona.
     const args = [`--proxy-server=${server}`, `${isSocks ? "--socks5-credentials=" : "--proxy-auth="}${username}:${password}`];
@@ -888,7 +888,7 @@ export function gateEngineSwitches(exe: string | undefined, args: string[], quie
     const what = GATED_ENGINE_SWITCHES[name];
     if (!what) return true;
     if (engineSupportsSwitch(exe, name.slice(2))) return true;
-    warnings.push(`clearcote: ${what} needs engine 152 r22 or newer; this engine ignores it, so it was not applied.`);
+    warnings.push(`code-browser: ${what} needs engine 152 r22 or newer; this engine ignores it, so it was not applied.`);
     return false;
   });
   if (!quiet) for (const w of warnings) console.warn(w);
@@ -916,7 +916,7 @@ export function engineExtrasArgs(
   args.push(o.allowThirdPartyCookies === false ? "--block-third-party-cookies" : "--allow-third-party-cookies");
   if (o.transparentProxy === true) {
     if (proxy?.server) args.push("--transparent-proxy");
-    else if (!quiet) console.warn("clearcote: transparentProxy has no effect without a proxy; ignored.");
+    else if (!quiet) console.warn("code-browser: transparentProxy has no effect without a proxy; ignored.");
   }
   return args;
 }
@@ -928,10 +928,10 @@ export function engineExtrasArgs(
  * exposeBinding() stop working after a navigation. Engine r32 (patch 1043) restores stock Chromium for these
  * with this switch. Off by default: pages can observe some of the restored Runtime behaviour. */
 export const STOCK_RUNTIME_SWITCH = "--disable-runtime-suppression";
-export const STOCK_RUNTIME_ENV = "CLEARCOTE_STOCK_RUNTIME";
+export const STOCK_RUNTIME_ENV = "CODE_BROWSER_STOCK_RUNTIME";
 const STOCK_RUNTIME_ON = ["1", "true", "yes", "on"];
 
-/** The `stockRuntime` option: an explicit value wins; unset follows CLEARCOTE_STOCK_RUNTIME (on for
+/** The `stockRuntime` option: an explicit value wins; unset follows CODE_BROWSER_STOCK_RUNTIME (on for
  * 1/true/yes/on, off otherwise). */
 export function stockRuntimeWanted(value?: unknown): boolean {
   return optionOn(value, STOCK_RUNTIME_ENV);
@@ -949,14 +949,14 @@ function optionOn(value: unknown, env: string): boolean {
  * `[--disable-runtime-suppression]` when `stockRuntime` is on and the engine that will run has the switch; else
  * nothing. It is a normal browser argument, not a persona switch (personaenv.ts leaves it on the command line). An
  * engine without it (r31, open builds) would ignore it without a word, so it is not passed and the SDK says so once
- * per process (quiet and CLEARCOTE_NO_WARN silence it without using it up). A caller who already put it in `args`
+ * per process (quiet and CODE_BROWSER_NO_WARN silence it without using it up). A caller who already put it in `args`
  * gets it once.
  */
 export function stockRuntimeArgs(exe: string | undefined, enabled: unknown, userArgs: readonly string[], quiet?: boolean): string[] {
   if (!stockRuntimeWanted(enabled)) return [];
   if (!engineSupportsSwitch(exe, STOCK_RUNTIME_SWITCH.slice(2))) {
     warnOnce("stock-runtime-unsupported",
-      "stockRuntime (CLEARCOTE_STOCK_RUNTIME) is on, but this engine does not support it (it needs an engine from " +
+      "stockRuntime (CODE_BROWSER_STOCK_RUNTIME) is on, but this engine does not support it (it needs an engine from " +
       "r32 on), so the browser starts without it.", quiet);
     return [];
   }
@@ -972,22 +972,22 @@ export function stockRuntimeOn(exe: string | undefined, args: readonly string[])
 export function warnStockRuntimeCloud(enabled: unknown, quiet?: boolean): void {
   if (!stockRuntimeWanted(enabled)) return;
   warnOnce("stock-runtime-cloud",
-    "stockRuntime (CLEARCOTE_STOCK_RUNTIME) only applies to local and Docker launches; a cloud browser does not " +
+    "stockRuntime (CODE_BROWSER_STOCK_RUNTIME) only applies to local and Docker launches; a cloud browser does not " +
     "take it, so it was not applied.", quiet);
 }
 
 // ── Runtime.addBinding bindings across navigations (engine r54+) ───────────────────────────────────
 
 /** Patch 110 also keeps Runtime.addBinding bindings out of documents created after the binding was added, so with
- * Playwright exposeFunction() / exposeBinding() fail after page.goto() or a reload (clearcote-browser#43). Engine
+ * Playwright exposeFunction() / exposeBinding() fail after page.goto() or a reload (code-browser-browser#43). Engine
  * r54 (pro-r54-04) restores only that with this switch and leaves the rest of the suppression on. Off by default. A
  * binding exists only when the client adds one, so a launch that adds none looks the same to a page; one that does
  * shows the page that binding's global (Playwright: __playwright__binding__), as stock Chrome does. stockRuntime
  * already includes it. */
 export const RUNTIME_BINDINGS_SWITCH = "--enable-runtime-bindings";
-export const RUNTIME_BINDINGS_ENV = "CLEARCOTE_RUNTIME_BINDINGS";
+export const RUNTIME_BINDINGS_ENV = "CODE_BROWSER_RUNTIME_BINDINGS";
 
-/** The `runtimeBindings` option: an explicit value wins; unset follows CLEARCOTE_RUNTIME_BINDINGS. */
+/** The `runtimeBindings` option: an explicit value wins; unset follows CODE_BROWSER_RUNTIME_BINDINGS. */
 export function runtimeBindingsWanted(value?: unknown): boolean {
   return optionOn(value, RUNTIME_BINDINGS_ENV);
 }
@@ -997,7 +997,7 @@ export function runtimeBindingsWanted(value?: unknown): boolean {
  * nothing. `present` is the command line so far (the SDK's and the caller's): with stockRuntime's switch on it the
  * bindings are already restored, and a switch the caller wrote is not added twice. Not a persona switch
  * (personaenv.ts leaves it on the command line). An engine without it would ignore it without a word, so it is not
- * passed and the SDK says so once per process (quiet and CLEARCOTE_NO_WARN silence it without using it up).
+ * passed and the SDK says so once per process (quiet and CODE_BROWSER_NO_WARN silence it without using it up).
  */
 export function runtimeBindingsArgs(exe: string | undefined, enabled: unknown, present: readonly string[] = [], quiet?: boolean): string[] {
   if (!runtimeBindingsWanted(enabled)) return [];
@@ -1005,7 +1005,7 @@ export function runtimeBindingsArgs(exe: string | undefined, enabled: unknown, p
   if (have.includes(STOCK_RUNTIME_SWITCH)) return [];
   if (!engineSupportsSwitch(exe, RUNTIME_BINDINGS_SWITCH.slice(2))) {
     warnOnce("runtime-bindings-unsupported",
-      "runtimeBindings (CLEARCOTE_RUNTIME_BINDINGS) is on, but this engine does not support it (it needs an engine " +
+      "runtimeBindings (CODE_BROWSER_RUNTIME_BINDINGS) is on, but this engine does not support it (it needs an engine " +
       "from r54 on), so exposeFunction() and exposeBinding() stop working after a navigation. stockRuntime: true " +
       "(engine r32+) also restores them.", quiet);
     return [];
@@ -1022,6 +1022,6 @@ export function runtimeBindingsOn(exe: string | undefined, args: readonly string
 export function warnRuntimeBindingsCloud(enabled: unknown, quiet?: boolean): void {
   if (!runtimeBindingsWanted(enabled)) return;
   warnOnce("runtime-bindings-cloud",
-    "runtimeBindings (CLEARCOTE_RUNTIME_BINDINGS) only applies to local and Docker launches; a cloud browser does " +
+    "runtimeBindings (CODE_BROWSER_RUNTIME_BINDINGS) only applies to local and Docker launches; a cloud browser does " +
     "not take it, so it was not applied.", quiet);
 }

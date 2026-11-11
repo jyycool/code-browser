@@ -1,6 +1,6 @@
 """read_page and navigate without a browser (scripted pages): the output format, the main document's HTTP status and
 page_state, capped fields with explicit *_truncated flags, the untrusted-content fence, and screenshots inline only
-when small. tests/test_browser_e2e.py runs the same behaviour on a real Clearcote browser (opt-in)."""
+when small. tests/test_browser_e2e.py runs the same behaviour on a real CodeBrowser browser (opt-in)."""
 import base64
 import json
 from contextlib import asynccontextmanager
@@ -8,9 +8,9 @@ from contextlib import asynccontextmanager
 import pytest
 from mcp.types import CallToolResult
 
-from clearcote_mcp import _facade
-from clearcote_mcp import server as S
-from clearcote_mcp._facade import ClearcoteBrowser
+from code_browser_mcp import _facade
+from code_browser_mcp import server as S
+from code_browser_mcp._facade import CodeBrowserBrowser
 
 ARTICLE = "<html><head><title>Notes</title></head><body><h1>Field notes</h1><p>" + "A long paragraph. " * 20 + "</p></body></html>"
 BLANK = "<html><head><title>Wait</title></head><body>  \n </body></html>"
@@ -100,7 +100,7 @@ class Context:
 
 
 def browser(routes, url="about:blank"):
-    b = ClearcoteBrowser()
+    b = CodeBrowserBrowser()
     b._page = Page(routes, url)
     b._ctx = Context(b._page)
     if hasattr(b, "_watch"):  # what start() did for every page before the status came from the shown document
@@ -369,8 +369,8 @@ PNG = base64.b64decode(  # a 1x1 PNG, padded to the size under test
 @pytest.mark.asyncio
 @pytest.mark.parametrize("size,inline", [(1000, True), (200_000, True), (200_001, False), (2_000_000, False)])
 async def test_screenshot_is_inline_only_when_small(served, tmp_path, monkeypatch, size, inline):
-    monkeypatch.setenv("CLEARCOTE_MCP_WRITE_DIR", str(tmp_path))
-    monkeypatch.delenv("CLEARCOTE_MCP_ALLOW_ANY_PATH", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_MCP_WRITE_DIR", str(tmp_path))
+    monkeypatch.delenv("CODE_BROWSER_MCP_ALLOW_ANY_PATH", raising=False)
     b = served({})
 
     async def screenshot(path, url=None, full_page=True):
@@ -412,8 +412,8 @@ async def connected():
 async def test_a_small_screenshot_reaches_the_client_as_an_image(served, tmp_path, monkeypatch):
     """Through the protocol, as a client receives it: the image block, not the result turned into a JSON text blob
     (what mcp releases before 1.19 do with a returned CallToolResult)."""
-    monkeypatch.setenv("CLEARCOTE_MCP_WRITE_DIR", str(tmp_path))
-    monkeypatch.delenv("CLEARCOTE_MCP_ALLOW_ANY_PATH", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_MCP_WRITE_DIR", str(tmp_path))
+    monkeypatch.delenv("CODE_BROWSER_MCP_ALLOW_ANY_PATH", raising=False)
     b = served({})
 
     async def screenshot(path, url=None, full_page=True):

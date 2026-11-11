@@ -20,9 +20,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "check_release_pin.py"
-PY_RELEASE = ROOT / "sdk" / "python" / "clearcote" / "release.py"
+PY_RELEASE = ROOT / "sdk" / "python" / "code-browser" / "release.py"
 TS_RELEASE = ROOT / "sdk" / "node" / "src" / "release.ts"
-CS_RELEASE = ROOT / "sdk" / "dotnet" / "src" / "Clearcote" / "Release.cs"
+CS_RELEASE = ROOT / "sdk" / "dotnet" / "src" / "CodeBrowser" / "Release.cs"
 WORKFLOW = ROOT / ".github" / "workflows" / "sdk-ci.yml"
 
 try:
@@ -131,7 +131,7 @@ class BaselineTest(GateCase):
 
 
 class DotnetPinTest(GateCase):
-    """The .NET SDK carries its own copy of the pin (sdk/dotnet/src/Clearcote/Release.cs)."""
+    """The .NET SDK carries its own copy of the pin (sdk/dotnet/src/CodeBrowser/Release.cs)."""
 
     def test_real_release_cs_parses_and_matches_python(self):
         pins = self.gate.load_dotnet()
@@ -229,7 +229,7 @@ class CommentedOutCodeTest(GateCase):
 
 class ArchiveAndAssetGlobTest(GateCase):
     """`archive` picks how the SDKs unpack the asset; `assetGlob` is the marker their auto-update uses to pick a
-    release's asset (`^clearcote-.*-<glob>\\.(zip|tar.xz)$`). Both must agree across the SDKs and with the
+    release's asset (`^code-browser-.*-<glob>\\.(zip|tar.xz)$`). Both must agree across the SDKs and with the
     release's real asset names."""
 
     WIN_GLOB = ('"asset_glob": "windows-x64",', 'assetGlob: "windows-x64",', 'AssetGlob = "windows-x64",')
@@ -299,7 +299,7 @@ class ArchiveAndAssetGlobTest(GateCase):
         # the published release also carries per-asset .sha256 / .sha256.asc files and the signing key
         pins = python_pins()[0].values()
         extra = [p["asset"] + s for p in pins for s in (".sha256", ".sha256.asc")]
-        code, out = self.run_gate(FakeGitHub(extra_assets=extra + ["clearcote-signing-key.asc", "SHA256SUMS.txt.asc"]))
+        code, out = self.run_gate(FakeGitHub(extra_assets=extra + ["code-browser-signing-key.asc", "SHA256SUMS.txt.asc"]))
         self.assertEqual(code, 0, out)
 
 

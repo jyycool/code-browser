@@ -1,6 +1,6 @@
 BSD 3-Clause License
 
-Copyright (c) 2026, Clearcote Labs and the Clearcote contributors
+Copyright (c) 2026, CodeBrowser Labs and the CodeBrowser contributors
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -29,6 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
-This license applies to Clearcote's own source code and patches. Upstream
+This license applies to CodeBrowser's own source code and patches. Upstream
 components (Chromium, ungoogled-chromium, and others) are distributed under
 their respective licenses; see CREDITS.md.

@@ -14,9 +14,9 @@ import time
 
 import pytest
 
-import clearcote._humanize as hz
-import clearcote._humanize_async as hza
-from clearcote import _pacing
+import code_browser._humanize as hz
+import code_browser._humanize_async as hza
+from code_browser import _pacing
 
 LATENCIES = (0.0, 25.0)
 
@@ -349,7 +349,7 @@ def test_pacer_stops_at_a_failing_move():
 
 
 def test_trim_to_cuts_near_the_budget_at_a_slow_sample():
-    from clearcote._motion import make_persona, plan_ambient
+    from code_browser._motion import make_persona, plan_ambient
     p = make_persona("trim")
     for ms in (600, 1200, 1500, 4000):
         plan = plan_ambient((300, 300), {"width": 1280, "height": 800}, p, ms)
@@ -362,7 +362,7 @@ def test_trim_to_cuts_near_the_budget_at_a_slow_sample():
 def test_trim_to_a_short_ask_does_not_stop_the_pointer_mid_flight():
     # ~300 ms against a first excursion of 0.5-1 s: every sample in the window is mid-glide. The cut
     # moves to where the glide has slowed down (<= 30 % of peak), within 2x the ask.
-    from clearcote._motion import make_persona, plan_ambient
+    from code_browser._motion import make_persona, plan_ambient
     for seed in range(60):
         plan = plan_ambient((300, 300), {"width": 1280, "height": 800}, make_persona(seed), 300)
         cut = _pacing.trim_to(plan, 300)
@@ -379,7 +379,7 @@ def test_pacer_after_a_long_stall_stretches_instead_of_jumping(stall_ms):
     """SC 210 lab v2 on r38 under load: 35 hops of 60-103 px between samples a few ms apart. A stall of
     200-500 ms used to let the next skip hop 3 px/ms x the stall; now no hop is longer than the hop cap
     (MAX_JUMP_PX without a persona), nor more than 20 px right after an idle gap: the walk takes longer."""
-    from clearcote._motion import plan_move, make_persona
+    from code_browser._motion import plan_move, make_persona
     steps = plan_move((100.0, 500.0), (1150.0, 140.0), make_persona("stall-1"), target_w=24)
     own = _max_gap([(s[0], s[1]) for s in steps])
     c = Clock()
@@ -439,7 +439,7 @@ def test_pacer_sends_the_point_on_the_path_when_late_and_keeps_its_speed():
     # The fake stamps each point when its round trip ends, so the jitter itself adds some wobble; over 20
     # personas the median stays at <= 3.5 smoothed peaks (the old walk: 6-7) and none exceeds 8.
     import statistics
-    from clearcote._motion import plan_move, make_persona
+    from code_browser._motion import plan_move, make_persona
     pk = []
     for seed in range(20):
         p = make_persona(str(seed))
@@ -457,7 +457,7 @@ def test_planned_glide_speed_follows_its_report_times():
     # +-12 %, so the speed a page computes swung sample to sample (5 smoothed velocity peaks per planned glide,
     # SC 298). Walked on time, a single-submovement plan now shows one smooth speed bell.
     import statistics
-    from clearcote._motion import plan_move, make_persona
+    from code_browser._motion import plan_move, make_persona
     pk = []
     for seed in range(30):
         plan = plan_move((120.0, 140.0), (1020.0, 480.0), make_persona(str(seed)), target_w=40)
@@ -471,7 +471,7 @@ def test_planned_glide_speed_follows_its_report_times():
 def test_pacer_hops_beyond_40_px_when_the_plan_is_that_fast():
     # The old fixed 40 px cap was a wall every persona shared (SC 298: 0 of 4,462 page steps above 40.5 px).
     # A fast reach at ~3 px/ms with an 18-25 ms round trip covers 55-75 px between two dispatches.
-    from clearcote._motion import plan_move, make_persona, hop_cap_px
+    from code_browser._motion import plan_move, make_persona, hop_cap_px
     p = make_persona("3")
     cap = hop_cap_px(p)
     plan = plan_move((60.0, 100.0), (1900.0, 900.0), p, target_w=60)
@@ -483,7 +483,7 @@ def test_pacer_hops_beyond_40_px_when_the_plan_is_that_fast():
 
 
 def test_hop_cap_is_a_persona_trait():
-    from clearcote._motion import make_persona, hop_cap_px
+    from code_browser._motion import make_persona, hop_cap_px
     caps = [hop_cap_px(make_persona(str(s))) for s in range(200)]
     assert all(55.0 <= c <= 110.0 for c in caps)
     assert max(caps) - min(caps) > 40.0

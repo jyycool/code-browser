@@ -145,7 +145,7 @@ describe("install integrity", () => {
     const { browser } = tree();
     const text = brokenInstallError(browser, ["icudtl.dat — missing"], false).message;
     expect(text).not.toContain("re-download it");
-    expect(text).toContain("CLEARCOTE_BINARY");
+    expect(text).toContain("CODE_BROWSER_BINARY");
   });
 
   it("truncates a long problem list", () => {

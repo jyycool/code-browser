@@ -22,8 +22,8 @@ import { tempDir } from "./helpers/temp.js";
 
 const realFetch = globalThis.fetch;
 const savedDefaults = { ...leaseDefaults, rateLimitRetryMs: [...leaseDefaults.rateLimitRetryMs] };
-const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_LICENSE_API", "CLEARCOTE_LEASE_API",
-  "CLEARCOTE_INSTANCE_ID", "CLEARCOTE_LICENSE_THROUGH_PROXY"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_LEASE_API",
+  "CODE_BROWSER_INSTANCE_ID", "CODE_BROWSER_LICENSE_THROUGH_PROXY"] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const open: LeaseSession[] = [];
 
@@ -51,10 +51,10 @@ function isolate(plan: string): string {
   process.env.HOME = home;
   process.env.USERPROFILE = home;
   process.env.LOCALAPPDATA = home;
-  process.env.CLEARCOTE_LICENSE_API = "http://licence.test";
-  delete process.env.CLEARCOTE_LEASE_API;
-  delete process.env.CLEARCOTE_INSTANCE_ID;
-  delete process.env.CLEARCOTE_LICENSE_THROUGH_PROXY;
+  process.env.CODE_BROWSER_LICENSE_API = "http://licence.test";
+  delete process.env.CODE_BROWSER_LEASE_API;
+  delete process.env.CODE_BROWSER_INSTANCE_ID;
+  delete process.env.CODE_BROWSER_LICENSE_THROUGH_PROXY;
   leaseDefaults.rateLimitRetryMs = [1, 1, 1];
   const key = `cc_lic_${plan}_${Date.now()}_${++seq}`;
   process.env.CLEARCOTE_LICENSE_KEY = key;
@@ -62,10 +62,10 @@ function isolate(plan: string): string {
 }
 
 const keyId = (key: string) => createHash("sha256").update(key).digest("hex").slice(0, 16);
-const leaseFile = (key: string) => join(process.env.HOME!, ".clearcote", `lease-${keyId(key)}.json`);
-const graceFile = (key: string) => join(process.env.HOME!, ".clearcote", `grace-${keyId(key)}.json`);
+const leaseFile = (key: string) => join(process.env.HOME!, ".code-browser", `lease-${keyId(key)}.json`);
+const graceFile = (key: string) => join(process.env.HOME!, ".code-browser", `grace-${keyId(key)}.json`);
 function writeJson(file: string, obj: unknown): void {
-  mkdirSync(join(process.env.HOME!, ".clearcote"), { recursive: true });
+  mkdirSync(join(process.env.HOME!, ".code-browser"), { recursive: true });
   writeFileSync(file, JSON.stringify(obj));
 }
 
@@ -168,7 +168,7 @@ async function launch(quiet = true): Promise<LeaseSession> {
   return l;
 }
 
-const UNCOUNTED = /^\[clearcote\] \[license\] licence server unreachable \(.+\); this browser starts on a cached run-token and is not counted\.\n$/;
+const UNCOUNTED = /^\[code-browser\] \[license\] licence server unreachable \(.+\); this browser starts on a cached run-token and is not counted\.\n$/;
 
 // ── 1-2: who gets which lease ───────────────────────────────────────────────────────────────────────
 describe("paid per-browser leases (lease_scope browser)", () => {
@@ -392,7 +392,7 @@ describe("paid browser, no verdict: starts uncounted on a cached token", () => {
   it.each([
     ["401 INVALID_LICENSE", 401, { error: "Invalid licence key.", code: "INVALID_LICENSE" }, LicenseError],
     ["403 revoked", 403, { error: "License revoked.", code: "LICENSE_REVOKED" }, LicenseRevokedError],
-    ["426 SDK_UPGRADE_REQUIRED", 426, { error: "Update the Clearcote SDK to 0.55 or newer.", code: "SDK_UPGRADE_REQUIRED" }, LicenseError],
+    ["426 SDK_UPGRADE_REQUIRED", 426, { error: "Update the CodeBrowser SDK to 0.55 or newer.", code: "SDK_UPGRADE_REQUIRED" }, LicenseError],
     ["429 CONCURRENCY_LIMIT_EXCEEDED", 429, { error: "limit", code: "CONCURRENCY_LIMIT_EXCEEDED" }, ConcurrencyLimitError],
   ] as const)("a definitive verdict (%s) never falls back to a cached token", async (_name, status, body, cls) => {
     const key = isolate("pro");
@@ -412,8 +412,8 @@ describe("paid browser, no verdict: starts uncounted on a cached token", () => {
     const key = isolate("pro");
     writeJson(graceFile(key), { token: tokenFor("pro", 8), exp: now() + 3_600 });
     const be = backend("pro");
-    be.state.checkoutAnswers.push(() => json(426, { error: "Update the Clearcote SDK.", code: "SDK_UPGRADE_REQUIRED" }));
-    await expect(acquireLease({ quiet: true })).rejects.toMatchObject({ code: "SDK_UPGRADE_REQUIRED", message: "Update the Clearcote SDK." });
+    be.state.checkoutAnswers.push(() => json(426, { error: "Update the CodeBrowser SDK.", code: "SDK_UPGRADE_REQUIRED" }));
+    await expect(acquireLease({ quiet: true })).rejects.toMatchObject({ code: "SDK_UPGRADE_REQUIRED", message: "Update the CodeBrowser SDK." });
   });
 });
 
@@ -503,7 +503,7 @@ describe("notice", () => {
     expect(quietRun.lines.filter((l) => l.includes("[license]"))).toEqual([]);
     be.state.notice = "Your plan renews on 1 November.";
     const run = await stderrOf(async () => { await launch(false); await launch(false); });
-    expect(run.lines.filter((l) => l.includes("[license]"))).toEqual(["[clearcote] [license] Your plan renews on 1 November.\n"]);
+    expect(run.lines.filter((l) => l.includes("[license]"))).toEqual(["[code-browser] [license] Your plan renews on 1 November.\n"]);
   });
 
   it("is not printed when quiet", async () => {

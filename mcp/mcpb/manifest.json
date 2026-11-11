@@ -1,21 +1,21 @@
 {
   "manifest_version": "0.4",
-  "name": "clearcote-mcp",
-  "display_name": "Clearcote",
+  "name": "code-browser-mcp",
+  "display_name": "CodeBrowser",
   "version": "0.3.1",
-  "description": "Drive the Clearcote Chromium browser from any MCP client: read pages, click, fill, screenshot.",
-  "long_description": "Runs the open-source Clearcote Chromium browser locally and gives your agent about 20 tools to navigate, read pages as Markdown, extract, click, fill, screenshot and keep sessions. `get_cdp_endpoint` hands the same browser to Playwright, Puppeteer, browser-use or Crawl4AI. The fingerprint is set in Chromium's C++, so no JavaScript stealth plugins are needed. The first run downloads the browser and verifies its SHA-256.",
+  "description": "Drive the CodeBrowser Chromium browser from any MCP client: read pages, click, fill, screenshot.",
+  "long_description": "Runs the open-source CodeBrowser Chromium browser locally and gives your agent about 20 tools to navigate, read pages as Markdown, extract, click, fill, screenshot and keep sessions. `get_cdp_endpoint` hands the same browser to Playwright, Puppeteer, browser-use or Crawl4AI. The fingerprint is set in Chromium's C++, so no JavaScript stealth plugins are needed. The first run downloads the browser and verifies its SHA-256.",
   "author": {
-    "name": "Clearcote Labs",
+    "name": "CodeBrowser Labs",
     "url": "https://clearcotelabs.com"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/clearcotelabs/clearcote-browser"
+    "url": "https://github.com/jyycool/code-browser"
   },
   "homepage": "https://clearcotelabs.com",
-  "documentation": "https://github.com/clearcotelabs/clearcote-browser/tree/main/mcp",
-  "support": "https://github.com/clearcotelabs/clearcote-browser/issues",
+  "documentation": "https://github.com/jyycool/code-browser/tree/main/mcp",
+  "support": "https://github.com/jyycool/code-browser/issues",
   "icon": "icon.png",
   "server": {
     "type": "uv",
@@ -29,12 +29,12 @@
         "src/server.py"
       ],
       "env": {
-        "CLEARCOTE_FINGERPRINT": "${user_config.fingerprint}",
-        "CLEARCOTE_PLATFORM": "${user_config.platform}",
-        "CLEARCOTE_PROXY": "${user_config.proxy}",
-        "CLEARCOTE_GEOIP": "${user_config.geoip}",
-        "CLEARCOTE_CLOUD": "${user_config.cloud}",
-        "CLEARCOTE_API_KEY": "${user_config.api_key}"
+        "CODE_BROWSER_FINGERPRINT": "${user_config.fingerprint}",
+        "CODE_BROWSER_PLATFORM": "${user_config.platform}",
+        "CODE_BROWSER_PROXY": "${user_config.proxy}",
+        "CODE_BROWSER_GEOIP": "${user_config.geoip}",
+        "CODE_BROWSER_CLOUD": "${user_config.cloud}",
+        "CODE_BROWSER_API_KEY": "${user_config.api_key}"
       }
     }
   },
@@ -177,13 +177,13 @@
     "cloud": {
       "type": "string",
       "title": "Cloud mode",
-      "description": "1: the browser is a hosted Clearcote session (needs an API key).",
+      "description": "1: the browser is a hosted CodeBrowser session (needs an API key).",
       "required": false,
       "default": ""
     },
     "api_key": {
       "type": "string",
-      "title": "Clearcote API key",
+      "title": "CodeBrowser API key",
       "description": "For cloud mode and the run_task tool. Not needed for the local browser.",
       "sensitive": true,
       "required": false,

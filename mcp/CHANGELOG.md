@@ -1,4 +1,4 @@
-# clearcote-mcp changelog
+# code-browser-mcp changelog
 
 ## 0.3.1
 
@@ -56,7 +56,7 @@ A client that reads the old fields needs updating.
   `about:blank` and `about:srcdoc` pass without a check, since they never leave it, and the browser's own
   `chrome:` and `chrome-extension:` resources (its PDF viewer loads them; a web page cannot). A redirect is
   followed only to an `http`/`https` url. Checking every request turns
-  the browser's HTTP cache off. `CLEARCOTE_ALLOW_PRIVATE_EGRESS=1` allows private addresses (local servers) and
+  the browser's HTTP cache off. `CODE_BROWSER_ALLOW_PRIVATE_EGRESS=1` allows private addresses (local servers) and
   turns the request check off; urls are still `http`/`https` only. Not covered: WebSocket connections opened by
   page scripts, and a name whose address changes between the check and the browser's own lookup.
 - The browser is closed whenever the server stops: its input closed, Ctrl+C, Ctrl+Break (Windows), SIGTERM or
@@ -66,12 +66,12 @@ A client that reads the old fields needs updating.
   behind still: Playwright's artifacts folder in temp after a Ctrl+Break on Windows (it ends Playwright's driver at
   the same moment), everything after a forced kill of the server, and a browser whose launch is still under way 20
   seconds after the stop (the server does not wait longer: a launch takes a few seconds, and a client that stops a
-  server rarely waits that long before it kills it). On Windows, `npx clearcote-mcp` no longer ends the server by
+  server rarely waits that long before it kills it). On Windows, `npx code-browser-mcp` no longer ends the server by
   force on Ctrl+C (the server gets the Ctrl+C itself).
 - A redirect is judged where the browser goes: control characters and spaces around a `Location` are trimmed as the
   browser trims them. Before, a `Location` starting with one of most control characters (U+0001 to U+0008, U+000E
   to U+001B) was judged a path on the same host, and the browser followed it to any address, this machine and cloud
   metadata endpoints included.
 - Needs `mcp` 1.19 or newer (earlier releases turn a returned image into text).
-- `npx clearcote-mcp` runs the server with `uvx`, then `pipx`, then `pip`, and only with Python 3.10 or newer;
+- `npx code-browser-mcp` runs the server with `uvx`, then `pipx`, then `pip`, and only with Python 3.10 or newer;
   when `pip` is refused as an externally managed environment, it says how to fix that.

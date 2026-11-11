@@ -1,6 +1,6 @@
-"""LIVE path shape and engine routing against a real Clearcote build (SC 210 lane S).
+"""LIVE path shape and engine routing against a real CodeBrowser build (SC 210 lane S).
 
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is available for a PRO
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is available for a PRO
 build). What a PAGE sees: trusted pointer events, where a press lands, how far a held drag strays from
 its line, and whether the pointer ever jumps.
 """
@@ -9,8 +9,8 @@ import os
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 PAGE = """<!doctype html><html><head><style>
 body { margin: 0; height: 900px; font: 14px sans-serif; }
@@ -53,8 +53,8 @@ def _no_font_cache_left_behind():
 
 @pytest.fixture(scope="module")
 def browser(_no_font_cache_left_behind):
-    import clearcote
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="shape-live-1", quiet=True)
+    import code_browser
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="shape-live-1", quiet=True)
     yield b
     b.close()
 
@@ -148,7 +148,7 @@ def test_coordinate_click_after_an_sdk_glide_never_teleports(page):
 
 
 def test_routed_selector_click_is_trusted_and_lands_inside(page, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", "all")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", "all")
     log = spy_engine(page)
     for sel in ("#t1", "#t3", "#t2"):
         page.click(sel)

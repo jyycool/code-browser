@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 r"""
-clearcoat CreepJS audit — structured results + README table
+code-browser CreepJS audit — structured results + README table
 ===========================================================
 
 Drives the built chrome.exe through Playwright, extracts the actual fingerprint
@@ -21,7 +21,7 @@ IP / location) lands in a public README.
 USAGE
 -----
   py -3 creepjs_audit.py
-  py -3 creepjs_audit.py --readme clearcote-browser/README.md
+  py -3 creepjs_audit.py --readme code-browser-browser/README.md
   py -3 creepjs_audit.py --seed demo --platform windows --timezone America/New_York
   py -3 creepjs_audit.py --proxy user:pass@host:port        # real egress (overrides demo ip)
   py -3 creepjs_audit.py --headed --no-creepjs              # skip the slow CreepJS scrape
@@ -45,7 +45,7 @@ def _default_binary():
     for c in [os.path.join(HERE, "win-x64", "chrome.exe"),
               os.path.join(HERE, "..", "win-x64", "chrome.exe"),
               os.path.join(os.getcwd(), "win-x64", "chrome.exe"),
-              r"C:\clearcote\chrome.exe"]:
+              r"C:\code-browser\chrome.exe"]:
         if os.path.exists(c):
             return os.path.abspath(c)
     return os.path.join(HERE, "win-x64", "chrome.exe")
@@ -71,8 +71,8 @@ PROBE_JS = r"""async () => {
   t('canvasHash', () => {
     const c = document.createElement('canvas'); c.width = 240; c.height = 60;
     const x = c.getContext('2d'); x.textBaseline = 'top'; x.font = '16px Arial';
-    x.fillStyle = '#069'; x.fillText('clearcote audit', 10, 18);
-    x.fillStyle = 'rgba(255,100,0,0.7)'; x.fillText('clearcote audit', 12, 22);
+    x.fillStyle = '#069'; x.fillText('code-browser audit', 10, 18);
+    x.fillStyle = 'rgba(255,100,0,0.7)'; x.fillText('code-browser audit', 12, 22);
     return c.toDataURL();
   });
   // WebGL vendor/renderer
@@ -213,7 +213,7 @@ def audit(binary, seed, platform, timezone, proxy, webrtc_ip, headed, do_creepjs
         launch_kw["proxy"] = proxy
 
     print("=" * 64)
-    print("clearcoat CreepJS audit")
+    print("code-browser CreepJS audit")
     print("binary  :", binary)
     print("seed    :", repr(seed), "->", norm_seed(seed), "| platform:", platform, "| tz:", timezone)
     print("webrtc  :", "proxy egress" if proxy else f"mock {webrtc_ip}")
@@ -326,7 +326,7 @@ def build_table(res, expected_webrtc_ip):
         f"_UA ↔ UA-CH version consistency: {_yn(ua_ch_match)} "
         f"(UA major `{ua_major}`, UA-CH major `{ch_major}`). "
         f"WebRTC srflx mocked to the proxy/egress IP; real host candidates suppressed._",
-        "_Regenerate with `py -3 creepjs_audit.py --readme clearcote-browser/README.md` on each release._",
+        "_Regenerate with `py -3 creepjs_audit.py --readme code-browser-browser/README.md` on each release._",
     ]
     return "\n".join(lines)
 
@@ -350,7 +350,7 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    ap = argparse.ArgumentParser(description="clearcoat CreepJS audit -> results table")
+    ap = argparse.ArgumentParser(description="code-browser CreepJS audit -> results table")
     ap.add_argument("--seed", default="demo")
     ap.add_argument("--platform", default="windows")
     ap.add_argument("--timezone", default="America/New_York")

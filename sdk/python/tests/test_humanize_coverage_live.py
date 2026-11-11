@@ -1,6 +1,6 @@
 """Lane F (SC 232) live: frame routing, option dicts, label checkboxes, popups, persistent contexts, tap.
 
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary. Headless only. A local HTTP server serves
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary. Headless only. A local HTTP server serves
 the fixture on 127.0.0.1; the "cross" frame loads from localhost, another SITE, so it runs out of
 process (no CDP session the SDK holds) and must fall back to Playwright with the fallback reported.
 Every document records its input events with isTrusted in window.__ev.
@@ -14,8 +14,8 @@ import threading
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 REC = """<script>
 window.__ev = [];
@@ -86,8 +86,8 @@ def server():
 
 @pytest.fixture(scope="module")
 def browser():
-    import clearcote
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="coverage-live-1",
+    import code_browser
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="coverage-live-1",
                          quiet=True)
     yield b
     b.close()
@@ -139,7 +139,7 @@ def test_frame_select_is_one_trusted_change(page, run):
     assert all(e["tr"] for e in ev(f, "input", "cs"))
     downs = ev(f, "mousedown", "cs")
     assert downs and all(d["tr"] for d in downs), "opened with a trusted click"
-    assert getattr(page, "_clearcote_last_fallback", None) is None, page._clearcote_last_fallback
+    assert getattr(page, "_code_browser_last_fallback", None) is None, page._code_browser_last_fallback
 
 
 def test_frame_api_select_and_click_are_humanized(page):
@@ -166,10 +166,10 @@ def test_frame_fill_and_check_are_humanized(page):
 
 
 def test_cross_origin_frame_falls_back_and_reports(page):
-    page._clearcote_last_fallback = None
+    page._code_browser_last_fallback = None
     got = page.frame_locator("#cross").locator("#cs").select_option("Peru")
     assert got == ["v7"]
-    fb = page._clearcote_last_fallback
+    fb = page._code_browser_last_fallback
     assert fb and fb["api"] == "Locator.select_option" and "cross-origin" in fb["reason"], fb
 
 
@@ -221,7 +221,7 @@ def test_a_popup_is_humanized(page):
         page.click("#pop")
     popup = pi.value
     popup.wait_for_load_state("load")
-    assert getattr(popup, "_clearcote_humanized", False) is True
+    assert getattr(popup, "_code_browser_humanized", False) is True
     reset(popup)
     popup.click("#cb")
     downs, ups = ev(popup, "mousedown", "cb"), ev(popup, "mouseup", "cb")
@@ -230,16 +230,16 @@ def test_a_popup_is_humanized(page):
 
 
 def test_a_persistent_context_is_humanized(server):
-    import clearcote
+    import code_browser
     d = tempfile.mkdtemp(prefix="cc-cov-")
     try:
-        ctx = clearcote.launch_persistent_context(d, executable_path=LIVE, headless=True, humanize=True,
+        ctx = code_browser.launch_persistent_context(d, executable_path=LIVE, headless=True, humanize=True,
                                                   fingerprint="coverage-live-2", quiet=True)
         try:
             p = ctx.pages[0] if ctx.pages else ctx.new_page()
-            assert getattr(p, "_clearcote_humanized", False) is True
+            assert getattr(p, "_code_browser_humanized", False) is True
             p2 = ctx.new_page()
-            assert getattr(p2, "_clearcote_humanized", False) is True
+            assert getattr(p2, "_code_browser_humanized", False) is True
         finally:
             ctx.close()
     finally:
@@ -252,8 +252,8 @@ def real_browser():
     """launch() returns its persistent context (whose new_context() is that same context); a real
     Browser -- new_context(has_touch=...), and browser.new_page()'s implicit context -- needs
     ephemeral_profile=False."""
-    import clearcote
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="coverage-live-3",
+    import code_browser
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="coverage-live-3",
                          quiet=True, ephemeral_profile=False)
     yield b
     b.close()
@@ -267,7 +267,7 @@ def test_a_popup_of_browser_new_pages_implicit_context_is_humanized(real_browser
             p.click("#pop")
         popup = pi.value
         popup.wait_for_load_state("load")
-        assert getattr(popup, "_clearcote_humanized", False) is True
+        assert getattr(popup, "_code_browser_humanized", False) is True
     finally:
         p.context.close()
 
@@ -278,9 +278,9 @@ def test_tap_on_a_touch_context_reports_the_fallback(real_browser, server):
         p = ctx.new_page()
         p.goto(server + "/main.html")
         p.locator("#btn").tap()
-        fb = getattr(p, "_clearcote_last_fallback", None)
+        fb = getattr(p, "_code_browser_last_fallback", None)
         assert fb and fb["api"] == "Locator.tap" and "not humanized for touch" in fb["reason"]
-        p._clearcote_strict = True     # lane A's strict flag (read defensively)
+        p._code_browser_strict = True     # lane A's strict flag (read defensively)
         from playwright.sync_api import Error
         with pytest.raises(Error, match="tap is not humanized for touch contexts yet"):
             p.locator("#btn").tap()

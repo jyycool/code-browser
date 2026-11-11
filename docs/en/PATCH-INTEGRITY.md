@@ -1,6 +1,6 @@
 # Patch integrity — the release gate standard
 
-**Clearcote *is* its patch set.** Every stealth behavior lives in [`../patches/`](../../patches),
+**CodeBrowser *is* its patch set.** Every stealth behavior lives in [`../patches/`](../../patches),
 applied on top of a pinned Chromium (there is no compiled-in behavior that isn't a readable
 patch — see [`../patches/README.md`](../../patches/README.md)). So the single most important
 release invariant is: **every patch is correctly applied, compiled in, and effective — and no
@@ -65,7 +65,7 @@ what forces the standard to stay honest as patches are added:
 
 1. **Build time** — [`scripts/01-apply-patches.sh`](../../scripts/01-apply-patches.sh) runs Layer 1
    immediately after applying the series. A silent apply failure aborts the build *before any
-   compilation*, not after a multi-hour build. (`CLEARCOTE_SKIP_PATCH_VERIFY=1` for local
+   compilation*, not after a multi-hour build. (`CODE_BROWSER_SKIP_PATCH_VERIFY=1` for local
    debugging only — never in a release build.)
 2. **Release time** — [`docs/en/RELEASING.md`](RELEASING.md) §11.0a runs the **full** gate
    (`--tree` after `gen_patches.sh` regenerates `patches/`, **and** `--binary` against the
@@ -102,7 +102,7 @@ When you add `NNN-thing.patch` to `series`, you must also add its witness to
 ```
 
 Choosing a **binary marker**: prefer the switch value strings the patch registers (they are
-compared at runtime, so they are always in the binary and are distinctive to Clearcote). Failing
+compared at runtime, so they are always in the binary and are distinctive to CodeBrowser). Failing
 that, a hardcoded string literal the patch adds that is exposed to JavaScript or logged. Do
 **not** use function/class/variable names — the release binary is stripped. If a patch is a pure
 algorithmic/geometry change with no surviving distinctive string (e.g. sub-pixel jitter), leave
@@ -126,6 +126,6 @@ algorithmic/geometry change with no surviving distinctive string (e.g. sub-pixel
 - **Layer 3 fails** — the behavior regressed; debug the surface. See
   [STEALTH-COHERENCE.md](STEALTH-COHERENCE.md).
 
-**Do not** add `CLEARCOTE_SKIP_PATCH_VERIFY=1` to a release build, and do not delete a patch's
+**Do not** add `CODE_BROWSER_SKIP_PATCH_VERIFY=1` to a release build, and do not delete a patch's
 witness to make Layer 0 pass. The whole value of the project is that the stealth is actually
 there in what ships.

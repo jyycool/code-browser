@@ -73,7 +73,7 @@ describe("evaluateRenderInfo", () => {
 });
 
 // -- capability floor: the string check is defeated once the persona renames the backend ---------
-// Values below are measured on a GPU-less Linux VPS with clearcote 153 r25 and genuine Chrome 153.
+// Values below are measured on a GPU-less Linux VPS with code-browser 153 r25 and genuine Chrome 153.
 
 const MESA_UHD770 =
   "ANGLE (Intel, Mesa Intel(R) UHD Graphics 770 (RPL-S), OpenGL 4.6 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.2)";

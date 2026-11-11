@@ -1,4 +1,4 @@
-# Clearcote — Research & Build Blueprint
+# CodeBrowser — Research & Build Blueprint
 
 *How to build a new, 100% open-source anti-detect Chromium that is genuinely better than the field.*
 
@@ -15,8 +15,8 @@ SeleniumBase · undetected-chromedriver.
 | Project | Engine | Approach | Open? | One thing to steal |
 |---|---|---|:-:|---|
 | **brave-core** | Chromium | per-site **farbling** (deterministic randomization) | ✅ full | The *correct* randomization model — per-eTLD+1, per-session seed |
-| **cromite** | Chromium | Brave farbling ported onto an ungoogled-style base | ✅ full | The port pattern clearcote needs + academic papers |
-| **adryfish/fingerprint-chromium** | Chromium | seed → fingerprint, on ungoogled | ⚠️ delayed (tags) | The exact base clearcote builds on |
+| **cromite** | Chromium | Brave farbling ported onto an ungoogled-style base | ✅ full | The port pattern code-browser needs + academic papers |
+| **adryfish/fingerprint-chromium** | Chromium | seed → fingerprint, on ungoogled | ⚠️ delayed (tags) | The exact base code-browser builds on |
 | **CloakBrowser** | Chromium | source patches + humanize + geoip | ❌ binary closed | Humanize presets, geoip, persistent-profile UX |
 | **ChromiumFish** | Chromium | engine patches + persona seed + **TLS pinning** | ⚠️ patches only | TLS sigalgs/JA3 pinning to advertised UA; canvas bridge |
 | **BotBrowser** | Chromium | encrypted device **profiles**, per-context | ❌ engine closed | Per-context FP, UDP-over-SOCKS5, port protection |
@@ -29,13 +29,13 @@ SeleniumBase · undetected-chromedriver.
 | **nodriver** | — | no-WebDriver direct CDP | ✅ | Benchmarked zero-blocked; the automation transport to mimic |
 | **SeleniumBase / undetected-chromedriver** | — | classic flag/artifact scrub | ✅ | Baseline detection vectors |
 
-**Two camps:** *engine-level forks* (top of table — clearcote's category) and *client-side/CDP patchers* (bottom). Clearcote is an engine fork, so the top rows are the blueprint and the bottom rows are the **catalogue of detection vectors you must also neutralize** in-engine.
+**Two camps:** *engine-level forks* (top of table — code-browser's category) and *client-side/CDP patchers* (bottom). CodeBrowser is an engine fork, so the top rows are the blueprint and the bottom rows are the **catalogue of detection vectors you must also neutralize** in-engine.
 
 ---
 
 ## 2. The thesis everyone shares — and the insight most miss
 
-**Shared thesis:** spoof in the C++ engine, never in injected JS. JS shims leave tamper marks exactly where fingerprinting auditors look. adryfish (clearcote's base) already does this.
+**Shared thesis:** spoof in the C++ engine, never in injected JS. JS shims leave tamper marks exactly where fingerprinting auditors look. adryfish (code-browser's base) already does this.
 
 **The deeper insight, which only Brave got fully right:** a good fingerprint is not *random* and not *static* — it is **per-site deterministic and internally coherent**.
 
@@ -46,15 +46,15 @@ Brave's farbling derives every semi-identifying value from a `(session_token × 
 
 Evidence in `brave-core`: a dedicated `components/brave_shields/content/browser/brave_farbling_service.cc` plus per-surface coverage — canvas, audio, webgl, **webgpu**, screen, plugins, useragent, languages, hardwareConcurrency, deviceMemory, speech-synthesis, USB, enumerateDevices (see `browser/farbling/*_browsertest.cc`).
 
-> **For clearcote:** adopt Brave's *model* (per-eTLD+1 deterministic seed), not just per-surface noise. This is the single biggest correctness upgrade over adryfish, CloakBrowser, and ChromiumFish, all of which use a single global seed (every site sees the same canvas → linkable across sites).
+> **For code-browser:** adopt Brave's *model* (per-eTLD+1 deterministic seed), not just per-surface noise. This is the single biggest correctness upgrade over adryfish, CloakBrowser, and ChromiumFish, all of which use a single global seed (every site sees the same canvas → linkable across sites).
 
 ---
 
-## 3. The detection-surface matrix (what clearcote must cover)
+## 3. The detection-surface matrix (what code-browser must cover)
 
-✅ = covered by base · ➕ = clearcote must add/upgrade · ★ = differentiator opportunity
+✅ = covered by base · ➕ = code-browser must add/upgrade · ★ = differentiator opportunity
 
-| Surface | adryfish base | Best reference impl | Clearcote action |
+| Surface | adryfish base | Best reference impl | CodeBrowser action |
 |---|:-:|---|---|
 | UA + full Client Hints set | ✅ | Camoufox navigator | ✅ keep |
 | navigator.webdriver / cdc_ scrub | ✅ | BotBrowser `removeHeadless.diff` | ✅ keep + audit |
@@ -80,25 +80,25 @@ Evidence in `brave-core`: a dedicated `components/brave_shields/content/browser/
 
 ---
 
-## 4. Where the field falls short → clearcote's opening
+## 4. Where the field falls short → code-browser's opening
 
 1. **Global seed, not per-site.** CloakBrowser/ChromiumFish/adryfish use one seed for all sites → cross-site linkable. **Brave-style per-eTLD+1 farbling fixes this and nobody in the *stealth* niche has copied it.**
 2. **TLS mismatch on new bases.** Building on Chromium 149 while spoofing an older UA leaks at the TLS layer (149 adds ML-DSA sigalgs `0x904-0x906`; a major anti-bot service flags "UA 148 + TLS 149"). adryfish doesn't address this. ChromiumFish's patch is the fix.
 3. **Network leaks around the proxy.** Most forks only mask WebRTC IP; QUIC/STUN still bypass SOCKS5. Only BotBrowser tunnels UDP-over-SOCKS5 — and it's closed/paid.
 4. **Not actually private.** ChromiumFish's *own* audit (in your local files) caught it phoning Google (component updater + GCM on :5228). A truly de-Googled build is a real, checkable differentiator for a "100% open" project.
 5. **Scale.** One process per identity is wasteful. BotBrowser's per-context fingerprint (shared GPU/net process, ms switching, ~29% memory saving) is the scalability frontier — and closed.
-6. **Closed binaries.** CloakBrowser, ChromiumFish, BotBrowser, Kameleo all ship unreadable binaries. **Clearcote being byte-for-byte reproducible + fully open is itself the trust differentiator.**
+6. **Closed binaries.** CloakBrowser, ChromiumFish, BotBrowser, Kameleo all ship unreadable binaries. **CodeBrowser being byte-for-byte reproducible + fully open is itself the trust differentiator.**
 
 ---
 
-## 5. Proposed clearcote architecture
+## 5. Proposed code-browser architecture
 
 ```
                  ungoogled-chromium 149   (de-Google base, build wiring)
                           │
         ┌─────────────────┼──────────────────────────────────┐
         │                 │                                   │
-  adryfish patches   Brave farbling model            clearcote-native patches
+  adryfish patches   Brave farbling model            code-browser-native patches
   (ported 142→149)   (per-eTLD+1 seed engine)         (TLS pin, QUIC/SOCKS5,
   canvas/webgl/audio  applied to every surface         timing, sensors, media,
   /ua/fonts/webrtc    instead of single global seed     port-protect, full de-Google)
@@ -139,9 +139,9 @@ Evidence in `brave-core`: a dedicated `components/brave_shields/content/browser/
 
 ---
 
-## 7. What makes clearcote *better* (the pitch)
+## 7. What makes code-browser *better* (the pitch)
 
-| Axis | Field today | Clearcote |
+| Axis | Field today | CodeBrowser |
 |---|---|---|
 | Cross-site linkability | single global seed (linkable) | **per-eTLD+1 farbling (unlinkable)** |
 | TLS coherence | ignored by adryfish | **pinned to advertised UA** |

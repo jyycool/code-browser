@@ -1,4 +1,4 @@
-"""`clearcote` CLI (#6): commands present, info never downloads, reports cache/engine support/licence,
+"""`code-browser` CLI (#6): commands present, info never downloads, reports cache/engine support/licence,
 login refuses a rejected key, logout, clear-cache only removes build directories (mirrors
 sdk/node/test/parity-cli.test.ts)."""
 import json
@@ -7,10 +7,10 @@ import sys
 
 import pytest
 
-from clearcote import _commands, _license
-from clearcote._launchopts import _SWITCH_CACHE
-from clearcote.download import list_cached_builds
-from clearcote.release import RELEASE
+from code_browser import _commands, _license
+from code_browser._launchopts import _SWITCH_CACHE
+from code_browser.download import list_cached_builds
+from code_browser.release import RELEASE
 
 from _proxies import start_origin
 
@@ -23,9 +23,9 @@ def env(tmp_path, monkeypatch):
     cache.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
-    monkeypatch.setenv("CLEARCOTE_CACHE", str(cache))
-    for k in ("CLEARCOTE_BINARY", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_RELEASE_CHANNEL", "CLEARCOTE_LICENSE_API",
-              "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_AUTO_UPDATE"):
+    monkeypatch.setenv("CODE_BROWSER_CACHE", str(cache))
+    for k in ("CODE_BROWSER_BINARY", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_RELEASE_CHANNEL", "CODE_BROWSER_LICENSE_API",
+              "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_AUTO_UPDATE"):
         monkeypatch.delenv(k, raising=False)
     _SWITCH_CACHE.clear()
     return {"home": home, "cache": cache}
@@ -53,9 +53,9 @@ def test_console_script_declared():
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with open(os.path.join(here, "pyproject.toml"), encoding="utf-8") as fh:
         text = fh.read()
-    assert 'clearcote = "clearcote._commands:_console_main"' in text
-    assert 'clearcote-agent = "clearcote.cli:main"' in text  # the older entry points are untouched
-    assert 'clearcote-serve = "clearcote._serve:_cli_main"' in text
+    assert 'code-browser = "code_browser._commands:_console_main"' in text
+    assert 'code-browser-agent = "code_browser.cli:main"' in text  # the older entry points are untouched
+    assert 'code-browser-serve = "code_browser._serve:_cli_main"' in text
 
 
 def test_list_cached_builds_only_verified_with_binary(env):
@@ -85,16 +85,16 @@ def test_info_quick_no_network_no_launch(env, monkeypatch):
 
 def test_info_honours_binary_env_and_channel(env, monkeypatch):
     exe = fake_cached_build(env["cache"], "custom")
-    monkeypatch.setenv("CLEARCOTE_BINARY", exe)
-    monkeypatch.setenv("CLEARCOTE_RELEASE_CHANNEL", "preview")
+    monkeypatch.setenv("CODE_BROWSER_BINARY", exe)
+    monkeypatch.setenv("CODE_BROWSER_RELEASE_CHANNEL", "preview")
     r = _commands.build_info(quick=True)
-    assert (r["binary"]["source"], r["binary"]["path"], r["binary"]["releaseChannel"]) == ("CLEARCOTE_BINARY", exe, "preview")
+    assert (r["binary"]["source"], r["binary"]["path"], r["binary"]["releaseChannel"]) == ("CODE_BROWSER_BINARY", exe, "preview")
 
 
 def test_info_nothing_installed(env):
     r = _commands.build_info(quick=False)
     assert r["binary"]["source"] == "none"
-    assert r["launch"] == {"tested": False, "reason": "no binary installed — run: clearcote install"}
+    assert r["launch"] == {"tested": False, "reason": "no binary installed — run: code-browser install"}
 
 
 def test_info_launch_test_runs_when_not_quick(env):
@@ -153,8 +153,8 @@ def test_info_launch_tests_the_build_launch_would_use(env, monkeypatch, capsys):
     assert r["binary"]["selectedBy"].startswith("licensed")
 
 
-def test_info_follows_clearcote_browser_version_as_launch_does(env, monkeypatch):
-    # launch() honours CLEARCOTE_BROWSER_VERSION; info must test the build it names, not the newest one.
+def test_info_follows_code_browser_browser_version_as_launch_does(env, monkeypatch):
+    # launch() honours CODE_BROWSER_BROWSER_VERSION; info must test the build it names, not the newest one.
     free149 = fake_cached_build(env["cache"], "v0.1.0-pre.22")  # the bundled catalog's 149 open build
     fake_cached_build(env["cache"], RELEASE["tag"])
     r7 = fake_cached_build(env["cache"], "pro-150.0.7871.114-r7")
@@ -173,23 +173,23 @@ def test_info_follows_clearcote_browser_version_as_launch_does(env, monkeypatch)
 
     monkeypatch.setattr(_license, "proxied_request", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
     monkeypatch.setenv("CLEARCOTE_LICENSE_KEY", "cc_lic_info_version_key")
-    monkeypatch.setenv("CLEARCOTE_BROWSER_VERSION", "r7")  # a licensed revision
+    monkeypatch.setenv("CODE_BROWSER_BROWSER_VERSION", "r7")  # a licensed revision
     r = _commands.build_info(quick=False, launch_fn=launch_fn)
     assert tested == [r7] and r["launch"]["build"] == "pro-150.0.7871.114-r7"
-    assert "CLEARCOTE_BROWSER_VERSION=r7" in r["binary"]["selectedBy"]
+    assert "CODE_BROWSER_BROWSER_VERSION=r7" in r["binary"]["selectedBy"]
 
     monkeypatch.delenv("CLEARCOTE_LICENSE_KEY")
-    monkeypatch.setenv("CLEARCOTE_BROWSER_VERSION", "149")  # an open major, resolved through the catalog
+    monkeypatch.setenv("CODE_BROWSER_BROWSER_VERSION", "149")  # an open major, resolved through the catalog
     r = _commands.build_info(quick=True)  # --quick: the bundled catalog, no network
     assert r["binary"]["path"] == free149 and r["binary"]["tag"] == "v0.1.0-pre.22"
     tested.clear()
     _commands.build_info(quick=False, launch_fn=launch_fn)
     assert tested == [free149]
 
-    monkeypatch.setenv("CLEARCOTE_BROWSER_VERSION", "999")
+    monkeypatch.setenv("CODE_BROWSER_BROWSER_VERSION", "999")
     r = _commands.build_info(quick=True)
     assert "binary" in r and "path" not in r["binary"]
-    assert r["binary"]["selectedBy"].startswith("CLEARCOTE_BROWSER_VERSION=999: No Clearcote build matches")
+    assert r["binary"]["selectedBy"].startswith("CODE_BROWSER_BROWSER_VERSION=999: No CodeBrowser build matches")
 
 
 def test_info_keyless_with_only_a_licensed_build_cached(env):
@@ -211,25 +211,25 @@ def test_login_validates_then_saves_and_logout(env, monkeypatch, capsys):
                        if h.get("authorization") == "Bearer cc_lic_valid_key_1234"
                        else (401, '{"error":"Invalid license key."}'))
     try:
-        monkeypatch.setenv("CLEARCOTE_LICENSE_API", f"http://127.0.0.1:{api.port}")
+        monkeypatch.setenv("CODE_BROWSER_LICENSE_API", f"http://127.0.0.1:{api.port}")
         assert _commands.main(["login", "cc_lic_valid_key_1234"]) == 0
         out = capsys.readouterr().out
         assert "saved to" in out and "license.key" in out
         assert "valid: 0 of 5 seats in use, plan team" in out
-        assert (env["home"] / ".clearcote" / "license.key").exists()
+        assert (env["home"] / ".code-browser" / "license.key").exists()
         assert _commands.main(["logout"]) == 0
-        assert not (env["home"] / ".clearcote" / "license.key").exists()
+        assert not (env["home"] / ".code-browser" / "license.key").exists()
     finally:
         api.close()
 
 
 def test_login_prompt_does_not_echo_the_key(env, monkeypatch, capsys):
-    # `clearcote login` with no argument asks on the terminal: what is pasted must not be shown.
+    # `code-browser login` with no argument asks on the terminal: what is pasted must not be shown.
     import io
 
     api = start_origin(lambda *a: (200, '{"used":0,"limit":5,"plan":"team"}'))
     try:
-        monkeypatch.setenv("CLEARCOTE_LICENSE_API", f"http://127.0.0.1:{api.port}")
+        monkeypatch.setenv("CODE_BROWSER_LICENSE_API", f"http://127.0.0.1:{api.port}")
 
         class Tty(io.StringIO):
             def isatty(self):
@@ -247,7 +247,7 @@ def test_login_prompt_does_not_echo_the_key(env, monkeypatch, capsys):
     finally:
         api.close()
     assert len(asked) == 1 and "not shown" in asked[0]
-    assert (env["home"] / ".clearcote" / "license.key").read_text().strip() == "cc_lic_typed_key_123456"
+    assert (env["home"] / ".code-browser" / "license.key").read_text().strip() == "cc_lic_typed_key_123456"
     captured = capsys.readouterr()
     assert "cc_lic_typed_key_123456" not in captured.out + captured.err
 
@@ -255,25 +255,25 @@ def test_login_prompt_does_not_echo_the_key(env, monkeypatch, capsys):
 def test_login_key_argument_still_works_without_a_prompt(env, monkeypatch):
     api = start_origin(lambda *a: (200, '{"used":0,"limit":5,"plan":"team"}'))
     try:
-        monkeypatch.setenv("CLEARCOTE_LICENSE_API", f"http://127.0.0.1:{api.port}")
+        monkeypatch.setenv("CODE_BROWSER_LICENSE_API", f"http://127.0.0.1:{api.port}")
         monkeypatch.setattr("getpass.getpass", lambda *a, **k: (_ for _ in ()).throw(AssertionError("prompted")))
         assert _commands.main(["login", "cc_lic_argument_key_9876"]) == 0
     finally:
         api.close()
-    assert (env["home"] / ".clearcote" / "license.key").read_text().strip() == "cc_lic_argument_key_9876"
+    assert (env["home"] / ".code-browser" / "license.key").read_text().strip() == "cc_lic_argument_key_9876"
 
 
 def test_subcommand_help(env, capsys):
     assert _commands.main(["login", "--help"]) == 0
     out = capsys.readouterr().out
-    assert "clearcote login --device" in out and "clearcote login [key]" in out and "not shown" in out
-    assert not (env["home"] / ".clearcote" / "license.key").exists()  # "--help" is not a key
+    assert "code-browser login --device" in out and "code-browser login [key]" in out and "not shown" in out
+    assert not (env["home"] / ".code-browser" / "license.key").exists()  # "--help" is not a key
     for args in (["login", "-h"], ["logout", "--help"], ["info", "--help"], ["doctor", "-h"], ["serve", "--help"],
                  ["install", "--help"], ["update", "--help"], ["clear-cache", "--help"]):
         assert _commands.main(args) == 0, args
         out = capsys.readouterr().out
         cmd = "info" if args[0] == "doctor" else args[0]
-        assert f"clearcote {cmd}" in out and "USAGE" in out
+        assert f"code-browser {cmd}" in out and "USAGE" in out
     assert _commands.main(["info", "--help"]) == 0
     assert "--quick" in capsys.readouterr().out
 
@@ -281,10 +281,10 @@ def test_subcommand_help(env, capsys):
 def test_login_refuses_rejected_key(env, monkeypatch, capsys):
     api = start_origin(lambda *a: (401, '{"error":"Invalid license key."}'))
     try:
-        monkeypatch.setenv("CLEARCOTE_LICENSE_API", f"http://127.0.0.1:{api.port}")
+        monkeypatch.setenv("CODE_BROWSER_LICENSE_API", f"http://127.0.0.1:{api.port}")
         assert _commands.main(["login", "cc_lic_bad"]) == 1
         assert "rejected this key" in capsys.readouterr().err
-        assert not (env["home"] / ".clearcote" / "license.key").exists()
+        assert not (env["home"] / ".code-browser" / "license.key").exists()
     finally:
         api.close()
 
@@ -292,11 +292,11 @@ def test_login_refuses_rejected_key(env, monkeypatch, capsys):
 def test_login_saves_with_note_when_unavailable(env, monkeypatch, capsys):
     api = start_origin(lambda *a: (404, "{}"))
     try:
-        monkeypatch.setenv("CLEARCOTE_LICENSE_API", f"http://127.0.0.1:{api.port}")
+        monkeypatch.setenv("CODE_BROWSER_LICENSE_API", f"http://127.0.0.1:{api.port}")
         assert _commands.main(["login", "cc_lic_unconfirmed_1234"]) == 0
         out = capsys.readouterr().out
         assert "could not confirm the key right now (this licence server does not report seats yet)" in out
-        assert (env["home"] / ".clearcote" / "license.key").exists()
+        assert (env["home"] / ".code-browser" / "license.key").exists()
     finally:
         api.close()
 
@@ -328,7 +328,7 @@ def test_serve_splits_proxy_credentials(env, monkeypatch):
         def close(self):
             pass
 
-    import clearcote._multiplex as mx
+    import code_browser._multiplex as mx
     monkeypatch.setattr(mx, "serve_multiplex", lambda **kw: seen.update(kw) or Srv())
     import signal
     monkeypatch.setattr(signal, "signal", lambda *a: None)

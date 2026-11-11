@@ -1,6 +1,6 @@
 /**
  * LIVE: launch({ humanize: true }) -- a persistent context by default -- really humanizes, on whatever
- * playwright-core is installed. Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a
+ * playwright-core is installed. Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a
  * licence is available for a PRO build).
  *
  * WHY. On playwright-core 1.49.x a persistent context has no Browser (context.browser() is null), and
@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, Page } from "playwright-core";
 import { launch } from "../src/index.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const require = createRequire(import.meta.url);
 const PW = JSON.parse(readFileSync(join(dirname(require.resolve("playwright-core")), "package.json"), "utf8")).version;
 
@@ -58,7 +58,7 @@ describe.runIf(LIVE)(`live humanize on a persistent launch (playwright-core ${PW
   const take = (): Promise<E[]> => page.evaluate(() => (window as any).ev.splice(0));
 
   it("attaches to the page", () => {
-    expect((page as any).__clearcoteHumanized).toBe(true);
+    expect((page as any).__code_browserHumanized).toBe(true);
   });
 
   it("mouse.click glides to the point and holds the button", async () => {

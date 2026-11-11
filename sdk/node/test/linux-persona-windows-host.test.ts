@@ -14,7 +14,7 @@ import { join } from "node:path";
 const stub = vi.hoisted(() => ({
   // PROFILE_DIR is read once, at import: point it somewhere empty before the SDK loads, so no saved
   // profile on this machine can change what these tests see.
-  savedProfileDir: ((prev) => { process.env.CLEARCOTE_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CLEARCOTE_PROFILE_DIR),
+  savedProfileDir: ((prev) => { process.env.CODE_BROWSER_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CODE_BROWSER_PROFILE_DIR),
   host: undefined as string | undefined, // the host a local launch's warnings are judged against
   routed: [] as string[],
 }));
@@ -59,14 +59,14 @@ const LINE = "a Linux persona on a Windows host";
 const codes = (o: Record<string, unknown>, host = "win32") => new Set(coherenceWarnings(o, host, "149").map((w) => w.code));
 
 afterAll(() => {
-  if (stub.savedProfileDir === undefined) delete process.env.CLEARCOTE_PROFILE_DIR;
-  else process.env.CLEARCOTE_PROFILE_DIR = stub.savedProfileDir;
+  if (stub.savedProfileDir === undefined) delete process.env.CODE_BROWSER_PROFILE_DIR;
+  else process.env.CODE_BROWSER_PROFILE_DIR = stub.savedProfileDir;
 });
 
 // No licence (a key would take a lease), warnings on, and a TEMP of our own: everything a test or the code
 // under test creates goes under `root`, removed after.
-const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY",
-  "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_PERSONA_ENV"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY",
+  "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CLEARCOTE_PERSONA_ENV"] as const;
 let savedEnv: Record<string, string | undefined>;
 let root: string;
 let written: string[];
@@ -77,8 +77,8 @@ beforeEach(() => {
   for (const d of ["temp", "home"]) mkdirSync(join(root, d));
   process.env.HOME = process.env.USERPROFILE = join(root, "home");
   process.env.TEMP = process.env.TMP = process.env.TMPDIR = join(root, "temp");
-  for (const k of ["CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION",
-    "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_PERSONA_ENV"]) delete process.env[k];
+  for (const k of ["CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION",
+    "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CLEARCOTE_PERSONA_ENV"]) delete process.env[k];
   stub.host = undefined;
   stub.routed.length = 0;
   resetSeenWarnings();
@@ -144,7 +144,7 @@ describe("coherenceWarnings: a Linux persona on a Windows host", () => {
     for (let i = 0; i < 3; i++) emitCoherenceWarnings(opts, false, "win32", "149");
     expect(said()).toBe(1);
     const line = written.find((w) => w.includes(LINE))!;
-    expect(line).toContain("clearcote: warning: a Linux persona on a Windows host reports Windows GPU limits (Direct3D caps WebGL)");
+    expect(line).toContain("code-browser: warning: a Linux persona on a Windows host reports Windows GPU limits (Direct3D caps WebGL)");
     expect(line).toContain('platform: "windows"');
     expect(line).toContain("docker: true");
   });

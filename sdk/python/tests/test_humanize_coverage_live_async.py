@@ -1,6 +1,6 @@
 """Lane F (SC 232) live, async API: frame select, option dicts, hidden checkbox through its label.
 
-The fixture and server are test_humanize_coverage_live's. Skipped unless CLEARCOTE_LIVE_ENGINE is set.
+The fixture and server are test_humanize_coverage_live's. Skipped unless CODE_BROWSER_LIVE_ENGINE is set.
 """
 import asyncio
 import os
@@ -9,7 +9,7 @@ import pytest
 
 from test_humanize_coverage_live import LIVE, server  # noqa: F401  (the module-scoped fixture)
 
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 
 def ev(rows, t, id):
@@ -17,7 +17,7 @@ def ev(rows, t, id):
 
 
 def test_async_frame_select_dicts_and_label_checkbox(server):  # noqa: F811
-    from clearcote.async_api import launch
+    from code_browser.async_api import launch
 
     async def go():
         b = await launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="coverage-live-async",
@@ -38,7 +38,7 @@ def test_async_frame_select_dicts_and_label_checkbox(server):  # noqa: F811
             for sel in ("#hcb", "#hcb2"):
                 await p.locator(sel).check(timeout=3000)
                 assert await p.locator(sel).is_checked()
-            assert getattr(p, "_clearcote_last_fallback", None) is None, p._clearcote_last_fallback
+            assert getattr(p, "_code_browser_last_fallback", None) is None, p._code_browser_last_fallback
         finally:
             await b.close()
 

@@ -9,8 +9,8 @@ import time
 
 import pytest
 
-import clearcote
-import clearcote._license as L
+import code_browser
+import code_browser._license as L
 
 KEY = "cc_lic_TESTKEY_CHALLENGE"
 
@@ -46,14 +46,14 @@ def _server(status, body, content_type, extra=None):
 def lic(monkeypatch, tmp_path):
     monkeypatch.setattr(L.Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setenv("CLEARCOTE_LICENSE_KEY", KEY)
-    monkeypatch.delenv("CLEARCOTE_LICENSE_THROUGH_PROXY", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_LICENSE_THROUGH_PROXY", raising=False)
     L._MACHINE_LEASES.clear()
     servers = []
 
     def serve(*a, **kw):
         srv, base = _server(*a, **kw)
         servers.append(srv)
-        monkeypatch.setenv("CLEARCOTE_LICENSE_API", base)
+        monkeypatch.setenv("CODE_BROWSER_LICENSE_API", base)
         return base
 
     yield serve
@@ -132,5 +132,5 @@ def test_proxied_path_detects_the_challenge_too(monkeypatch):
 
 
 def test_exported_from_the_package():
-    assert clearcote.LicenseServerChallengeError is L.LicenseServerChallengeError
-    assert "LicenseServerChallengeError" in clearcote.__all__
+    assert code_browser.LicenseServerChallengeError is L.LicenseServerChallengeError
+    assert "LicenseServerChallengeError" in code_browser.__all__

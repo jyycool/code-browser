@@ -1,0 +1,581 @@
+using System.Globalization;
+using System.IO.Compression;
+using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace CodeBrowser;
+
+/// Canvas-bridge configuration — forward canvas/WebGL readbacks to a remote real-GPU host.
+public sealed class CanvasBridgeOptions
+{
+    /// Bridge endpoint, "ws://host:port[/path]". Required to enable the bridge.
+    public string? Url { get; set; }
+    /// HTTP Basic credentials "user:secret"; must match the server.
+    public string? Auth { get; set; }
+    /// Per-origin policy: "off" | "all" (default) | "allow" | "deny".
+    public string? Mode { get; set; }
+    /// eTLD+1 list bridged when mode="allow".
+    public string[]? Allow { get; set; }
+    /// eTLD+1 list NOT bridged when mode="deny".
+    public string[]? Deny { get; set; }
+    /// Cold cache-miss behavior: "block" (default) | "local".
+    public string? Fallback { get; set; }
+}
+
+/// The SDK's fingerprint/persona options. Mirrors the Node FingerprintOptions and maps to the
+/// CodeBrowser Chromium command-line switches (see <see cref="Fingerprint.Args"/>).
+public class FingerprintOptions
+{
+    /// Master fingerprint seed (per-eTLD+1 farbling root). Same seed =&gt; same identity across launches.
+    public string? Fingerprint { get; set; }
+    /// <c>false</c> keeps the host machine's real speech-synthesis voices while a persona is active,
+    /// instead of the persona's voice table. Default (unset/true) keeps the persona's voices.
+    /// Engine 152 r22+ (dropped with a warning on older engines).
+    public bool? FingerprintVoices { get; set; }
+    /// Spoofed OS family for UA / UA-CH ("windows" | "linux" | "macos" | "android"). "android" is a
+    /// best-effort mobile persona.
+    public string? Platform { get; set; }
+    /// Spoofed platform version (UA-CH high-entropy).
+    public string? PlatformVersion { get; set; }
+    /// Browser brand for UA / UA-CH ("Chrome" | "Edge" | "Opera" | "Vivaldi" | ...).
+    public string? Brand { get; set; }
+    /// Brand version.
+    public string? BrandVersion { get; set; }
+    /// TLS network persona: "match-persona" (default) | "auto" | "native" | "off" | "chrome-&lt;major&gt;" | a major number.
+    public string? TlsProfile { get; set; }
+    /// WebGL UNMASKED_VENDOR string.
+    public string? GpuVendor { get; set; }
+    /// WebGL UNMASKED_RENDERER string.
+    public string? GpuRenderer { get; set; }
+    /// navigator.hardwareConcurrency.
+    public int? HardwareConcurrency { get; set; }
+    /// navigator.deviceMemory in GB (spec-clamps to 8 — larger values report as 8).
+    public int? DeviceMemory { get; set; }
+    /// screen.width in CSS px. NOTE: spoofing screen dimensions is a reliable block trigger on strict
+    /// anti-bots (a faked screen cannot be reconciled with the real window/render surface), so this is
+    /// opt-in and is NOT part of the LightStealth preset.
+    /// With a seed (Fingerprint) or FingerprintProfile, leave it unset: the persona already carries a
+    /// coherent screen. Up to PRO r35 and on the free builds, the CSS device-width/device-height media
+    /// features keep the persona's size, so an override makes screen.width and matchMedia disagree,
+    /// even when it matches the host's real display. Without a persona (e.g. LightStealth), it stays
+    /// coherent only when it equals the host's real display in CSS px at the reported
+    /// devicePixelRatio (physical px / DPR).
+    public int? ScreenWidth { get; set; }
+    /// screen.height in CSS px (see the caveat on <see cref="ScreenWidth"/>).
+    public int? ScreenHeight { get; set; }
+    /// screen.availWidth in CSS px (see the caveat on <see cref="ScreenWidth"/>).
+    public int? AvailWidth { get; set; }
+    /// screen.availHeight in CSS px (see the caveat on <see cref="ScreenWidth"/>).
+    public int? AvailHeight { get; set; }
+    /// screen.colorDepth (e.g. 24).
+    public int? ColorDepth { get; set; }
+    /// window.devicePixelRatio (e.g. 1, 1.25, 1.5).
+    public double? DevicePixelRatio { get; set; }
+    /// navigator.maxTouchPoints (0 on a mouse-only desktop).
+    public int? MaxTouchPoints { get; set; }
+    /// Light-stealth preset: spoof a coherent, seed-derived bundle of the metadata axes that SURVIVE
+    /// strict anti-bot checks — HardwareConcurrency, DeviceMemory, ColorDepth, DevicePixelRatio,
+    /// MaxTouchPoints — applied via the native override switches ONLY (never the --fingerprint persona
+    /// machinery / farbling that strict anti-bots detect). Rendering (canvas/WebGL/audio/fonts), TLS,
+    /// and the real Chrome version are all left untouched, so the identity stays coherent and passes.
+    /// Screen dimensions are deliberately NOT spoofed (a faked screen is a reliable block trigger) —
+    /// set ScreenWidth/etc. explicitly to opt in. An explicit field wins over the preset.
+    public bool? LightStealth { get; set; }
+    /// Geolocation as "lat,lng" (only returned when the page is granted permission).
+    public string? Location { get; set; }
+    /// IANA timezone, e.g. "America/New_York".
+    public string? Timezone { get; set; }
+    /// Accept-Language / navigator.languages, e.g. "en-US,en" (sets both header and navigator coherently).
+    public string? AcceptLanguage { get; set; }
+    /// WebRTC egress IP to report (typically your proxy's public IP).
+    public string? WebrtcIp { get; set; }
+    /// WebRTC host-candidate mDNS concealment. Real Chrome hides local host candidates behind an
+    /// &lt;uuid&gt;.local name so a page opening an RTCPeerConnection cannot read the LAN address; that
+    /// is the default here too. Set "off" only if you need routable raw host candidates (LAN/P2P) —
+    /// it re-exposes the private IP to every page. Requires an engine built with enable_mdns.
+    public string? WebrtcMdns { get; set; }
+    /// Present the machine's real GPU instead of a spoofed one (most coherent vs strict classifiers).
+    public bool? DisableGpuFingerprint { get; set; }
+    /// Set false to turn OFF per-eTLD+1 farbling noise (canvas/WebGL/audio/client-rects).
+    public bool? FingerprintNoise { get; set; }
+
+    /// <summary>
+    /// <c>false</c> reports the machine's REAL WebGL UNMASKED_VENDOR/RENDERER and changes nothing
+    /// else -- the getParameter limit table, the extension list and the readPixels farble all stay
+    /// on the persona. The GPU-string half of <see cref="DisableGpuFingerprint"/> on its own.
+    /// Requires engine &gt;= Chromium 150 r12; inert on older builds.
+    /// </summary>
+    public bool? GpuStringSpoof { get; set; }
+
+    /// <summary>
+    /// Which identity model a seed derives (<c>--fingerprint-schema</c>, licensed build 151 r19+): 7, the default
+    /// since 2026-10-26 (served by the persona service to engine 156 r51+), is the machine model where the graphics
+    /// card sets device class, processor, threads, memory and screen; 5 derives exactly what r45 to r51 did; 4 what
+    /// 154 r37 to 155 r44 did; 3 what 154 r36 did; 2 what 153 r29 to 154 r35 did; 1 the original model from before
+    /// r29. There is no schema 6. A seed's identity under a given schema never changes; set an older one to keep
+    /// identities created on those builds. An engine knows nothing of a schema past its own newest and derives that
+    /// one instead.
+    /// </summary>
+    public int? PersonaSchema { get; set; }
+
+    /// <summary>
+    /// Declare that this host renders with a real GPU (or a canvas bridge backs the pixels), so a schema-2
+    /// persona may claim a discrete GPU class (<c>--fingerprint-gpu-backend-real</c>). Off by default: on a
+    /// software rasteriser the persona stays on the iGPU claim whatever its tier. Inert on schema 1.
+    /// </summary>
+    public bool? RealGpuHost { get; set; }
+
+    /// <summary>
+    /// <c>false</c> turns off the per-eTLD+1 farble on CANVAS 2D readback only (getImageData, and
+    /// toDataURL of a 2D canvas). WebGL readPixels and every other farbled surface are unchanged.
+    /// Requires engine &gt;= Chromium 150 r12; inert on older builds.
+    /// </summary>
+    public bool? CanvasNoise { get; set; }
+
+    /// <summary>
+    /// Noise style for canvas and WebGL readback. From engine r57 a pixel that equals one of its four
+    /// neighbours is never changed, so flat areas read back exactly as drawn and noise lands on edges,
+    /// text and gradients only. <c>true</c> restores the r56 style, where flat areas are noised too
+    /// (checkers that hash a solid shape, such as PixelScan's, then report masking). One switch for
+    /// every exit, so two reads of one canvas still agree. Default <c>false</c>; dropped on engines
+    /// before r57, which always noise flat areas.
+    /// </summary>
+    public bool? FlatAreaNoise { get; set; }
+
+    /// <summary>
+    /// A partial WebGL readPixels of the canvas reads a one-pixel margin around it (one extra GPU
+    /// read-back) so its edge pixels get exactly the noise a full read gives them. <c>false</c> skips
+    /// that read: 1-2 edge pixels per partial read can then differ from a full read. Default
+    /// <c>true</c>. No effect with FlatAreaNoise = true or the noise off. Needs engine r57.
+    /// </summary>
+    public bool? WebglReadMargin { get; set; }
+    /// Import a real captured fingerprint: a path to a .json profile, a JSON string, or an object.
+    public object? FingerprintProfile { get; set; }
+    /// navigator.storage.estimate().quota in MEGABYTES.
+    public int? StorageQuota { get; set; }
+    /// Canvas bridge config (set Url to enable; auto-adds --no-sandbox).
+    public CanvasBridgeOptions? CanvasBridge { get; set; }
+
+    /// Shallow copy, so applying the LightStealth preset never mutates the caller's object.
+    internal FingerprintOptions Clone() => (FingerprintOptions)MemberwiseClone();
+}
+
+/// Maps fingerprint options to CodeBrowser Chromium switches (ports fingerprint.ts).
+public static class Fingerprint
+{
+    /// Primary Accept-Language tag -> a plausible IANA timezone (so the default persona's timezone is
+    /// coherent with its locale instead of leaking the host's UTC).
+    private static readonly Dictionary<string, string> LocaleTz = new()
+    {
+        ["en-US"] = "America/New_York", ["en-CA"] = "America/Toronto", ["en-GB"] = "Europe/London",
+        ["en-AU"] = "Australia/Sydney", ["en-NZ"] = "Pacific/Auckland", ["en-IE"] = "Europe/Dublin",
+        ["de-DE"] = "Europe/Berlin", ["de-AT"] = "Europe/Vienna", ["fr-FR"] = "Europe/Paris",
+        ["es-ES"] = "Europe/Madrid", ["es-MX"] = "America/Mexico_City", ["it-IT"] = "Europe/Rome",
+        ["nl-NL"] = "Europe/Amsterdam", ["pt-BR"] = "America/Sao_Paulo", ["pt-PT"] = "Europe/Lisbon",
+        ["pl-PL"] = "Europe/Warsaw", ["sv-SE"] = "Europe/Stockholm", ["ja-JP"] = "Asia/Tokyo",
+        ["ko-KR"] = "Asia/Seoul", ["zh-CN"] = "Asia/Shanghai", ["zh-TW"] = "Asia/Taipei",
+        ["ru-RU"] = "Europe/Moscow", ["tr-TR"] = "Europe/Istanbul", ["ar-SA"] = "Asia/Riyadh",
+        ["hi-IN"] = "Asia/Kolkata", ["id-ID"] = "Asia/Jakarta",
+        ["en-IN"] = "Asia/Kolkata", ["en-ZA"] = "Africa/Johannesburg", ["en-SG"] = "Asia/Singapore",
+        ["en-PH"] = "Asia/Manila", ["fil-PH"] = "Asia/Manila", ["de-CH"] = "Europe/Zurich",
+        ["fr-CH"] = "Europe/Zurich", ["it-CH"] = "Europe/Zurich", ["fr-CA"] = "America/Toronto",
+        ["fr-BE"] = "Europe/Brussels", ["nl-BE"] = "Europe/Brussels", ["es-AR"] = "America/Argentina/Buenos_Aires",
+        ["es-CL"] = "America/Santiago", ["es-CO"] = "America/Bogota", ["es-US"] = "America/Los_Angeles",
+        ["uk-UA"] = "Europe/Kyiv", ["nb-NO"] = "Europe/Oslo", ["da-DK"] = "Europe/Copenhagen",
+        ["fi-FI"] = "Europe/Helsinki", ["cs-CZ"] = "Europe/Prague", ["ro-RO"] = "Europe/Bucharest",
+        ["hu-HU"] = "Europe/Budapest", ["el-GR"] = "Europe/Athens", ["he-IL"] = "Asia/Jerusalem",
+        ["ar-AE"] = "Asia/Dubai", ["ar-EG"] = "Africa/Cairo", ["zh-HK"] = "Asia/Hong_Kong",
+        ["zh-SG"] = "Asia/Singapore", ["th-TH"] = "Asia/Bangkok", ["vi-VN"] = "Asia/Ho_Chi_Minh",
+        ["ms-MY"] = "Asia/Kuala_Lumpur", ["bg-BG"] = "Europe/Sofia", ["hr-HR"] = "Europe/Zagreb",
+        ["sk-SK"] = "Europe/Bratislava", ["sl-SI"] = "Europe/Ljubljana", ["sr-RS"] = "Europe/Belgrade",
+        ["lt-LT"] = "Europe/Vilnius", ["lv-LV"] = "Europe/Riga", ["et-EE"] = "Europe/Tallinn",
+        ["ca-ES"] = "Europe/Madrid", ["es-419"] = "America/Mexico_City",
+    };
+
+    // Coherent Windows-plausible desktop/laptop metadata bundles, indexed by a hash of the seed:
+    // (screen_w, screen_h, avail_w, avail_h, dpr, color_depth, device_memory_gb, hw_concurrency).
+    // LightStealth uses ONLY dpr/color_depth/device_memory/hw_concurrency (screen stays real).
+    private static readonly (int Sw, int Sh, int Aw, int Ah, double Dpr, int Cd, int Mem, int Hw)[] LightStealthProfiles =
+    {
+        (1920, 1080, 1920, 1040, 1.0, 24, 8, 8),
+        (1920, 1080, 1920, 1040, 1.0, 24, 16, 12),
+        (1920, 1080, 1920, 1040, 1.0, 24, 16, 16),
+        (2560, 1440, 2560, 1400, 1.0, 24, 16, 16),
+        (2560, 1440, 2560, 1400, 1.5, 24, 16, 12),
+        (1536, 864, 1536, 824, 1.25, 24, 8, 8),
+        (1536, 864, 1536, 824, 1.25, 24, 16, 12),
+        (1366, 768, 1366, 728, 1.0, 24, 8, 4),
+        (1366, 768, 1366, 728, 1.0, 24, 4, 4),
+        (1440, 900, 1440, 860, 1.0, 24, 8, 8),
+        (1600, 900, 1600, 860, 1.0, 24, 8, 8),
+        (1680, 1050, 1680, 1010, 1.0, 24, 8, 8),
+        (1920, 1200, 1920, 1160, 1.0, 24, 16, 12),
+        (3840, 2160, 3840, 2120, 1.0, 24, 32, 16),
+    };
+
+    /// Deterministic, coherent metadata bundle for LightStealth: spoofs ONLY the axes that survive
+    /// strict anti-bot checks (HardwareConcurrency, DeviceMemory, ColorDepth, DevicePixelRatio,
+    /// MaxTouchPoints), never screen. The seed->row mapping matches the Python/Node SDKs (full sha256
+    /// digest as a big integer mod N).
+    public static FingerprintOptions LightStealthValues(string? seed)
+    {
+        var row = LightStealthRow(seed);
+        return new FingerprintOptions
+        {
+            DevicePixelRatio = row.Dpr,
+            ColorDepth = row.Cd,
+            DeviceMemory = row.Mem,
+            HardwareConcurrency = row.Hw,
+            MaxTouchPoints = 0,
+            Brand = "chrome",
+        };
+    }
+
+    private static (int Sw, int Sh, int Aw, int Ah, double Dpr, int Cd, int Mem, int Hw) LightStealthRow(string? seed)
+    {
+        var key = string.IsNullOrEmpty(seed) ? "clearcote-light-stealth" : seed;
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(key));
+        var big = new BigInteger(digest, isUnsigned: true, isBigEndian: true);
+        return LightStealthProfiles[(int)(big % LightStealthProfiles.Length)];
+    }
+
+    /// The display of the same LightStealth row <see cref="LightStealthValues"/> draws its DPR from, so
+    /// a seed's screen and DevicePixelRatio stay a pair (1536x864 comes with 1.25: a 1080p laptop at
+    /// 125%). Never spoofed through the --fingerprint-screen-* switches: ServeAsync makes it the
+    /// headless display itself, which the page, media queries and the window all agree on.
+    internal static Geometry.Display LightStealthScreen(string? seed)
+    {
+        var row = LightStealthRow(seed);
+        return new Geometry.Display(row.Sw, row.Sh, row.Aw, row.Ah);
+    }
+
+    /// Normalize an Accept-Language for Chromium's --accept-lang: a plain comma-separated tag list with
+    /// NO ";q=" weights or spaces (a ";" in the switch value trips a DCHECK and crashes the renderer).
+    public static string CleanAcceptLanguage(string v)
+        => string.Join(",", v.Split(',')
+            .Select(t => t.Split(';')[0].Trim())
+            .Where(t => t.Length > 0));
+
+    /// A plausible IANA timezone for a primary Accept-Language tag ("en-US" -> "America/New_York").
+    public static string? DefaultTimezone(string primaryLang)
+    {
+        if (string.IsNullOrEmpty(primaryLang)) return null;
+        var tag = primaryLang.Trim().Replace('_', '-');
+        var parts = tag.Split('-');
+        if (parts.Length >= 2 && parts[^1].Length == 2)
+            tag = $"{parts[0].ToLowerInvariant()}-{parts[^1].ToUpperInvariant()}"; // de-at / de_AT / zh-Hant-TW -> de-AT / zh-TW
+        if (LocaleTz.TryGetValue(tag, out var tz)) return tz;
+        var lang = tag.Split('-')[0].ToLowerInvariant();
+        foreach (var (key, value) in LocaleTz)
+            if (key.ToLowerInvariant().StartsWith(lang + "-")) return value;
+        return "America/New_York";
+    }
+
+    /// gzip+base64-encode a captured code-browser-profile for --fingerprint-profile. `value` may be a path
+    /// to a .json file, a JSON string, or an object (serialized to JSON).
+    public static string EncodeProfile(object value)
+    {
+        byte[] raw;
+        if (value is string s)
+            raw = File.Exists(s) ? File.ReadAllBytes(s) : Encoding.UTF8.GetBytes(s);
+        else
+            raw = JsonSerializer.SerializeToUtf8Bytes(value);
+        // A capture from Chrome up to 117 has no device id in its WebGL renderer, a string 156 cannot print:
+        // add the one real captures of that card print (AngleDeviceId.cs). The caller's object is not touched.
+        raw = AngleDeviceId.CaptureForEngine(raw);
+        using var ms = new MemoryStream();
+        using (var gz = new GZipStream(ms, CompressionLevel.SmallestSize, leaveOpen: true))
+            gz.Write(raw, 0, raw.Length);
+        return Convert.ToBase64String(ms.ToArray());
+    }
+
+    /// An imported profile's own thread count and memory (top-level hardware_concurrency / device_memory), when it
+    /// has them. A profile applied WITHOUT a Fingerprint seed (Profile = "auto", a profile on its own, LightStealth)
+    /// needs them as explicit switches: the persona service puts them in the persona, but the engine applies a
+    /// persona's hardware_concurrency / device_memory only when the launch has a --fingerprint seed, so a profile-only
+    /// launch reported the REAL machine's values (measured 2026-10-31 with r54). DeviceMemory is whole GB here, so a
+    /// fractional value (0.5) is left to the persona.
+    public static (int? HardwareConcurrency, int? DeviceMemory) ProfileHardware(object value)
+    {
+        try
+        {
+            string json = value switch
+            {
+                string s when File.Exists(s) => File.ReadAllText(s),
+                string s => s,
+                _ => JsonSerializer.Serialize(value),
+            };
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return (null, null);
+            int? Whole(string name) =>
+                doc.RootElement.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.Number
+                && e.TryGetDouble(out var d) && d > 0 && d == Math.Floor(d) && d <= int.MaxValue ? (int)d : null;
+            return (Whole("hardware_concurrency"), Whole("device_memory"));
+        }
+        catch { return (null, null); }
+    }
+
+    /// Best-effort: derive an Accept-Language from an imported profile's navigator.languages.
+    public static string? ProfileAcceptLanguage(object value)
+    {
+        try
+        {
+            string json = value switch
+            {
+                string s when File.Exists(s) => File.ReadAllText(s),
+                string s => s,
+                _ => JsonSerializer.Serialize(value),
+            };
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("navigator", out var nav)
+                && nav.TryGetProperty("languages", out var langs)
+                && langs.ValueKind == JsonValueKind.Array && langs.GetArrayLength() > 0)
+            {
+                var list = langs.EnumerateArray().Select(e => e.ToString()).Where(x => x.Length > 0);
+                var joined = string.Join(",", list);
+                return joined.Length > 0 ? joined : null;
+            }
+        }
+        catch { /* ignore */ }
+        return null;
+    }
+
+    private static int? MajorFromVersion(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var head = value.Trim().Split('.')[0];
+        return int.TryParse(head, out var n) ? n : null;
+    }
+
+    /// Resolve tlsProfile to a concrete "chrome-&lt;major&gt;" value, or null (native TLS).
+    public static string? ResolveTlsProfile(string? value, FingerprintOptions o)
+    {
+        if (string.IsNullOrEmpty(value) || value is "native" or "off") return null;
+        if (value is "match-persona" or "auto")
+        {
+            var major = MajorFromVersion(o.BrandVersion);
+            return major is { } m ? $"chrome-{m}" : null;
+        }
+        var text = value.Trim().ToLowerInvariant();
+        if (System.Text.RegularExpressions.Regex.IsMatch(text, @"^chrome-\d+$")) return text;
+        if (System.Text.RegularExpressions.Regex.IsMatch(text, @"^\d+$")) return $"chrome-{text}";
+        return null;
+    }
+
+    /// <summary>The persona platform name for the machine we are running on.</summary>
+    internal static string HostPlatform =>
+        Native.OsTag switch { "windows" => "windows", "linux" => "linux", "macos" => "macos", _ => "windows" };
+
+    /// <summary>The platform this launch CLAIMS to be: the explicit persona platform, else the
+    /// host's own. Pass-through sends no persona switches, so the engine presents the real host OS.
+    /// Switches that depend on what the page will BELIEVE must read this, not the host.</summary>
+    internal static string PersonaPlatform(FingerprintOptions? o)
+    {
+        if (o is null) return HostPlatform;
+        if (IsFingerprintPassthrough(o.Fingerprint)) return HostPlatform;
+        return (o.Platform ?? HostPlatform).Trim().ToLowerInvariant();
+    }
+
+    /// True when <paramref name="value"/> asks for PASS-THROUGH debug mode: exactly "off" (any case,
+    /// surrounding whitespace ignored). "0", "no", "false", "disable" and the like are ordinary seeds.
+    ///
+    /// Pass-through runs the browser with NO persona, so a caller can tell whether a problem comes
+    /// from the spoofing or from their environment. The SDK never sends <c>--fingerprint=off</c>: an
+    /// engine older than 152 r22 would read "off" as an ordinary seed and build a persona from it.
+    public static bool IsFingerprintPassthrough(string? value)
+        => value is not null && string.Equals(value.Trim(), "off", StringComparison.OrdinalIgnoreCase);
+
+    /// Build the Chromium switches for a set of fingerprint options (ports fingerprintArgs()).
+    private static readonly Dictionary<string, string> GpuMakerNames = new()
+    {
+        ["intel"] = "Intel", ["nvidia"] = "NVIDIA", ["amd"] = "AMD", ["apple"] = "Apple", ["qualcomm"] = "Qualcomm",
+        ["arm"] = "ARM", ["microsoft"] = "Microsoft", ["google"] = "Google",
+    };
+
+    /// The GPU maker a vendor or renderer string names ("intel", "nvidia", "amd", ...), or null. An ANGLE renderer
+    /// ("ANGLE (AMD, AMD Radeon(TM) Graphics ...)") and a Chrome vendor ("Google Inc. (Intel)") name it first.
+    public static string? GpuMaker(string s)
+    {
+        var m = Regex.Match(s, @"^ANGLE \(([^,]+),");
+        if (!m.Success) m = Regex.Match(s.Trim(), @"^Google Inc\. \((.+)\)$");
+        var t = (m.Success ? m.Groups[1].Value : s).Trim().ToLowerInvariant();
+        if (t is "google inc." or "webkit") return null;   // older Chrome's bare vendor and the masked one name no maker
+        if (t.Contains("nvidia")) return "nvidia";
+        if (Regex.IsMatch(t, @"\bamd\b|advanced micro|\bati\b|radeon")) return "amd";
+        if (t.Contains("intel")) return "intel";
+        if (t.Contains("apple")) return "apple";
+        if (Regex.IsMatch(t, "qualcomm|adreno")) return "qualcomm";
+        if (Regex.IsMatch(t, @"\barm\b|mali")) return "arm";
+        if (t.Contains("microsoft")) return "microsoft";
+        if (Regex.IsMatch(t, "google|swiftshader")) return "google";
+        return null;
+    }
+
+    /// The UNMASKED_VENDOR_WEBGL string to send for <see cref="FingerprintOptions.GpuVendor"/>. Chrome reports
+    /// "Google Inc. (&lt;maker&gt;)" ("Google Inc. (Intel Inc.)" for an Intel Mac); a short name ("intel", "NVIDIA",
+    /// "Intel Inc.") went out verbatim, a string no Chrome reports (measured 2026-10-28, SC 295), so it is rewritten to
+    /// Chrome's form. A string that names no known maker goes out as given. Throws <see cref="ArgumentException"/>
+    /// when the renderer names another maker: a page reads both, and "intel" next to an AMD renderer is a
+    /// contradiction no real machine shows.
+    public static string GpuVendorFor(string vendor, string? renderer = null, string? platform = null)
+    {
+        var maker = GpuMaker(vendor);
+        var rmaker = string.IsNullOrEmpty(renderer) ? null : GpuMaker(renderer);
+        if (maker is not null && rmaker is not null && maker != rmaker)
+            throw new ArgumentException($"GpuVendor '{vendor}' names {GpuMakerNames[maker]} but GpuRenderer names " +
+                $"{GpuMakerNames[rmaker]} ('{renderer}'): a page reads both, and a real machine never reports two makers. " +
+                "Pass a matching pair.");
+        if (maker is null || Regex.IsMatch(vendor.Trim(), @"^Google Inc\. \(.+\)$")) return vendor;
+        return $"Google Inc. ({(maker == "intel" && platform == "macos" ? "Intel Inc." : GpuMakerNames[maker])})";
+    }
+
+    public static List<string> Args(FingerprintOptions o)
+    {
+        if (IsFingerprintPassthrough(o.Fingerprint))
+        {
+            // Pass-through: no persona switches at all — not even the platform/brand/accept-language
+            // coherence defaults. Only explicit locale and network values survive, mirroring the
+            // engine, which keeps timezone / accept-lang / webrtc-ip in this mode.
+            // `--fingerprint-passthrough` also makes a 152 r22+ engine strip persona switches from Args.
+            var pt = new List<string> { "--fingerprint-passthrough" };
+            if (!string.IsNullOrEmpty(o.Timezone)) pt.Add($"--timezone={o.Timezone}");
+            if (!string.IsNullOrEmpty(o.AcceptLanguage))
+            {
+                var (ptAccept, ptUiLocale) = Languages.ResolveLanguages(CleanAcceptLanguage(o.AcceptLanguage));
+                pt.Add($"--accept-lang={ptAccept}");
+                if (!string.IsNullOrEmpty(ptUiLocale)) pt.Add($"--lang={ptUiLocale}");
+            }
+            if (!string.IsNullOrEmpty(o.WebrtcIp)) pt.Add($"--webrtc-ip={o.WebrtcIp}");
+            return pt;
+        }
+
+        // A profile with no seed: its own threads and memory go out as switches (see ProfileHardware), before the
+        // LightStealth preset so a captured device's values win over the seed's preset. A caller's own value wins.
+        if (o.FingerprintProfile is not null && (string.IsNullOrEmpty(o.Fingerprint) || o.LightStealth == true))
+        {
+            var (hc, mem) = ProfileHardware(o.FingerprintProfile);
+            if (hc is not null || mem is not null)
+            {
+                o = o.Clone();
+                o.HardwareConcurrency ??= hc;
+                o.DeviceMemory ??= mem;
+            }
+        }
+
+        // Apply the LightStealth preset first, on a copy (explicit fields win; never emit --fingerprint).
+        if (o.LightStealth == true)
+        {
+            o = o.Clone();
+            var preset = LightStealthValues(o.Fingerprint);
+            o.HardwareConcurrency ??= preset.HardwareConcurrency;
+            o.DeviceMemory ??= preset.DeviceMemory;
+            o.ColorDepth ??= preset.ColorDepth;
+            o.DevicePixelRatio ??= preset.DevicePixelRatio;
+            o.MaxTouchPoints ??= preset.MaxTouchPoints;
+            if (string.IsNullOrEmpty(o.Brand)) o.Brand = preset.Brand;
+            o.Fingerprint = null; // never emit --fingerprint, so the persona machinery never engages
+        }
+
+        var args = new List<string>();
+        void Set(string flag, object? value)
+        {
+            if (value is null) return;
+            var s = value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture) : value.ToString();
+            if (!string.IsNullOrEmpty(s)) args.Add($"--{flag}={s}");
+        }
+
+        Set("fingerprint", o.Fingerprint);
+        Set("fingerprint-platform", o.Platform ?? HostPlatform);
+        Set("fingerprint-platform-version", o.PlatformVersion);
+        Set("fingerprint-brand", o.Brand ?? "chrome");
+        Set("fingerprint-brand-version", o.BrandVersion);
+        Set("fingerprint-gpu-vendor", string.IsNullOrEmpty(o.GpuVendor) ? o.GpuVendor
+            : GpuVendorFor(o.GpuVendor, o.GpuRenderer, o.Platform ?? HostPlatform));
+        Set("fingerprint-gpu-renderer", o.GpuRenderer);
+        Set("fingerprint-hardware-concurrency", o.HardwareConcurrency);
+        // Native metadata overrides (flag > persona > real). Read directly by the getters — no
+        // --fingerprint persona machinery — so they are safe to spoof individually or via LightStealth.
+        Set("fingerprint-device-memory", o.DeviceMemory);
+        Set("fingerprint-screen-width", o.ScreenWidth);
+        Set("fingerprint-screen-height", o.ScreenHeight);
+        Set("fingerprint-avail-width", o.AvailWidth);
+        Set("fingerprint-avail-height", o.AvailHeight);
+        Set("fingerprint-color-depth", o.ColorDepth);
+        Set("fingerprint-device-pixel-ratio", o.DevicePixelRatio);
+        Set("fingerprint-max-touch-points", o.MaxTouchPoints);
+        Set("fingerprint-location", o.Location);
+        Set("fingerprint-storage-quota", o.StorageQuota);
+        Set("timezone", o.Timezone);
+
+        // Always send a coherent Accept-Language: explicit > imported-profile languages > en-US.
+        var acceptLanguage = o.AcceptLanguage;
+        if (string.IsNullOrEmpty(acceptLanguage) && o.FingerprintProfile is not null)
+            acceptLanguage = ProfileAcceptLanguage(o.FingerprintProfile);
+        if (string.IsNullOrEmpty(acceptLanguage)) acceptLanguage = "en-US";
+        var cleanLang = CleanAcceptLanguage(acceptLanguage);
+        // One tag is an OS locale and becomes Chrome's own default list for it (de-AT ->
+        // de-DE,de,en-US,en); a list is kept as given. See Languages.ResolveLanguages.
+        var (accept, uiLocale) = Languages.ResolveLanguages(cleanLang);
+        args.Add($"--accept-lang={accept}");
+
+        // Pin the UI locale (--lang), which Chrome resolves the way it resolves the OS locale and which
+        // drives Intl (main thread AND workers). Genuine Chrome's Intl is the UI locale: "de", not "de-DE".
+        if (!string.IsNullOrEmpty(uiLocale)) args.Add($"--lang={uiLocale}");
+        // The timezone default keys off the caller's own first tag: de-AT -> Europe/Vienna.
+        var primaryLang = cleanLang.Split(',')[0];
+
+        // Default a locale-coherent timezone when none is set (avoid leaking host UTC on servers).
+        if (string.IsNullOrEmpty(o.Timezone))
+        {
+            var tz = DefaultTimezone(primaryLang);
+            if (tz is not null) args.Add($"--timezone={tz}");
+        }
+
+        Set("webrtc-ip", o.WebrtcIp);
+        // Only "off" is meaningful — concealment ON is both the Chromium default and real Chrome's
+        // behaviour, so there is nothing to emit for "on". Uses Chromium's own feature flag rather
+        // than a code-browser switch: the mDNS responder is created behind kWebRtcHideLocalIpsWithMdns,
+        // so disabling the feature means no responder is built and host candidates are signalled as
+        // raw IPs. MergeFeatureFlags folds this into any other --disable-features value.
+        if (string.Equals(o.WebrtcMdns, "off", StringComparison.OrdinalIgnoreCase))
+            args.Add("--disable-features=WebRtcHideLocalIpsWithMdns");
+        if (o.DisableGpuFingerprint == true) args.Add("--disable-gpu-fingerprint");
+        if (o.FingerprintNoise == false) args.Add("--disable-fingerprint-noise");
+        // The two INDEPENDENT halves of the bundles above (engine >= Chromium 150 r12).
+        if (o.GpuStringSpoof == false) args.Add("--disable-gpu-string-spoof");
+        if (o.CanvasNoise == false) args.Add("--disable-canvas-noise");
+        // r57 noise style; dropped without a warning on older engines by GateEngineSwitches.
+        if (o.FlatAreaNoise == true) args.Add("--fingerprint-noise-flat-areas");
+        if (o.WebglReadMargin == false) args.Add("--fingerprint-webgl-no-read-margin");
+        // FingerprintVoices=false keeps the host's own speech voices under a persona (engine 152 r22+).
+        if (o.FingerprintVoices == false) args.Add("--disable-fingerprint-voices");
+        // Persona schema (see PersonaSchema); the real-GPU declaration gates a schema-2 persona's discrete-GPU
+        // draw and is inert on schema 1.
+        if (o.PersonaSchema is int schema && (schema < 1 || schema > 7 || schema == 6))
+            throw new ArgumentException("PersonaSchema must be 1, 2, 3, 4, 5 or 7");
+        Set("fingerprint-schema", o.PersonaSchema);
+        if (o.RealGpuHost == true) args.Add("--fingerprint-gpu-backend-real");
+        if (o.FingerprintProfile is not null) args.Add($"--fingerprint-profile={EncodeProfile(o.FingerprintProfile)}");
+
+        if (o.CanvasBridge?.Url is { Length: > 0 } cbUrl)
+        {
+            var cb = o.CanvasBridge;
+            args.Add($"--canvas-bridge-url={cbUrl}");
+            if (!string.IsNullOrEmpty(cb.Auth)) args.Add($"--canvas-bridge-auth={cb.Auth}");
+            if (!string.IsNullOrEmpty(cb.Mode)) args.Add($"--canvas-bridge-mode={cb.Mode}");
+            if (cb.Allow is { Length: > 0 }) args.Add($"--canvas-bridge-allow={string.Join(",", cb.Allow)}");
+            if (cb.Deny is { Length: > 0 }) args.Add($"--canvas-bridge-deny={string.Join(",", cb.Deny)}");
+            if (!string.IsNullOrEmpty(cb.Fallback)) args.Add($"--canvas-bridge-fallback={cb.Fallback}");
+            if (!args.Contains("--no-sandbox")) args.Add("--no-sandbox");
+        }
+
+        var tlsSwitch = ResolveTlsProfile(o.TlsProfile ?? "match-persona", o);
+        if (tlsSwitch is not null) args.Add($"--fingerprint-tls-profile={tlsSwitch}");
+
+        if (o.Platform == "android") args.Add("--window-size=412,915");
+        return args;
+    }
+}

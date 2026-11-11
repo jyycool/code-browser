@@ -4,7 +4,7 @@ import tempfile
 
 import pytest
 
-from clearcote import _fonts
+from code_browser import _fonts
 
 
 @pytest.fixture(autouse=True, scope="module")

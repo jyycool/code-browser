@@ -2,7 +2,7 @@
 time with the button reported down on every move, the drift within 2 px, `until` releasing early, and
 frame locators and non-humanized pages working too.
 
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is available for a PRO build).
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is available for a PRO build).
 """
 import asyncio
 import os
@@ -10,8 +10,8 @@ import time
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 LOGGER = """<script>
 window.__ev = [];
@@ -54,8 +54,8 @@ def _no_font_cache_left_behind():
 
 
 def _launch(humanize):
-    import clearcote
-    return clearcote.launch(executable_path=LIVE, headless=True, humanize=humanize, fingerprint="hold-live-1",
+    import code_browser
+    return code_browser.launch(executable_path=LIVE, headless=True, humanize=humanize, fingerprint="hold-live-1",
                             viewport={"width": 1180, "height": 760}, quiet=True)
 
 
@@ -157,7 +157,7 @@ def test_frame_locator(browser, tmp_path):
 
 
 def test_without_humanize(_no_font_cache_left_behind, tmp_path):
-    import clearcote
+    import code_browser
     f = tmp_path / "plain.html"
     f.write_text(PAGE, encoding="utf-8")
     b = _launch(False)
@@ -165,7 +165,7 @@ def test_without_humanize(_no_font_cache_left_behind, tmp_path):
         p = b.new_page()
         p.goto(f.as_uri())
         assert not hasattr(p, "press_and_hold")
-        assert clearcote.press_and_hold(p.locator("#hold"), 1700) is True
+        assert code_browser.press_and_hold(p.locator("#hold"), 1700) is True
         d, u, during = _held(p.evaluate("window.__ev"))
         assert u["ts"] - d["ts"] >= 1650
         assert all(m["buttons"] == 1 for m in during)

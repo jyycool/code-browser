@@ -1,4 +1,4 @@
-# Clearcote Browser
+# CodeBrowser Browser
 
 > An open-source, de-Googled Chromium with fingerprint controls compiled into the C++ engine, so a browser presents as one ordinary, coherent Chrome install — down to the TLS handshake. A drop-in for Playwright and Puppeteer: `launch()` returns a standard Playwright Browser. Windows x64 and Linux x64. Every change is a readable patch; every open build is reproducible, checksummed and GPG-signed.
 
@@ -8,25 +8,25 @@ Site: https://clearcotelabs.com · Full docs for agents: https://clearcotelabs.c
 Pre-release, building in the open.
 - Open build: Chromium 151 (151.0.7922.108, v0.1.0-pre.25) on GitHub Releases, Windows x64 + Linux x64, an official (optimized, DCHECK-free) build. New Chromium majors reach it roughly 2 months after release.
 - Licensed build (Free with GitHub and Pro): new Chromium majors the day they are built, ahead of the open build; Pro can also pin older builds. Current version: https://clearcotelabs.com/llms.txt
-- SDK: `clearcote` 0.46.0 on PyPI, npm and NuGet (Python, Node, .NET).
+- SDK: `code-browser` 0.46.0 on PyPI, npm and NuGet (Python, Node, .NET).
 - Docker: `teamflatearth/clearcote` (tags `latest`, `0.1.0-pre.23`, `sdk-0.46.0`) — a CDP endpoint on :9222. Run it with `--shm-size=1g -p 127.0.0.1:9222:9222 --security-opt seccomp=<the profile from the image>`; see /docker/README.md.
-- MCP server: `clearcote-mcp` (PyPI / npm). Profile Manager desktop app 0.12.2 (Windows + Linux): https://github.com/clearcotelabs/clearcote-profile-manager
+- MCP server: `code-browser-mcp` (PyPI / npm). Profile Manager desktop app 0.12.2 (Windows + Linux): https://github.com/clearcotelabs/clearcote-profile-manager
 
 ## Quick start
-    pip install clearcote            # or: npm install clearcote / dotnet add package Clearcote
+    pip install code-browser            # or: npm install code-browser / dotnet add package CodeBrowser
 
-    from clearcote import launch
+    from code_browser import launch
     browser = launch(fingerprint="seed-123", platform="windows", geoip=True, humanize=True,
                      proxy={"server": "http://host:8080", "username": "u", "password": "p"})
     page = browser.new_page(); page.goto("https://example.com")
 
-Command line (SDK 0.46.0, Python and Node): `clearcote install`, `clearcote info` (checks the install, engine features, a launch test, licence seats), `clearcote login [key]`, `clearcote clear-cache`, `clearcote serve` (one CDP endpoint, many identities chosen per connection).
+Command line (SDK 0.46.0, Python and Node): `code-browser install`, `code-browser info` (checks the install, engine features, a launch test, licence seats), `code-browser login [key]`, `code-browser clear-cache`, `code-browser serve` (one CDP endpoint, many identities chosen per connection).
 
 ## Tiers
 - Open source: no account, reproducible from public source, full engine-level fingerprint control.
 - Free with GitHub: the licensed build — newest Chromium, recorded human motion, private stealth patches, profile library — free for ONE browser at a time, always on the latest build. Sign in at https://clearcotelabs.com with a GitHub account at least 30 days old and claim a key under Licenses; it renews every 30 days. Needs SDK 0.30.0+.
 - Pro ($49/month): the same licensed build, plus older builds and version pinning, with up to 250 browsers at once (more on request; subscriptions started before 26 September 2026 keep their previous uncapped terms), plus email support from the owner.
-Use a key with `CLEARCOTE_LICENSE_KEY=cc_lic_...`, `license_key=` / `licenseKey`, or `clearcote login`. The licensed build is not reproducible from public source; no tier unlocks more spoofing. Pricing: https://clearcotelabs.com/pricing
+Use a key with `CLEARCOTE_LICENSE_KEY=cc_lic_...`, `license_key=` / `licenseKey`, or `code-browser login`. The licensed build is not reproducible from public source; no tier unlocks more spoofing. Pricing: https://clearcotelabs.com/pricing
 
 ## Principles
 - Open by default: readable patches, no proprietary blobs (the Widevine CDM is fetched on demand, never bundled).
@@ -49,7 +49,7 @@ Use a key with `CLEARCOTE_LICENSE_KEY=cc_lic_...`, `license_key=` / `licenseKey`
 - Chromium (BSD-3)
 - ungoogled-chromium (BSD-3) — de-Googled base
 - fingerprint-chromium by adryfish (BSD-3) — engine-level fingerprint controls
-- chromiumfish by arman-bd (MIT) — coherence-surface reference, the in-browser AI-agent layer Clearcote ports, and the canvas-bridge concept Clearcote re-implements clean-room
+- chromiumfish by arman-bd (MIT) — coherence-surface reference, the in-browser AI-agent layer CodeBrowser ports, and the canvas-bridge concept CodeBrowser re-implements clean-room
 - Brave — per-site deterministic "farbling" model
 - Camoufox — sibling open anti-detect browser (Firefox), design reference
 

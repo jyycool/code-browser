@@ -1,6 +1,6 @@
 /**
  * Press and hold: one long, humanized button press on an element. Port of the Python
- * `clearcote/_hold.py` (same plan numbers; Python and .NET follow the same plan).
+ * `code-browser/_hold.py` (same plan numbers; Python and .NET follow the same plan).
  *
  * For controls that act only while the button stays down: a hold-to-confirm button, a long-press
  * menu, a "press and hold" verification button. `page.pressAndHold(selector)` /
@@ -155,7 +155,7 @@ export async function pressAndHold(locator: Locator, opts: PressAndHoldOptions =
   const loc: any = locator;
   const page: any = loc.page();
   let box: Box | null = null;
-  const boxOf = page._clearcoteBoxOf;
+  const boxOf = page._code_browserBoxOf;
   if (typeof boxOf === "function" && mainFrameLocator(loc)) {
     try {
       box = await boxOf(loc, o.timeout, loc._selector ?? null);
@@ -171,27 +171,27 @@ export async function pressAndHold(locator: Locator, opts: PressAndHoldOptions =
     box = await loc.boundingBox();
   }
   if (!box) throw new Error("pressAndHold: the element has no box (not rendered)");
-  const persona: Persona | undefined = page._clearcotePersona;
-  const posOf = page._clearcotePointer;
+  const persona: Persona | undefined = page._code_browserPersona;
+  const posOf = page._code_browserPointer;
   let border: [number, number] = [0, 0];
-  if (o.position && iso && typeof page._clearcoteBorderOf === "function") {
-    try { border = await page._clearcoteBorderOf(box); } catch { border = [0, 0]; }
+  if (o.position && iso && typeof page._code_browserBorderOf === "function") {
+    try { border = await page._code_browserBorderOf(box); } catch { border = [0, 0]; }
   }
   let [x, y] = holdPoint(box, typeof posOf === "function" ? posOf() : null, persona, o.position, border);
   x = Math.round(x); y = Math.round(y);
   // The covered-point check (a click's isolated hit test, retried COVER_CHECK_MS): a covered PERSONA point
   // moves to the first probe point the hit test proves (a caller's `position` is kept: it asked for that
   // pixel); when nothing proves, the press goes where a person would press -- there is no native hold.
-  if (iso && !o.position && typeof page._clearcoteReachesPoint === "function"
-      && (await page._clearcoteReachesPoint(box, x, y, loc._selector ?? null)) === false
-      && typeof page._clearcoteProvenPoint === "function") {
-    const alt: Point | null = await page._clearcoteProvenPoint(box, loc._selector ?? null);
+  if (iso && !o.position && typeof page._code_browserReachesPoint === "function"
+      && (await page._code_browserReachesPoint(box, x, y, loc._selector ?? null)) === false
+      && typeof page._code_browserProvenPoint === "function") {
+    const alt: Point | null = await page._code_browserProvenPoint(box, loc._selector ?? null);
     if (alt) { x = alt.x; y = alt.y; }
   }
   const nudge: (x: number, y: number) => Promise<void> =
-    typeof page._clearcoteNudge === "function" ? page._clearcoteNudge : (nx, ny) => page.mouse.move(nx, ny);
+    typeof page._code_browserNudge === "function" ? page._code_browserNudge : (nx, ny) => page.mouse.move(nx, ny);
 
-  if (iso && typeof page._clearcoteAimGlide === "function") await page._clearcoteAimGlide(x, y, box);
+  if (iso && typeof page._code_browserAimGlide === "function") await page._code_browserAimGlide(x, y, box);
   else await page.mouse.move(x, y);        // a humanized glide when humanize is on
   await page.mouse.down({ button: btn });  // humanized: the pre-press pause first
   const t0 = performance.now();

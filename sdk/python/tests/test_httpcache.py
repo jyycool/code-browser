@@ -1,7 +1,7 @@
 """http_cache_dir: one locked slot per concurrent launch, stale locks taken over, refused off this machine, and
 --disk-cache-dir=<slot> reaching every local entry point (the slot freed again on close).
 
-Mirrors sdk/node/test/httpcache.test.ts and sdk/dotnet/tests/Clearcote.Tests/HttpCacheTests.cs. The entry-point
+Mirrors sdk/node/test/httpcache.test.ts and sdk/dotnet/tests/CodeBrowser.Tests/HttpCacheTests.cs. The entry-point
 tests stub only the Playwright driver (and serve()'s process spawn), as test_autofillpref.py does.
 """
 import os
@@ -9,12 +9,12 @@ import tempfile
 
 import pytest
 
-import clearcote
-from clearcote import _profile, _serve, async_api
-from clearcote._docker import container_env
-from clearcote._httpcache import (HTTP_CACHE_SLOTS, acquire_http_cache_slot, check_http_cache_dir,
+import code_browser
+from code_browser import _profile, _serve, async_api
+from code_browser._docker import container_env
+from code_browser._httpcache import (HTTP_CACHE_SLOTS, acquire_http_cache_slot, check_http_cache_dir,
                                   take_http_cache)
-from clearcote.cloud import session_body
+from code_browser.cloud import session_body
 
 
 def _lock(root, n):
@@ -129,9 +129,9 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(temp))
     for k in ("HOME", "USERPROFILE"):
         monkeypatch.setenv(k, str(home))
-    for k in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"):
+    for k in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"):
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     monkeypatch.setattr(_profile, "PROFILE_DIR", str(tmp_path / "no-saved-profiles"))
     d = tmp_path / "engine"
     d.mkdir()
@@ -182,9 +182,9 @@ def pw(monkeypatch):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
     return seen
 
 
@@ -192,13 +192,13 @@ def pw(monkeypatch):
 def test_every_sync_entry_point_gets_the_slot_and_frees_it_on_close(tmp_path, env, pw, how):
     kw = {"executable_path": env["exe"], "headless": False, "http_cache_dir": env["cache"]}
     if how == "persistent":
-        target = clearcote.launch_persistent_context(str(tmp_path / "profile"), **kw)
+        target = code_browser.launch_persistent_context(str(tmp_path / "profile"), **kw)
     elif how == "user_data_dir":
-        target = clearcote.launch(user_data_dir=str(tmp_path / "profile"), **kw)
+        target = code_browser.launch(user_data_dir=str(tmp_path / "profile"), **kw)
     else:
-        target = clearcote.launch(**kw)
+        target = code_browser.launch(**kw)
     assert _cache_args(pw[-1]) == ["--disk-cache-dir=" + os.path.join(env["cache"], "slot-0")]
-    second = clearcote.launch(**kw)  # at the same time: the next slot
+    second = code_browser.launch(**kw)  # at the same time: the next slot
     assert _cache_args(pw[-1]) == ["--disk-cache-dir=" + os.path.join(env["cache"], "slot-1")]
     target.close()
     second.close()
@@ -208,7 +208,7 @@ def test_every_sync_entry_point_gets_the_slot_and_frees_it_on_close(tmp_path, en
 def test_a_launch_without_a_profile_refuses_it(env, pw):
     """Incognito keeps its HTTP cache in memory: the option would do nothing."""
     with pytest.raises(TypeError, match="http_cache_dir needs a profile"):
-        clearcote.launch(executable_path=env["exe"], ephemeral_profile=False, http_cache_dir=env["cache"])
+        code_browser.launch(executable_path=env["exe"], ephemeral_profile=False, http_cache_dir=env["cache"])
     assert pw == []  # refused before any browser started
     assert not os.path.exists(env["cache"])
 
@@ -227,10 +227,10 @@ def test_a_failed_launch_frees_the_slot(env, monkeypatch):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "_win_av_retry", lambda start, exe: start(exe))
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "_win_av_retry", lambda start, exe: start(exe))
     with pytest.raises(RuntimeError, match="boom"):
-        clearcote.launch(executable_path=env["exe"], headless=False, http_cache_dir=env["cache"])
+        code_browser.launch(executable_path=env["exe"], headless=False, http_cache_dir=env["cache"])
     assert not os.path.exists(_lock(env["cache"], 0))
 
 
@@ -295,10 +295,10 @@ def test_serve_gets_the_slot_and_frees_it_on_close(env, monkeypatch):
         spawned.append(cmd)
         return _Proc()
 
-    monkeypatch.setattr(clearcote, "_win_av_retry", lambda start, exe: start(exe))
+    monkeypatch.setattr(code_browser, "_win_av_retry", lambda start, exe: start(exe))
     monkeypatch.setattr(_serve.subprocess, "Popen", _popen)
     monkeypatch.setattr(_serve.urllib.request, "urlopen", lambda *a, **k: None)
-    srv = clearcote.serve(executable_path=env["exe"], headless=False, quiet=True, ready_timeout=5,
+    srv = code_browser.serve(executable_path=env["exe"], headless=False, quiet=True, ready_timeout=5,
                           http_cache_dir=env["cache"])
     assert _cache_args(spawned[-1]) == ["--disk-cache-dir=" + os.path.join(env["cache"], "slot-0")]
     assert os.path.exists(_lock(env["cache"], 0))

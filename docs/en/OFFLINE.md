@@ -1,6 +1,6 @@
 # Offline mode (Platform Licence)
 
-Run Clearcote PRO in isolated, air-gapped networks: no licence calls, no downloads, no telemetry. Offline mode
+Run CodeBrowser PRO in isolated, air-gapped networks: no licence calls, no downloads, no telemetry. Offline mode
 comes with a Platform Licence. You need two things from your account: an **Offline Key** file and an **offline
 bundle** (the PRO browser plus the SDK packages).
 
@@ -20,7 +20,7 @@ iwr https://www.clearcotelabs.com/api/v1/offline/fetch.ps1 -OutFile fetch.ps1
 $env:CLEARCOTE_LICENSE_KEY = "cc_lic_..."; .\fetch.ps1 -Platform windows
 ```
 
-The folder it creates holds `clearcote-offline-key.json`, the PRO browser archive (sha256-verified), the SDK
+The folder it creates holds `code-browser-offline-key.json`, the PRO browser archive (sha256-verified), the SDK
 packages with their dependencies (`sdk/python`, `sdk/node`) and a `SHA256SUMS` file. `pip download` fetches wheels
 for the staging machine's own Python and OS, so use the same OS and Python version as the offline machines.
 Move the folder into the isolated network with your normal transfer process and check it with `sha256sum -c SHA256SUMS`.
@@ -28,9 +28,9 @@ Move the folder into the isolated network with your normal transfer process and 
 ## 2. Install on the offline machine
 
 ```bash
-tar -xJf browser/clearcote-pro-*-linux-x64.tar.xz -C /opt/clearcote
-pip install --no-index --find-links sdk/python clearcote          # Python
-npm install --offline ./sdk/node/node_modules/clearcote           # Node (or copy node_modules)
+tar -xJf browser/code-browser-pro-*-linux-x64.tar.xz -C /opt/code-browser
+pip install --no-index --find-links sdk/python code-browser          # Python
+npm install --offline ./sdk/node/node_modules/code-browser           # Node (or copy node_modules)
 ```
 
 ## 3. Launch
@@ -38,26 +38,26 @@ npm install --offline ./sdk/node/node_modules/clearcote           # Node (or cop
 Python:
 
 ```python
-import clearcote
-browser = clearcote.launch(offline_key="/etc/clearcote/clearcote-offline-key.json",
-                           executable_path="/opt/clearcote/chrome")
+import code_browser
+browser = code_browser.launch(offline_key="/etc/code-browser/code-browser-offline-key.json",
+                           executable_path="/opt/code-browser/chrome")
 ```
 
 Node:
 
 ```js
-import { launch } from "clearcote";
-const browser = await launch({ offlineKey: "/etc/clearcote/clearcote-offline-key.json", executablePath: "/opt/clearcote/chrome" });
+import { launch } from "code-browser";
+const browser = await launch({ offlineKey: "/etc/code-browser/code-browser-offline-key.json", executablePath: "/opt/code-browser/chrome" });
 ```
 
 .NET:
 
 ```csharp
-var browser = await Clearcote.LaunchAsync(new LaunchOptions {
-    OfflineKey = "/etc/clearcote/clearcote-offline-key.json", ExecutablePath = "/opt/clearcote/chrome" });
+var browser = await CodeBrowser.LaunchAsync(new LaunchOptions {
+    OfflineKey = "/etc/code-browser/code-browser-offline-key.json", ExecutablePath = "/opt/code-browser/chrome" });
 ```
 
-Or set `CLEARCOTE_OFFLINE_KEY=/etc/clearcote/clearcote-offline-key.json` and `CLEARCOTE_BINARY=/opt/clearcote/chrome`
+Or set `CODE_BROWSER_OFFLINE_KEY=/etc/code-browser/code-browser-offline-key.json` and `CODE_BROWSER_BINARY=/opt/code-browser/chrome`
 and leave the code unchanged. In offline mode the SDK makes no licence calls and never downloads; it reads the key,
 checks its end date and hands the key's token to the browser, which verifies it locally.
 
@@ -71,9 +71,9 @@ in the Offline card on your Licenses page (or `GET /api/v1/offline/key` with you
 
 1. Download the new key on a connected machine as soon as the renewal email arrives.
 2. Move it into each offline environment with your normal transfer process.
-3. Replace the old file at the path your launch uses (`offline_key` / `CLEARCOTE_OFFLINE_KEY`). No restart of
+3. Replace the old file at the path your launch uses (`offline_key` / `CODE_BROWSER_OFFLINE_KEY`). No restart of
    anything else is needed: the next browser launch uses the new key.
-4. Check it: `python -c "import json;print(json.load(open('/etc/clearcote/clearcote-offline-key.json'))['expires_at'])"`.
+4. Check it: `python -c "import json;print(json.load(open('/etc/code-browser/code-browser-offline-key.json'))['expires_at'])"`.
 
 Rules the browser enforces locally:
 
@@ -90,6 +90,6 @@ One organisation-wide key works on every machine and site; there is no per-machi
 | Message | Meaning |
 | --- | --- |
 | `This offline key expired on …` | Install the newest key from your renewal. |
-| `Offline mode runs the PRO binary from your offline bundle` | Pass `executable_path` / `ExecutablePath` or set `CLEARCOTE_BINARY`. |
-| `… is not a Clearcote offline key file` / `has no valid token` | The file was changed or truncated in transfer; compare it with `SHA256SUMS`. |
+| `Offline mode runs the PRO binary from your offline bundle` | Pass `executable_path` / `ExecutablePath` or set `CODE_BROWSER_BINARY`. |
+| `… is not a CodeBrowser offline key file` / `has no valid token` | The file was changed or truncated in transfer; compare it with `SHA256SUMS`. |
 | Browser exits: `no valid license lease for this run` | The token was refused: an older key than one this machine already used, an expired key, or an edited file. |

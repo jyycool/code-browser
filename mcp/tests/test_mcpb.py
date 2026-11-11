@@ -5,7 +5,7 @@ import json
 import pathlib
 import re
 
-import clearcote_mcp
+import code_browser_mcp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / "mcpb"
@@ -16,14 +16,14 @@ def manifest() -> dict:
 
 
 def test_bundle_pins_this_release():
-    version = clearcote_mcp.__version__
+    version = code_browser_mcp.__version__
     assert manifest()["version"] == version
     pyproject = (BUNDLE / "pyproject.toml").read_text(encoding="utf-8")
-    assert re.search(rf'"clearcote-mcp=={re.escape(version)}"', pyproject), "pin clearcote-mcp to this release"
+    assert re.search(rf'"code-browser-mcp=={re.escape(version)}"', pyproject), "pin code-browser-mcp to this release"
 
 
 def test_bundle_lists_the_servers_tools():
-    from clearcote_mcp.server import mcp
+    from code_browser_mcp.server import mcp
     tools = asyncio.run(mcp.list_tools())
     assert sorted(t["name"] for t in manifest()["tools"]) == sorted(t.name for t in tools)
 

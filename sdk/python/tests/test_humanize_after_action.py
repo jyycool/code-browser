@@ -16,16 +16,16 @@ import math
 
 import pytest
 
-import clearcote._hold as HOLD
-import clearcote._humanize as H
-import clearcote._pacing as PACING
+import code_browser._hold as HOLD
+import code_browser._humanize as H
+import code_browser._pacing as PACING
 try:
-    from clearcote._attention import TEXT_LENGTH
+    from code_browser._attention import TEXT_LENGTH
 except ImportError:   # 0.51.0 (the run that must fail): no attention model
     TEXT_LENGTH = None
-from clearcote._isolated import CSS_BOX, FRAMES, PLATFORM, VIEWPORT
+from code_browser._isolated import CSS_BOX, FRAMES, PLATFORM, VIEWPORT
 try:
-    from clearcote._isolated import MOVE_OFF_SAFE
+    from code_browser._isolated import MOVE_OFF_SAFE
 except ImportError:   # 0.67.1 (the run that must fail): no eager move-off
     MOVE_OFF_SAFE = None
 
@@ -178,7 +178,7 @@ def clock(monkeypatch):
     c = Clock()
     for mod in (H, PACING, HOLD):
         monkeypatch.setattr(mod, "time", c)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", "off")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", "off")
     return c
 
 
@@ -189,7 +189,7 @@ def attach(clock, seed):
 
 
 def trace(p):
-    return list(p.__dict__.get("_clearcote_after_trace") or [])
+    return list(p.__dict__.get("_code_browser_after_trace") or [])
 
 
 def settle(p):
@@ -325,7 +325,7 @@ def test_selector_click_schedules_a_move_off(clock):
 # --------------------------------------------------------------------------------- never on trial / held / hold
 def test_nothing_after_action_on_trial(clock):
     p = attach(clock, "ha-1")
-    p._clearcote_attention = True
+    p._code_browser_attention = True
     p.fire("load")
     n = len(p.log)
     p.click("#t", trial=True)
@@ -349,7 +349,7 @@ def test_no_move_off_while_a_button_is_held(clock):
 
 def test_press_and_hold_schedules_no_move_off_and_drifts_nothing_mid_hold(clock):
     p = attach(clock, "ha-1")
-    p._clearcote_attention = True
+    p._code_browser_attention = True
     loc = Locator(p)
     HOLD.press_and_hold(loc, 1500, tremor=False)
     downs = [e for e in p.log if e[0] == "down"]
@@ -363,7 +363,7 @@ def test_press_and_hold_schedules_no_move_off_and_drifts_nothing_mid_hold(clock)
 # --------------------------------------------------------------------------------------- attention
 def _first_press_after_load(seed, clock, text_len):
     p = attach(clock, seed)
-    p._clearcote_attention = True
+    p._code_browser_attention = True
     p.text_len = text_len
     p.fire("load")
     t_load = clock.now
@@ -401,7 +401,7 @@ def test_attention_is_on_by_default_and_attention_false_turns_it_off(clock):
     assert (clock.now - t) < 3.0
     assert not [e for e in trace(p2) if e[0] in ("read", "drift")]
     p3 = attach(clock, "ha-1")
-    p3._clearcote_attention = False      # the page flag overrides both ways
+    p3._code_browser_attention = False      # the page flag overrides both ways
     p3.text_len = 20000
     p3.fire("load")
     p3.click("#t")
@@ -410,7 +410,7 @@ def test_attention_is_on_by_default_and_attention_false_turns_it_off(clock):
 
 def test_attention_idle_drifts_after_a_long_gap_only(clock):
     p = attach(clock, "ha-4")
-    p._clearcote_attention = True
+    p._code_browser_attention = True
     p.mouse.click(300, 300)
     clock.sleep(1.0)
     p.mouse.click(500, 300)
@@ -426,7 +426,7 @@ def test_explore_scroll_happens_in_some_loads_never_before_a_coordinate_action(c
     wheels = 0
     for i in range(60):
         p = attach(clock, f"ex-{i}")
-        p._clearcote_attention = True
+        p._code_browser_attention = True
         p.fire("load")
         p.mouse.click(300, 300)
         assert not [e for e in p.log if e[0] == "wheel"]
@@ -445,7 +445,7 @@ def test_ambient_option_mapping(clock):
     # options also set is cleared, so the burst can only come from the option itself.
     p = Page(clock)
     H.attach_humanize(None, p, humanize={"ambient": "load"}, seed="ha-1")
-    p._clearcote_auto_ambient = False
+    p._code_browser_auto_ambient = False
     p.fire("load")
     assert len(moves(p)) > 20, "ambient='load' runs the per-load burst"
     p2 = Page(clock)
@@ -455,7 +455,7 @@ def test_ambient_option_mapping(clock):
     p2.click("#t")
     assert [e for e in trace(p2) if e[0] == "read"], "ambient='idle' is the attention model"
     p3 = attach(clock, "ha-1")
-    p3._clearcote_auto_ambient = True        # the hidden flag still works
+    p3._code_browser_auto_ambient = True        # the hidden flag still works
     p3.fire("load")
     assert len(moves(p3)) > 20
 
@@ -490,7 +490,7 @@ def test_shared_after_action_vectors():
 def test_same_seed_same_traits_but_unseeded_per_action_draws(clock):
     """The seed fixes the persona's TRAITS only; every per-action draw is unseeded (coordinator rule, SC 232):
     a seeded per-action sequence would replay identically in every session of one identity."""
-    from clearcote._motion import after_traits, make_persona
+    from code_browser._motion import after_traits, make_persona
     assert after_traits(make_persona("same-1")) == after_traits(make_persona("same-1"))
     seqs = []
     for _ in range(2):
@@ -508,7 +508,7 @@ def test_per_call_humanize_false_skips_the_after_action_step(clock):
     # The per-call switch is wired outermost (integration of lanes A + C): the stock call runs and no read
     # pause / idle drift / move-off is made for it; the next humanized action still gets its step.
     p = attach(clock, "ha-1")
-    p._clearcote_attention = True
+    p._code_browser_attention = True
     p.fire("load")
     p.click("#t", humanize=False)
     assert not [e for e in trace(p) if e[0] in ("read", "drift", "move_off")]

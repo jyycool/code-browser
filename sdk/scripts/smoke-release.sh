@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release smoke test — install the PUBLISHED clearcote SDK from the real registries and LAUNCH it,
+# Release smoke test — install the PUBLISHED code-browser SDK from the real registries and LAUNCH it,
 # so we never ship a release whose browser can't actually start. Verifies BOTH SDKs (PyPI + npm) and
 # BOTH tiers (FREE always; PRO when a licence key is given), each by launching the browser headless
 # and reading a real navigator.userAgent. Any failure exits non-zero.
@@ -36,23 +36,23 @@ run_host() {
   trap 'rm -rf "$tmp"' RETURN
   mkdir -p "$tmp/free-home" "$tmp/pro-home"
   # Each tier runs in its own clean environment. The SDK picks a licence key up by itself from
-  # CLEARCOTE_LICENSE_KEY and from ~/.clearcote/license.key, so a FREE run gets neither — otherwise
+  # CLEARCOTE_LICENSE_KEY and from ~/.code-browser/license.key, so a FREE run gets neither — otherwise
   # a maintainer's own key silently turns the "free" launch into a licensed one. PRO gets only the
   # key given to this script.
   local FREE=(env -u CLEARCOTE_LICENSE_KEY -u CCKEY HOME="$tmp/free-home" USERPROFILE="$(winpath "$tmp/free-home")")
   local PRO=(env -u CLEARCOTE_LICENSE_KEY HOME="$tmp/pro-home" USERPROFILE="$(winpath "$tmp/pro-home")" CCKEY="$KEY")
 
-  echo "== Python: pip install clearcote==$VERSION =="
+  echo "== Python: pip install code-browser==$VERSION =="
   python3 -m venv "$tmp/venv"
   # Windows venvs put the executables under Scripts/, POSIX under bin/
   vbin="$tmp/venv/bin"; [ -d "$vbin" ] || vbin="$tmp/venv/Scripts"
-  "$vbin/pip" install -q "clearcote==$VERSION" || rc=1
+  "$vbin/pip" install -q "code-browser==$VERSION" || rc=1
   "${FREE[@]}" "$vbin/python" "$HERE/smoke_launch.py" free || rc=1
   if [ -n "$KEY" ]; then "${PRO[@]}" "$vbin/python" "$HERE/smoke_launch.py" pro || rc=1
   else echo "[PY] PRO : SKIPPED (no licence key given)"; fi
 
-  echo "== Node: npm i clearcote@$VERSION =="
-  ( cd "$tmp" && npm init -y >/dev/null 2>&1 && npm i -s "clearcote@$VERSION" >/dev/null 2>&1 ) || rc=1
+  echo "== Node: npm i code-browser@$VERSION =="
+  ( cd "$tmp" && npm init -y >/dev/null 2>&1 && npm i -s "code-browser@$VERSION" >/dev/null 2>&1 ) || rc=1
   cp "$HERE/smoke_launch.mjs" "$tmp/smoke_launch.mjs"
   ( cd "$tmp" && "${FREE[@]}" node smoke_launch.mjs free ) || rc=1
   if [ -n "$KEY" ]; then ( cd "$tmp" && "${PRO[@]}" node smoke_launch.mjs pro ) || rc=1
@@ -87,13 +87,13 @@ run_docker() {
       free_node() { runuser -u node -- env -u CCKEY -u CLEARCOTE_LICENSE_KEY HOME=/tmp/free-home "$@"; }
       pro_node() { runuser -u node -- env -u CLEARCOTE_LICENSE_KEY HOME=/tmp/pro-home CCKEY="$CCKEY" "$@"; }
 
-      as_node python3 -m venv /home/node/venv && as_node /home/node/venv/bin/pip install -q "clearcote==$VERSION" || rc=1
+      as_node python3 -m venv /home/node/venv && as_node /home/node/venv/bin/pip install -q "code-browser==$VERSION" || rc=1
       free_node /home/node/venv/bin/python /smoke/smoke_launch.py free || rc=1
       if [ -n "$CCKEY" ]; then pro_node /home/node/venv/bin/python /smoke/smoke_launch.py pro || rc=1
       else echo "[PY] PRO : SKIPPED (no licence key given)"; fi
 
       mkdir -p /home/node/app && chown node:node /home/node/app && cp /smoke/smoke_launch.mjs /home/node/app/
-      (cd /home/node/app && as_node npm init -y >/dev/null 2>&1 && as_node npm i -s "clearcote@$VERSION" >/dev/null 2>&1) || rc=1
+      (cd /home/node/app && as_node npm init -y >/dev/null 2>&1 && as_node npm i -s "code-browser@$VERSION" >/dev/null 2>&1) || rc=1
       (cd /home/node/app && free_node node smoke_launch.mjs free) || rc=1
       if [ -n "$CCKEY" ]; then (cd /home/node/app && pro_node node smoke_launch.mjs pro) || rc=1
       else echo "[NODE] PRO : SKIPPED (no licence key given)"; fi
@@ -104,7 +104,7 @@ run_docker() {
     '
 }
 
-echo "### clearcote release smoke test — v$VERSION (mode: $MODE) ###"
+echo "### code-browser release smoke test — v$VERSION (mode: $MODE) ###"
 [ -n "$KEY" ] || echo "(no licence key — PRO tier will be skipped; pass CCKEY or CLEARCOTE_LICENSE_KEY)"
 
 case "$MODE" in

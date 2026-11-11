@@ -1,5 +1,5 @@
 """LIVE: the FIRST humanized mouse.click on a fresh headless page, and the first after a navigation,
-walks and presses. Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is
+walks and presses. Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is
 available for a PRO build).
 
 WHY. The engine route (Browser.dispatchPointerPath) walks in the browser process and does not wait
@@ -15,8 +15,8 @@ from urllib.parse import quote
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 PAGES = 6
 
@@ -69,8 +69,8 @@ def _no_font_cache_left_behind():
 
 @pytest.fixture(scope="module")
 def browser(_no_font_cache_left_behind):
-    import clearcote
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="first-click-live-py",
+    import code_browser
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="first-click-live-py",
                          quiet=True)
     yield b
     b.close()

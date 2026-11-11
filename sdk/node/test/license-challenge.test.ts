@@ -27,8 +27,8 @@ const CHECKPOINT =
   "<!DOCTYPE html><html><head><title>Vercel Security Checkpoint</title></head>" +
   "<body><p>We're verifying your browser</p></body></html>";
 
-const ENV_KEYS = ["CLEARCOTE_LICENSE_KEY", "CLEARCOTE_LICENSE_API", "HOME", "USERPROFILE", "CLEARCOTE_INSTANCE_ID",
-  "CLEARCOTE_LICENSE_THROUGH_PROXY"] as const;
+const ENV_KEYS = ["CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_LICENSE_API", "HOME", "USERPROFILE", "CODE_BROWSER_INSTANCE_ID",
+  "CODE_BROWSER_LICENSE_THROUGH_PROXY"] as const;
 const OLD = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 let servers: Server[] = [];
 let homes: string[] = [];
@@ -53,8 +53,8 @@ async function serve(status: number, body: string, contentType: string, extra: R
   process.env.USERPROFILE = home;
   KEY = "cc_lic_TESTKEY_CHALLENGE_" + Math.random().toString(36).slice(2);
   process.env.CLEARCOTE_LICENSE_KEY = KEY;
-  process.env.CLEARCOTE_INSTANCE_ID = "chal-" + Math.random().toString(36).slice(2);
-  delete process.env.CLEARCOTE_LICENSE_THROUGH_PROXY;
+  process.env.CODE_BROWSER_INSTANCE_ID = "chal-" + Math.random().toString(36).slice(2);
+  delete process.env.CODE_BROWSER_LICENSE_THROUGH_PROXY;
   const srv = createServer((req, res) => {
     req.resume();
     req.on("end", () => {
@@ -65,13 +65,13 @@ async function serve(status: number, body: string, contentType: string, extra: R
   servers.push(srv);
   await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
-  process.env.CLEARCOTE_LICENSE_API = base;
+  process.env.CODE_BROWSER_LICENSE_API = base;
   return base;
 }
 
 function writeCacheFile(obj: unknown): void {
   const id = createHash("sha256").update(KEY).digest("hex").slice(0, 16);
-  const dir = join(process.env.HOME!, ".clearcote");
+  const dir = join(process.env.HOME!, ".code-browser");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `lease-${id}.json`), JSON.stringify(obj));
 }

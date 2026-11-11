@@ -79,8 +79,8 @@ function isolate(plan: string): string {
   const home = tempDir("cc-perbrowser-");
   process.env.HOME = home;
   process.env.USERPROFILE = home;
-  delete process.env.CLEARCOTE_INSTANCE_ID;
-  process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+  delete process.env.CODE_BROWSER_INSTANCE_ID;
+  process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
   // A unique key per test: the module-level lease registry is keyed by it.
   const key = `cc_lic_${plan}_${Date.now()}_${++seq}`;
   process.env.CLEARCOTE_LICENSE_KEY = key;
@@ -89,25 +89,25 @@ function isolate(plan: string): string {
 
 function cacheFile(key: string): string {
   const id = createHash("sha256").update(key).digest("hex").slice(0, 16);
-  return join(process.env.HOME!, ".clearcote", `lease-${id}.json`);
+  return join(process.env.HOME!, ".code-browser", `lease-${id}.json`);
 }
 
 const OLD = {
   key: process.env.CLEARCOTE_LICENSE_KEY,
-  api: process.env.CLEARCOTE_LICENSE_API,
+  api: process.env.CODE_BROWSER_LICENSE_API,
   home: process.env.HOME,
   prof: process.env.USERPROFILE,
-  iid: process.env.CLEARCOTE_INSTANCE_ID,
+  iid: process.env.CODE_BROWSER_INSTANCE_ID,
 };
 afterEach(() => {
   vi.useRealTimers();
   globalThis.fetch = realFetch;
   const restore: Record<string, string | undefined> = {
     CLEARCOTE_LICENSE_KEY: OLD.key,
-    CLEARCOTE_LICENSE_API: OLD.api,
+    CODE_BROWSER_LICENSE_API: OLD.api,
     HOME: OLD.home,
     USERPROFILE: OLD.prof,
-    CLEARCOTE_INSTANCE_ID: OLD.iid,
+    CODE_BROWSER_INSTANCE_ID: OLD.iid,
   };
   for (const [k, v] of Object.entries(restore)) {
     if (v === undefined) delete process.env[k];
@@ -207,7 +207,7 @@ describe("free tier: one lease PER BROWSER", () => {
 
   it("ignores a still-valid FREE token an older SDK left in the cache (no slot-less launch)", async () => {
     const key = isolate("free");
-    mkdirSync(join(process.env.HOME!, ".clearcote"), { recursive: true });
+    mkdirSync(join(process.env.HOME!, ".code-browser"), { recursive: true });
     writeFileSync(cacheFile(key), JSON.stringify({ token: tokenFor("free", 99), exp: Math.floor(Date.now() / 1000) + 800, lease_id: "OLD" }));
     const be = backend("free");
     const b1 = await acquireLease({ quiet: true });
@@ -220,7 +220,7 @@ describe("free tier: one lease PER BROWSER", () => {
 
   it("no offline grace: backend unreachable -> LicenseError even with a cached free token", async () => {
     const key = isolate("free");
-    mkdirSync(join(process.env.HOME!, ".clearcote"), { recursive: true });
+    mkdirSync(join(process.env.HOME!, ".code-browser"), { recursive: true });
     writeFileSync(cacheFile(key), JSON.stringify({ token: tokenFor("free", 7), exp: Math.floor(Date.now() / 1000) + 800 }));
     backend("free", { failNetwork: true });
     await expect(acquireLease({ quiet: true })).rejects.toBeInstanceOf(LicenseError);
@@ -298,7 +298,7 @@ describe("paid plans: the machine-shared lease is unchanged", () => {
 
   it("a still-valid cached PAID token is reused with zero backend calls (cross-process reuse)", async () => {
     const key = isolate("pro");
-    mkdirSync(join(process.env.HOME!, ".clearcote"), { recursive: true });
+    mkdirSync(join(process.env.HOME!, ".code-browser"), { recursive: true });
     // marked as a machine lease, as this SDK writes it (an older SDK's unmarked file is checked out past)
     writeFileSync(cacheFile(key), JSON.stringify({ token: tokenFor("pro", 5), exp: Math.floor(Date.now() / 1000) + 800, lease_id: "Lx", scope: "machine" }));
     const be = backend("pro");
@@ -309,7 +309,7 @@ describe("paid plans: the machine-shared lease is unchanged", () => {
 
   it("paid offline grace still works on a cached paid token", async () => {
     const key = isolate("pro");
-    mkdirSync(join(process.env.HOME!, ".clearcote"), { recursive: true });
+    mkdirSync(join(process.env.HOME!, ".code-browser"), { recursive: true });
     // expired-for-reuse (inside SKEW) would force a checkout; use a valid one but force a cold checkout path via failNetwork
     writeFileSync(cacheFile(key), JSON.stringify({ token: tokenFor("pro", 6), exp: Math.floor(Date.now() / 1000) + 800 }));
     backend("pro", { failNetwork: true });
@@ -421,7 +421,7 @@ describe("run-token file (engine online-enforcement opt-in)", () => {
     const lease = (await acquireLease({ quiet: true }))!;
     try {
       const lt = lease.bindLaunch();
-      expect(basename(lt.file)).toMatch(new RegExp(`^clearcote-rt-${process.pid}-${tokenHostTag()}-[0-9a-f-]{36}\\.tok$`));
+      expect(basename(lt.file)).toMatch(new RegExp(`^code-browser-rt-${process.pid}-${tokenHostTag()}-[0-9a-f-]{36}\\.tok$`));
       // process.exit() and a signal skip "beforeExit": the removal has to be an "exit" listener.
       expect(process.listeners("exit")).toContain(removeLiveTokenFiles);
       removeLiveTokenFiles();
@@ -439,12 +439,12 @@ describe("run-token file (engine online-enforcement opt-in)", () => {
     const uuid = "12390cc9-7546-487c-8321-b3a52ee2ddc6";
     const dead = spawnSync(process.execPath, ["-e", ""]).pid!; // exited by now
     const names = {
-      dead: `clearcote-rt-${dead}-${tag}-${uuid}.tok`,
-      live: `clearcote-rt-${process.ppid}-${tag}-${uuid}.tok`,
-      own: `clearcote-rt-${process.pid}-${tag}-${uuid}.tok`,
-      otherHost: `clearcote-rt-${dead}-${tag === "00000000" ? "11111111" : "00000000"}-${uuid}.tok`,
-      legacy: `clearcote-rt-${uuid}.tok`, // pre-fix name: no owner, so never touched
-      unrelated: "clearcote-run-abc",
+      dead: `code-browser-rt-${dead}-${tag}-${uuid}.tok`,
+      live: `code-browser-rt-${process.ppid}-${tag}-${uuid}.tok`,
+      own: `code-browser-rt-${process.pid}-${tag}-${uuid}.tok`,
+      otherHost: `code-browser-rt-${dead}-${tag === "00000000" ? "11111111" : "00000000"}-${uuid}.tok`,
+      legacy: `code-browser-rt-${uuid}.tok`, // pre-fix name: no owner, so never touched
+      unrelated: "code-browser-run-abc",
     };
     for (const n of Object.values(names)) writeFileSync(join(dir, n), "t");
     expect(sweepDeadTokenFiles(dir)).toBe(1);
@@ -453,7 +453,7 @@ describe("run-token file (engine online-enforcement opt-in)", () => {
 
   it("sweepDeadTokenFiles keeps a file whose pid is alive (or reused)", () => {
     const dir = tempDir("cc-toksweep2-");
-    const f = join(dir, `clearcote-rt-999999-${tokenHostTag()}-12390cc9-7546-487c-8321-b3a52ee2ddc6.tok`);
+    const f = join(dir, `code-browser-rt-999999-${tokenHostTag()}-12390cc9-7546-487c-8321-b3a52ee2ddc6.tok`);
     writeFileSync(f, "t");
     expect(sweepDeadTokenFiles(dir, () => true)).toBe(0); // a live (or reused) pid keeps its file
     expect(existsSync(f)).toBe(true);

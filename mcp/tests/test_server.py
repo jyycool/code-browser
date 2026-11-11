@@ -1,6 +1,6 @@
 import os
 import pytest
-from clearcote_mcp import server as S
+from code_browser_mcp import server as S
 
 
 @pytest.mark.asyncio
@@ -26,20 +26,20 @@ def test_ip_blocked():
 
 @pytest.mark.asyncio
 async def test_check_url_ssrf_guard(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_ALLOW_PRIVATE_EGRESS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_ALLOW_PRIVATE_EGRESS", raising=False)
     with pytest.raises(ValueError):
         await S._check_url("http://localhost/x")
     with pytest.raises(ValueError):
         await S._check_url("http://169.254.169.254/latest/meta-data/")
     await S._check_url("https://example.com")   # public → ok
     await S._check_url(None)                     # no url → ok
-    monkeypatch.setenv("CLEARCOTE_ALLOW_PRIVATE_EGRESS", "1")
+    monkeypatch.setenv("CODE_BROWSER_ALLOW_PRIVATE_EGRESS", "1")
     await S._check_url("http://localhost/x")     # opted in → ok
 
 
 def test_confine_path_blocks_traversal(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_MCP_WRITE_DIR", str(tmp_path))
-    monkeypatch.delenv("CLEARCOTE_MCP_ALLOW_ANY_PATH", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_MCP_WRITE_DIR", str(tmp_path))
+    monkeypatch.delenv("CODE_BROWSER_MCP_ALLOW_ANY_PATH", raising=False)
     p = S._confine_path("../../etc/passwd", ".png")
     assert os.path.dirname(p) == str(tmp_path)          # confined to sandbox root
     assert os.path.basename(p) == "passwd.png"          # traversal + missing ext handled
@@ -53,11 +53,11 @@ def test_cap_trims_and_flags():
 
 def test_persona_from_env(monkeypatch):
     for k in ("FINGERPRINT", "PLATFORM", "GEOIP", "HEADLESS", "PROXY", "BINARY"):
-        monkeypatch.delenv("CLEARCOTE_" + k, raising=False)
-    monkeypatch.setenv("CLEARCOTE_FINGERPRINT", "seed-9")
-    monkeypatch.setenv("CLEARCOTE_PLATFORM", "windows")
-    monkeypatch.setenv("CLEARCOTE_HEADLESS", "0")
-    monkeypatch.setenv("CLEARCOTE_PROXY", "http://u:p@h:8080")
+        monkeypatch.delenv("CODE_BROWSER_" + k, raising=False)
+    monkeypatch.setenv("CODE_BROWSER_FINGERPRINT", "seed-9")
+    monkeypatch.setenv("CODE_BROWSER_PLATFORM", "windows")
+    monkeypatch.setenv("CODE_BROWSER_HEADLESS", "0")
+    monkeypatch.setenv("CODE_BROWSER_PROXY", "http://u:p@h:8080")
     p = S._persona_from_env()
     assert p["fingerprint"] == "seed-9" and p["platform"] == "windows"
     assert p["headless"] is False

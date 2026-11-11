@@ -15,14 +15,14 @@ import zipfile
 
 import pytest
 
-import clearcote
-import clearcote._docker as _docker
-import clearcote._fingerprint as _fingerprint
-import clearcote._launchopts as _launchopts
-import clearcote.release as release
-from clearcote._warnings import coherence_warnings
+import code_browser
+import code_browser._docker as _docker
+import code_browser._fingerprint as _fingerprint
+import code_browser._launchopts as _launchopts
+import code_browser.release as release
+from code_browser._warnings import coherence_warnings
 
-dl = importlib.import_module("clearcote.download")  # the attribute clearcote.download is the function
+dl = importlib.import_module("code_browser.download")  # the attribute code_browser.download is the function
 
 APP_EXE = os.path.join("Chromium.app", "Contents", "MacOS", "Chromium")
 FRAMEWORK = os.path.join("Chromium.app", "Contents", "Frameworks", "Chromium Framework.framework")
@@ -40,7 +40,7 @@ def no_key(monkeypatch, tmp_path):
     """No licence key anywhere this test can see (env, or a saved one in HOME)."""
     for k in ("HOME", "USERPROFILE"):
         monkeypatch.setenv(k, str(tmp_path / "home"))
-    for k in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_DOCKER",
+    for k in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_DOCKER",
               _docker.TEST_ONLY_ASSUME_MACOS):
         monkeypatch.delenv(k, raising=False)
 
@@ -69,15 +69,15 @@ def _fake_app(root, engine=b"\x00proxy-auth\x00"):
 def test_guard_honours_an_existing_executable_path_on_darwin(monkeypatch, tmp_path):
     exe = _fake_app(str(tmp_path))
     _on(monkeypatch, "darwin", "arm64")
-    clearcote._guard(exe)  # used to raise: "pass executable_path=..." while holding one
+    code_browser._guard(exe)  # used to raise: "pass executable_path=..." while holding one
     _on(monkeypatch, "darwin", "x86_64")
-    clearcote._guard(exe)  # named by the caller: theirs to run, whatever the CPU
+    code_browser._guard(exe)  # named by the caller: theirs to run, whatever the CPU
 
 
 def test_guard_still_refuses_an_os_with_no_build(monkeypatch, tmp_path):
     _on(monkeypatch, "freebsd13")
     with pytest.raises(RuntimeError, match="no build for"):
-        clearcote._guard(str(tmp_path / "missing" / "chrome"))
+        code_browser._guard(str(tmp_path / "missing" / "chrome"))
 
 
 # ── platform key ─────────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ def test_intel_mac_is_told_the_build_is_apple_silicon_only(monkeypatch):
 
 def test_pro_download_asks_for_macos_and_expects_the_bundle(monkeypatch, tmp_path):
     _on(monkeypatch, "darwin", "arm64")
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # the download answer is kept in ~/.clearcote
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # the download answer is kept in ~/.code-browser
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setattr(dl, "_pro_meta_memo", {})
     seen = {}
@@ -324,40 +324,40 @@ def test_docker_decision_on_a_mac(monkeypatch, no_key):
 
 def test_launch_runs_the_native_build_when_licensed_on_apple_silicon(monkeypatch, no_key):
     _on(monkeypatch, "darwin", "arm64")
-    monkeypatch.setattr(clearcote, "launch_docker", lambda *a, **k: pytest.fail("started Docker"))
+    monkeypatch.setattr(code_browser, "launch_docker", lambda *a, **k: pytest.fail("started Docker"))
     seen = {}
 
     def native(prefix, kwargs):
         seen["kwargs"] = kwargs
         return "context"
 
-    monkeypatch.setattr(clearcote, "_launch_on_throwaway_profile", native)
-    monkeypatch.setattr(clearcote, "_install_persistent_as_browser", lambda ctx: ("browser", ctx))
-    assert clearcote.launch(license_key="cc_lic_mac", platform="macos") == ("browser", "context")
+    monkeypatch.setattr(code_browser, "_launch_on_throwaway_profile", native)
+    monkeypatch.setattr(code_browser, "_install_persistent_as_browser", lambda ctx: ("browser", ctx))
+    assert code_browser.launch(license_key="cc_lic_mac", platform="macos") == ("browser", "context")
     assert seen["kwargs"]["license_key"] == "cc_lic_mac"
 
 
 def test_launch_without_a_key_on_apple_silicon_runs_the_open_macos_pin(monkeypatch, no_key):
     _on(monkeypatch, "darwin", "arm64")
-    monkeypatch.setattr(clearcote, "launch_docker", lambda *a, **k: pytest.fail("started Docker"))
+    monkeypatch.setattr(code_browser, "launch_docker", lambda *a, **k: pytest.fail("started Docker"))
     seen = {}
 
     def native(prefix, kwargs):
         seen["kwargs"] = kwargs
         return "context"
 
-    monkeypatch.setattr(clearcote, "_launch_on_throwaway_profile", native)
-    monkeypatch.setattr(clearcote, "_install_persistent_as_browser", lambda ctx: ("browser", ctx))
-    assert clearcote.launch(platform="macos") == ("browser", "context")
+    monkeypatch.setattr(code_browser, "_launch_on_throwaway_profile", native)
+    monkeypatch.setattr(code_browser, "_install_persistent_as_browser", lambda ctx: ("browser", ctx))
+    assert code_browser.launch(platform="macos") == ("browser", "context")
     assert not seen["kwargs"].get("license_key")
 
 
 def test_launch_on_an_intel_mac_still_uses_docker(monkeypatch, no_key):
     _on(monkeypatch, "darwin", "x86_64")
-    monkeypatch.setattr(clearcote, "launch_docker", lambda kw: "docker-browser")
-    monkeypatch.setattr(clearcote, "_launch_on_throwaway_profile",
+    monkeypatch.setattr(code_browser, "launch_docker", lambda kw: "docker-browser")
+    monkeypatch.setattr(code_browser, "_launch_on_throwaway_profile",
                         lambda *a, **k: pytest.fail("no native build on an Intel Mac"))
-    assert clearcote.launch(platform="macos") == "docker-browser"
+    assert code_browser.launch(platform="macos") == "docker-browser"
 
 
 def test_open_macos_pin_is_the_pre24_arm64_bundle():

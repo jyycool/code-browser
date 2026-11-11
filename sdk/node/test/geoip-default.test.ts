@@ -14,10 +14,10 @@ describe("geoipMode", () => {
     expect(geoipMode(true, {})).toBe("strict");
     expect(geoipMode(false, {})).toBe("off");
   });
-  it("CLEARCOTE_GEOIP=0 turns the default off, but not an explicit true", () => {
-    for (const v of ["0", "false", "OFF", "no"]) expect(geoipMode(undefined, { CLEARCOTE_GEOIP: v })).toBe("off");
-    expect(geoipMode(undefined, { CLEARCOTE_GEOIP: "1" })).toBe("auto");
-    expect(geoipMode(true, { CLEARCOTE_GEOIP: "0" })).toBe("strict");
+  it("CODE_BROWSER_GEOIP=0 turns the default off, but not an explicit true", () => {
+    for (const v of ["0", "false", "OFF", "no"]) expect(geoipMode(undefined, { CODE_BROWSER_GEOIP: v })).toBe("off");
+    expect(geoipMode(undefined, { CODE_BROWSER_GEOIP: "1" })).toBe("auto");
+    expect(geoipMode(true, { CODE_BROWSER_GEOIP: "0" })).toBe("strict");
   });
 });
 

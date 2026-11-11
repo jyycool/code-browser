@@ -1,6 +1,6 @@
-# 验证 Clearcote：不要轻信，去验证
+# 验证 CodeBrowser：不要轻信，去验证
 
-Clearcote 的核心意义在于：关于它里面有什么，你不必相信任何人的说法。本页说明如何亲自确认一个 Clearcote 发布版本
+CodeBrowser 的核心意义在于：关于它里面有什么，你不必相信任何人的说法。本页说明如何亲自确认一个 CodeBrowser 发布版本
 正是它所声称的那样，没有多出任何东西。
 
 ## 一句话说明信任模型
@@ -11,7 +11,7 @@ Clearcote 的核心意义在于：关于它里面有什么，你不必相信任�
 |---|---|
 | 上游 Chromium | 固定在 `UPSTREAM_REVISION` 中的确切版本；源码包下载时会校验哈希。 |
 | 去 Google 化 | 来自上游 [ungoogled-chromium](https://github.com/ungoogled-software/ungoogled-chromium)，它本身开源且经过广泛审计。 |
-| Clearcote 的修改 | 每处修改都是 [`patches/`](../../patches) 中的纯文本补丁。去读、去 diff、去质疑。 |
+| CodeBrowser 的修改 | 每处修改都是 [`patches/`](../../patches) 中的纯文本补丁。去读、去 diff、去质疑。 |
 | 二进制 | 发布时附带 SHA-256 校验和，以及（计划中的）构建溯源/证明。 |
 
 ## 1. 验证 GPG 签名：先做这一步
@@ -26,8 +26,8 @@ CA96 F185 F96A 693A EDB3  AC1F CB00 D851 B7A8 6B0F
 
 ```bash
 # 1. confirm the key you're about to trust IS the pinned one — compare this fingerprint to the value above
-gpg --with-fingerprint --show-keys clearcote-signing-key.asc
-gpg --import clearcote-signing-key.asc
+gpg --with-fingerprint --show-keys code-browser-signing-key.asc
+gpg --import code_browser-signing-key.asc
 
 # 2. verify the signed checksum file is authentic
 gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt        # expect: Good signature
@@ -42,22 +42,22 @@ gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt        # expect: Good signature
 
 ```bash
 # Windows
-sha256sum -c clearcote-<version>-windows-x64.zip.sha256
+sha256sum -c code-browser-<version>-windows-x64.zip.sha256
 # Linux
-sha256sum -c clearcote-<version>-linux-x64.tar.xz.sha256
+sha256sum -c code-browser-<version>-linux-x64.tar.xz.sha256
 # macOS (arm64) — on macOS use `shasum -a 256 -c`, there is no `sha256sum`
-shasum -a 256 -c clearcote-<version>-macos-arm64.zip.sha256
+shasum -a 256 -c code-browser-<version>-macos-arm64.zip.sha256
 ```
 
 也可以对照已签名的汇总列表核对包内的二进制：
 
 ```bash
 # Windows — compare to the chrome.exe line in SHA256SUMS.txt
-unzip -p clearcote-<version>-windows-x64.zip chrome.exe | sha256sum
+unzip -p code-browser-<version>-windows-x64.zip chrome.exe | sha256sum
 # Linux — compare to the chrome line in SHA256SUMS.txt
-tar -xJOf clearcote-<version>-linux-x64.tar.xz chrome | sha256sum
+tar -xJOf code-browser-<version>-linux-x64.tar.xz chrome | sha256sum
 # macOS — compare to the "Chromium Framework" line in SHA256SUMS.txt
-unzip -p clearcote-<version>-macos-arm64.zip \
+unzip -p code-browser-<version>-macos-arm64.zip \
   "Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/<version>/Chromium Framework" \
   | shasum -a 256
 ```
@@ -84,7 +84,7 @@ xattr -dr com.apple.quarantine Chromium.app
 
 ## 3. 阅读补丁
 
-Clearcote 的身份/隐私行为完全由 [`patches/`](../../patches) 中的补丁集加上游 ungoogled 补丁决定。
+CodeBrowser 的身份/隐私行为完全由 [`patches/`](../../patches) 中的补丁集加上游 ungoogled 补丁决定。
 它们是针对固定 Chromium 版本的 unified diff。没有任何编译进去的行为是在那里看不到的。如果有不清楚的地方，请提 issue：清晰本身就是一项功能。
 
 ## 4. 自己重新构建
@@ -108,4 +108,4 @@ Clearcote 的身份/隐私行为完全由 [`patches/`](../../patches) 中的补�
 - **没有静默的网络请求。** 去 Google 化的基础移除了 Google 的遥测/更新信标；任何网络行为都可以在补丁和上游中审计。
 - **没有"相信这个 .exe 就行"。** 如果我们无法告诉你如何复现它，我们就不发布它。
 
-发现有对不上的地方？请[提交 issue](https://github.com/clearcotelabs/clearcote-browser/issues)。可验证性只有在有人真正去检查时才有效，而我们希望你去检查。
+发现有对不上的地方？请[提交 issue](https://github.com/jyycool/code-browser/issues)。可验证性只有在有人真正去检查时才有效，而我们希望你去检查。

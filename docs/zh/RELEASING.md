@@ -1,6 +1,6 @@
-# 发布 Clearcote：常设操作手册
+# 发布 CodeBrowser：常设操作手册
 
-**这是发布 Clearcote 版本的标准流程。每次都要从头到尾照做。** 它的存在是为了让每个发布的构建都*可复现、带校验和、并用固定密钥做 GPG 签名*：
+**这是发布 CodeBrowser 版本的标准流程。每次都要从头到尾照做。** 它的存在是为了让每个发布的构建都*可复现、带校验和、并用固定密钥做 GPG 签名*：
 用户必须始终能够在不信任我们的前提下证明，他们下载的东西正是我们构建的，并且没有被篡改。
 
 如果你偏离了流程，要在发布说明中写明原因。不要悄悄跳过任何一步，尤其是验证或签名步骤。
@@ -23,9 +23,9 @@
    哈希一致/来源证明的承诺留到确定性构建落地时再做（ROADMAP 第 4 阶段）。
 5. **在验证之前都是预发布。** 任何尚未在真实 Windows 上通过线上检测站点验证的构建，都是 `--prerelease`，并写明注意事项。没有例外。
 6. **如实说明注意事项，以实际产物为准。** 发布说明必须写明*尚未*完成的事（§9）。只有当**实际构建产物的 `args.gn`**（而不是仓库中的参考配置）证明某条注意事项不再适用时，才能删掉它。
-7. **品牌名是 `clearcote`。** 对外的名称、产物名、SDK 导入名和文档都写 *clearcote*（组织 `clearcotelabs`，仓库 `clearcote-browser`）。
-   "clearcoat" 只是构建主机上的内部代号，绝不能出现在发布产物的*文件名*中。（注意：当前签名密钥的 UID 仍是 "clearcoat release signing"，见 §6；
-   它会在 `gpg --verify` 时打印出来。改用以 `clearcote` 命名的密钥已作为清理事项跟踪。）
+7. **品牌名是 `code-browser`。** 对外的名称、产物名、SDK 导入名和文档都写 *code-browser*（组织 `clearcotelabs`，仓库 `code-browser-browser`）。
+   "code-browser" 只是构建主机上的内部代号，绝不能出现在发布产物的*文件名*中。（注意：当前签名密钥的 UID 仍是 "code-browser release signing"，见 §6；
+   它会在 `gpg --verify` 时打印出来。改用以 `code-browser` 命名的密钥已作为清理事项跟踪。）
 
 ---
 
@@ -37,31 +37,31 @@
 export BOX=user@your-build-host      # the Linux build/signing host (private; keep its address out of the repo)
 ```
 ```powershell
-$STAGE = "C:\clearcote\release"        # local staging dir for the artifacts (your machine; not committed)
+$STAGE = "C:\code-browser\release"        # local staging dir for the artifacts (your machine; not committed)
 ```
 
 | 东西 | 位置 |
 |---|---|
 | 构建主机 | `$BOX`（基于密钥的 SSH） |
-| 构建树（主机） | `~/clearcoat/build/src`，输出在 `out/Default` |
-| 分发/暂存目录（主机） | `~/clearcoat/dist/` |
-| VC++ 运行时 DLL（主机） | `~/clearcoat/dist/vcredist/` |
+| 构建树（主机） | `~/code-browser/build/src`，输出在 `out/Default` |
+| 分发/暂存目录（主机） | `~/code-browser/dist/` |
+| VC++ 运行时 DLL（主机） | `~/code-browser/dist/vcredist/` |
 | GPG 签名密钥 | ed25519，指纹 `CA96F185F96A693AEDB3AC1FCB00D851B7A86B0F`，**没有密码**，在主机的密钥环中 |
 | 本地暂存（Windows） | `$STAGE` |
 | 仓库克隆（Windows） | 一个新的临时目录，每次发布重新克隆（§11） |
 | `gh` CLI | GitHub CLI，以仓库**管理员**身份认证 |
-| 仓库 | `clearcotelabs/clearcote-browser`，默认分支 `main` |
+| 仓库 | `jyycool/code-browser`，默认分支 `main` |
 
 > 私钥**只存在于构建主机上**并且没有密码，所以可以非交互地签名。把这台主机视为签名机构。绝不要把私钥复制出去，也绝不要打印它。
 >
-> 保持 `dist/` 整洁：删除任何以**代号命名**的残留文件（`clearcoat-signing-key.asc`、旧的 `clearcoat-*.zip`），以免之后的通配 `scp`/上传意外带上以 `clearcoat` 命名的文件。
+> 保持 `dist/` 整洁：删除任何以**代号命名**的残留文件（`code-browser-signing-key.asc`、旧的 `code-browser-*.zip`），以免之后的通配 `scp`/上传意外带上以 `code-browser` 命名的文件。
 
 ---
 
 ## 2. 版本号与标签
 
 - 标签格式：`vMAJOR.MINOR.PATCH`，未经验证时带 `-pre.N` 后缀，例如 `v0.1.0-pre.1`……构建通过 Windows 验证（§13）后改为 `v0.1.0`。
-- **Chromium 版本号**写在*产物*文件名中；标签跟踪的是 Clearcote 自己的发布线。
+- **Chromium 版本号**写在*产物*文件名中；标签跟踪的是 CodeBrowser 自己的发布线。
 - **一个标签 = 一组不可变的产物。** 要修复已发布的版本，就发布一个**新的** `-pre.N+1`；绝不要重新指向一个别人可能已经拉取过的现有标签（§14）。
 
 ---
@@ -71,22 +71,22 @@ $STAGE = "C:\clearcote\release"        # local staging dir for the artifacts (yo
 对于 Chromium 版本 `$V`（例如 `151.0.7922.108`）和平台 `$PLAT`（例如 `windows-x64`）：
 
 ```
-clearcote-$V-$PLAT.zip            # the build
-clearcote-$V-$PLAT.zip.sha256     # per-artifact checksum (sha256sum -c compatible)
-clearcote-$V-$PLAT.zip.sha256.asc # GPG detached sig of the above
+code-browser-$V-$PLAT.zip            # the build
+code-browser-$V-$PLAT.zip.sha256     # per-artifact checksum (sha256sum -c compatible)
+code-browser-$V-$PLAT.zip.sha256.asc # GPG detached sig of the above
 SHA256SUMS.txt                    # aggregate: zip + chrome.exe + chrome.dll
 SHA256SUMS.txt.asc                # GPG detached sig of SHA256SUMS.txt
-clearcote-signing-key.asc         # ASCII-armored public signing key (convenience copy; trust the pinned fingerprint, §0.2)
+code-browser-signing-key.asc         # ASCII-armored public signing key (convenience copy; trust the pinned fingerprint, §0.2)
 ```
 
-[VERIFY.md](VERIFY.md) 向用户说明的是 `clearcote-<version>-<platform>.zip` + `.sha256`：发布的文件名**必须**与之一致，否则验证说明就失效了。
+[VERIFY.md](VERIFY.md) 向用户说明的是 `code-browser-<version>-<platform>.zip` + `.sha256`：发布的文件名**必须**与之一致，否则验证说明就失效了。
 
 ---
 
 ## 4. 构建并暂存产物
 
 完整步骤：[BUILDING.md](BUILDING.md)；交叉构建的深层坑点：[RESEARCH-DOSSIER.md](RESEARCH-DOSSIER.md)。在构建主机上：ungoogled-chromium `$V` → 清理 →
-应用 ungoogled 补丁 → 应用 Clearcote 补丁 → 复制 `config/args.gn` → `gn gen out/Default` → **`ninja -C out/Default chrome`**
+应用 ungoogled 补丁 → 应用 CodeBrowser 补丁 → 复制 `config/args.gn` → `gn gen out/Default` → **`ninja -C out/Default chrome`**
 （与 BUILDING.md/AGENTS.md 使用同一个 `out/Default`；不要用 `out/Release`，那里只放源码树内的 `gn`）。
 
 预检：
@@ -102,14 +102,14 @@ clearcote-signing-key.asc         # ASCII-armored public signing key (convenienc
 ```bash
 ssh "$BOX" 'bash -s' <<'EOF'
 set -e
-cd ~/clearcoat/build/src/out/Default
-zip -r ~/clearcoat/dist/clearcoat-win-x64.zip \
+cd ~/code-browser/build/src/out/Default
+zip -r ~/code-browser/dist/code-browser-win-x64.zip \
     chrome.exe chrome.dll chrome_elf.dll chrome_wer.dll \
     *.manifest \
     *.pak *.bin *.dat *.json locales \
     libEGL.dll libGLESv2.dll d3dcompiler_47.dll \
     vk_swiftshader.dll vulkan-1.dll VkICD_mock_icd.dll VkLayer_khronos_validation.dll
-echo "staged:"; unzip -l ~/clearcoat/dist/clearcoat-win-x64.zip | tail -1
+echo "staged:"; unzip -l ~/code-browser/dist/code-browser-win-x64.zip | tail -1
 EOF
 ```
 
@@ -120,12 +120,12 @@ EOF
 
 ## 4a. 补丁完整性门禁：必须执行（阻塞打包、签名和发布）
 
-Clearcote *就是*它的补丁集，而丢失的隐身补丁会**静默放行**：浏览器依然能启动，只是不那么隐身了。所以在打包或签名任何东西之前，
+CodeBrowser *就是*它的补丁集，而丢失的隐身补丁会**静默放行**：浏览器依然能启动，只是不那么隐身了。所以在打包或签名任何东西之前，
 要证明**每个补丁都确实存在于构建该二进制的源码树中，并且已编译进二进制本身。** 这就是标准；见 [PATCH-INTEGRITY.md](PATCH-INTEGRITY.md)。
-在你的 Clearcote 仓库检出目录（产出这次构建的 `patches/` 所在的那个）中，针对构建树和新构建的 `chrome.dll` 运行：
+在你的 CodeBrowser 仓库检出目录（产出这次构建的 `patches/` 所在的那个）中，针对构建树和新构建的 `chrome.dll` 运行：
 
 ```bash
-# $SRC = the build tree (e.g. ~/clearcote-build/build/src on the build host)
+# $SRC = the build tree (e.g. ~/code-browser-build/build/src on the build host)
 python3 scripts/verify_patches.py \
   --tree "$SRC" --target windows \
   --binary "$SRC/out/Default/chrome.dll"
@@ -156,13 +156,13 @@ concrt140.dll  msvcp140.dll  ucrtbase.dll  vcruntime140.dll  vcruntime140_1.dll
 ```bash
 ssh "$BOX" 'bash -s' <<'EOF'
 set -e
-cd ~/clearcoat/dist
+cd ~/code-browser/dist
 V=151.0.7922.108            # <-- set to this release's Chromium version
 PLAT=windows-x64
-ASSET=clearcote-${V}-${PLAT}.zip
+ASSET=code-browser-${V}-${PLAT}.zip
 
-test -f clearcoat-win-x64.zip || { echo 'staged build zip not found — run the §4 staging step'; exit 1; }
-cp -f clearcoat-win-x64.zip "$ASSET"          # internal codename -> public name
+test -f code-browser-win-x64.zip || { echo 'staged build zip not found — run the §4 staging step'; exit 1; }
+cp -f code-browser-win-x64.zip "$ASSET"          # internal codename -> public name
 
 # add the VC++ 2015-2022 runtime at the archive root (-j junks paths)
 zip -j "$ASSET" vcredist/concrt140.dll vcredist/msvcp140.dll vcredist/ucrtbase.dll \
@@ -184,9 +184,9 @@ EOF
 ```bash
 ssh "$BOX" 'bash -s' <<'EOF'
 set -e
-cd ~/clearcoat/dist
+cd ~/code-browser/dist
 V=151.0.7922.108; PLAT=windows-x64
-ASSET=clearcote-${V}-${PLAT}.zip
+ASSET=code-browser-${V}-${PLAT}.zip
 FPR=CA96F185F96A693AEDB3AC1FCB00D851B7A86B0F
 
 # hash the zip; hash the two key binaries (extracted names, unchanged by repackaging)
@@ -206,24 +206,24 @@ SIGN SHA256SUMS.txt        SHA256SUMS.txt.asc
 SIGN "${ASSET}.sha256"     "${ASSET}.sha256.asc"
 
 # export the public key under the PUBLIC name, and remove any codename-named copy
-gpg --armor --export "$FPR" > clearcote-signing-key.asc
-rm -f clearcoat-signing-key.asc
+gpg --armor --export "$FPR" > code-browser-signing-key.asc
+rm -f code-browser-signing-key.asc
 
 echo "ZIPHASH=$ZIPHASH"
 EOF
 ```
 
-> 密钥的 UID 目前在 `gpg --verify` 时打印为 **`clearcoat release signing …`**：现阶段这是预期的（它是 UID，不是产物名）。
-> 在*稳定版*发布之前，改用以 `clearcote` 命名的密钥并重新签名，让代号不再出现在用户面前（§0.7）。
+> 密钥的 UID 目前在 `gpg --verify` 时打印为 **`code-browser release signing …`**：现阶段这是预期的（它是 UID，不是产物名）。
+> 在*稳定版*发布之前，改用以 `code-browser` 命名的密钥并重新签名，让代号不再出现在用户面前（§0.7）。
 
 ---
 
 ## 7. 在构建主机上验证（移动任何东西之前）
 
 ```bash
-ssh "$BOX" 'cd ~/clearcoat/dist && \
+ssh "$BOX" 'cd ~/code-browser/dist && \
   gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt && \
-  sha256sum -c clearcote-*-windows-x64.zip.sha256'
+  sha256sum -c code-browser-*-windows-x64.zip.sha256'
 ```
 
 **验收：** `Good signature`，**并且**签名密钥的指纹等于固定值 `CA96F185…B7A86B0F`（在主机上它显示为 `[ultimate]`，因为密钥就在密钥环里：这个信任标记*不是*证明，指纹一致才是）。
@@ -239,9 +239,9 @@ ssh "$BOX" 'cd ~/clearcoat/dist && \
 # ensure the local dest dir exists first (scp errors "not a directory" otherwise)
 mkdir -p release
 scp -o StrictHostKeyChecking=no \
-  "$BOX:~/clearcoat/dist/clearcote-151.0.7922.108-windows-x64.zip*" \
-  "$BOX:~/clearcoat/dist/SHA256SUMS.txt*" \
-  "$BOX:~/clearcoat/dist/clearcote-signing-key.asc" \
+  "$BOX:~/code-browser/dist/code-browser-151.0.7922.108-windows-x64.zip*" \
+  "$BOX:~/code-browser/dist/SHA256SUMS.txt*" \
+  "$BOX:~/code-browser/dist/code-browser-signing-key.asc" \
   release/
 ```
 
@@ -250,7 +250,7 @@ scp -o StrictHostKeyChecking=no \
 然后确认传输结果与已签名的值逐字节一致（PowerShell）：
 
 ```powershell
-$z = "$STAGE\clearcote-151.0.7922.108-windows-x64.zip"
+$z = "$STAGE\code-browser-151.0.7922.108-windows-x64.zip"
 (Get-FileHash $z -Algorithm SHA256).Hash.ToLower()   # must equal ZIPHASH / the zip line in SHA256SUMS.txt
 ```
 
@@ -263,13 +263,13 @@ $z = "$STAGE\clearcote-151.0.7922.108-windows-x64.zip"
 在 `$STAGE` 中创建 `RELEASE_NOTES.md`。它**必须**包含：下载表格、验证代码块（GPG + 校验和命令 + 实际哈希）、可用的快速上手示例，以及注意事项清单。
 通过写入确切的 `ZIPHASH`，**把发布说明绑定到这次构建**。
 
-标准的快速上手示例（与 README 保持逐字节一致：Python `executable_path`、snake_case；以 `clearcote` 命名的路径）：
+标准的快速上手示例（与 README 保持逐字节一致：Python `executable_path`、snake_case；以 `code-browser` 命名的路径）：
 
 ```python
 from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     b = p.chromium.launch(
-        executable_path=r"C:\clearcote\chrome.exe",
+        executable_path=r"C:\code-browser\chrome.exe",
         args=["--fingerprint=seed-123", "--fingerprint-platform=windows"],
     )
     b.new_page().goto("https://abrahamjuliot.github.io/creepjs/")
@@ -290,7 +290,7 @@ with sync_playwright() as p:
 ```powershell
 $gh   = "gh"                              # GitHub CLI on PATH (or its full path)
 $git  = "git"
-$repo = "$env:TEMP\clearcote-pub"         # the fresh clone (§11)
+$repo = "$env:TEMP\code-browser-pub"         # the fresh clone (§11)
 $tag  = "v0.1.0-pre.1"
 $V    = "151.0.7922.108"
 
@@ -299,23 +299,23 @@ $V    = "151.0.7922.108"
 & $git -C $repo rev-parse origin/main      # confirm == the commit you intend to tag; if not, fix main first, don't publish
 
 $assets = @(
- "$STAGE\clearcote-$V-windows-x64.zip",
- "$STAGE\clearcote-$V-windows-x64.zip.sha256",
- "$STAGE\clearcote-$V-windows-x64.zip.sha256.asc",
+ "$STAGE\code-browser-$V-windows-x64.zip",
+ "$STAGE\code-browser-$V-windows-x64.zip.sha256",
+ "$STAGE\code-browser-$V-windows-x64.zip.sha256.asc",
  "$STAGE\SHA256SUMS.txt",
  "$STAGE\SHA256SUMS.txt.asc",
- "$STAGE\clearcote-signing-key.asc"
+ "$STAGE\code-browser-signing-key.asc"
 )
-$ghArgs  = @('release','create',$tag,'--repo','clearcotelabs/clearcote-browser')
+$ghArgs  = @('release','create',$tag,'--repo','jyycool/code-browser')
 $ghArgs += $assets
-$ghArgs += @('--title', "Clearcote Browser $tag (Chromium $V, Windows x64)")
+$ghArgs += @('--title', "CodeBrowser Browser $tag (Chromium $V, Windows x64)")
 $ghArgs += @('--notes-file', "$STAGE\RELEASE_NOTES.md", '--prerelease')
 & $gh @ghArgs
 ```
 
 > 只有经过验证的稳定版才去掉 `--prerelease`。`gh release create` 会在 `main` 当前的 HEAD 上创建标签：这就是发布前那条 `rev-parse` 检查的意义。
 
-发布后修改说明：`& $gh release edit $tag --repo clearcotelabs/clearcote-browser --notes-file "$STAGE\RELEASE_NOTES.md"`。
+发布后修改说明：`& $gh release edit $tag --repo jyycool/code-browser --notes-file "$STAGE\RELEASE_NOTES.md"`。
 
 ---
 
@@ -323,7 +323,7 @@ $ghArgs += @('--notes-file', "$STAGE\RELEASE_NOTES.md", '--prerelease')
 
 ```powershell
 # fresh clone (avoid Remove-Item -Recurse on protected paths)
-& $gh repo clone clearcotelabs/clearcote-browser "$env:TEMP\clearcote-pub"
+& $gh repo clone jyycool/code-browser "$env:TEMP\code-browser-pub"
 
 # one-time, in this clone: keep commits on the public handle only — no personal email
 & $git -C $repo config user.name  pim97
@@ -336,7 +336,7 @@ $ghArgs += @('--notes-file', "$STAGE\RELEASE_NOTES.md", '--prerelease')
 所以**始终要重新生成；绝不要假设 `patches/` 是最新的。** 在构建主机上：
 
 ```bash
-ssh "$BOX" 'cd ~/clearcoat && bash gen_patches.sh'   # diffs tree vs pristine baseline, groups, self-validates
+ssh "$BOX" 'cd ~/code-browser && bash gen_patches.sh'   # diffs tree vs pristine baseline, groups, self-validates
 ```
 
 `gen_patches.sh` 会重建一个原始的 `151 → 清理 → ungoogled → windows 叠加层` 基线，把构建树与之做 diff（排除获取的工具链**以及** `*.cfbak*`/`*.bak`/`*.orig`/`*.rej`），
@@ -361,8 +361,8 @@ ssh "$BOX" 'cd ~/clearcoat && bash gen_patches.sh'   # diffs tree vs pristine ba
 
 ```powershell
 $desc = "Open-source anti-detect Chromium <MAJOR> with engine-level fingerprint spoofing - de-Googled, drop-in Playwright, Windows x64, fully buildable and verifiable from source."
-$editArgs  = @('repo','edit','clearcotelabs/clearcote-browser','--description',$desc)
-$editArgs += @('--homepage','https://github.com/clearcotelabs/clearcote-browser')
+$editArgs  = @('repo','edit','jyycool/code-browser','--description',$desc)
+$editArgs += @('--homepage','https://github.com/jyycool/code-browser')
 foreach ($t in 'anti-detect-browser','chromium','fingerprint','playwright','ungoogled-chromium','web-scraping','stealth-browser','anti-fingerprinting') { $editArgs += @('--add-topic', $t) }
 & $gh @editArgs
 ```
@@ -375,18 +375,18 @@ foreach ($t in 'anti-detect-browser','chromium','fingerprint','playwright','ungo
 
 ```powershell
 # comma-free jq only (a jq expr with top-level commas gets mis-split by the shell)
-& $gh api repos/clearcotelabs/clearcote-browser/releases/tags/v0.1.0-pre.1 --jq '.assets[].name'
-& $gh api repos/clearcotelabs/clearcote-browser/releases/tags/v0.1.0-pre.1 --jq '.prerelease'
+& $gh api repos/jyycool/code-browser/releases/tags/v0.1.0-pre.1 --jq '.assets[].name'
+& $gh api repos/jyycool/code-browser/releases/tags/v0.1.0-pre.1 --jq '.prerelease'
 ```
 
 确认 **6** 个产物都在，并且 `prerelease` 为 `true`（在验证之前）。然后**以用户的身份做一次干净环境验证**：把产物下载到一个临时目录并执行：
 
 ```bash
-gpg --with-fingerprint --show-keys clearcote-signing-key.asc   # fingerprint must equal CA96F185…6B0F
-gpg --import clearcote-signing-key.asc
+gpg --with-fingerprint --show-keys code-browser-signing-key.asc   # fingerprint must equal CA96F185…6B0F
+gpg --import code_browser-signing-key.asc
 gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt                  # Good signature (a "not certified" WARNING is expected)
-sha256sum -c clearcote-151.0.7922.108-windows-x64.zip.sha256    # OK
-unzip -p clearcote-151.0.7922.108-windows-x64.zip chrome.exe | sha256sum   # matches chrome.exe in SHA256SUMS.txt
+sha256sum -c code-browser-151.0.7922.108-windows-x64.zip.sha256    # OK
+unzip -p code-browser-151.0.7922.108-windows-x64.zip chrome.exe | sha256sum   # matches chrome.exe in SHA256SUMS.txt
 ```
 
 然后在真实 Windows 上对发布的二进制运行**隐身一致性门禁**：它断言画像/加噪层不会暴露自己（文本度量在 1/512 网格上、主线程 == Worker、BCR == Range、
@@ -411,7 +411,7 @@ py -3 scripts\stealth_coherence.py --binary "$STAGE\chrome.exe"   # exit 0 = OK;
 - [ ] **隐身一致性门禁通过**（`scripts/stealth_coherence.py`，或 "Stealth coherence" 工作流）：没有 REQUIRED 检查回归，并且任何现在通过的 `KNOWN_GAP` 都已提升为 `REQUIRED`。
   见 [docs/zh/STEALTH-COHERENCE.md](STEALTH-COHERENCE.md)。
 - [ ] `config/args.gn` / `config/args.linux.gn` 与发布的二进制一致（§4）。
-- [ ] 签名密钥已更换为以 `clearcote` 命名的 UID（§6），使验证输出符合品牌。
+- [ ] 签名密钥已更换为以 `code-browser` 命名的 UID（§6），使验证输出符合品牌。
 - [ ] 当初决定"预发布"的那些注意事项（§9）确实已解决，或已被明确接受。
 
 ---
@@ -439,11 +439,11 @@ py -3 scripts\stealth_coherence.py --binary "$STAGE\chrome.exe"   # exit 0 = OK;
 ```
 [ ] <repo>/UPSTREAM_REVISION == release Chromium version
 [ ] config/args.gn + args.linux.gn match the artifacts' actual args.gn (official, PGO profile name)
-[ ] built in out/Default; staged into clearcoat-win-x64.zip (full runtime, ~700 entries)
+[ ] built in out/Default; staged into code-browser-win-x64.zip (full runtime, ~700 entries)
 [ ] PATCH-INTEGRITY GATE green (§4a): verify_patches.py --tree (Layer 1) + --binary (Layer 2) exit 0 — BLOCKS publish
-[ ] repackaged to clearcote-$V-windows-x64.zip WITH the 5 VC++ runtime DLLs (unzip -l | grep)
+[ ] repackaged to code-browser-$V-windows-x64.zip WITH the 5 VC++ runtime DLLs (unzip -l | grep)
 [ ] SHA256SUMS.txt (zip+exe+dll) + per-asset .sha256 generated
-[ ] both signed; clearcote-signing-key.asc exported; codename leftovers removed from dist/
+[ ] both signed; code-browser-signing-key.asc exported; codename leftovers removed from dist/
 [ ] gpg --verify OK + fingerprint == CA96F185…6B0F + sha256sum -c OK  (ON THE HOST)
 [ ] scp to local (dest dir exists); Get-FileHash matches signed value
 [ ] RELEASE_NOTES.md written incl. caveats checklist + correct hashes + pinned ZIPHASH

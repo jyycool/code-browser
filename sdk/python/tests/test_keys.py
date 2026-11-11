@@ -1,4 +1,4 @@
-"""The keyboard planner (clearcote._keys) against the SHARED vectors in sdk/testdata/humanize_typing_vectors.json
+"""The keyboard planner (code_browser._keys) against the SHARED vectors in sdk/testdata/humanize_typing_vectors.json
 -- the same file the Node (keys.test.ts) and .NET (KeysTests.cs) suites read -- plus the properties the
 vectors cannot express. Lane D of SC 232; on 0.51.0 there was no planner (the module does not exist)."""
 import dataclasses
@@ -9,8 +9,8 @@ import statistics
 
 import pytest
 
-from clearcote import _keys as K
-from clearcote._motion import key_dwell, make_persona, mulberry32
+from code_browser import _keys as K
+from code_browser._motion import key_dwell, make_persona, mulberry32
 
 VEC_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "testdata", "humanize_typing_vectors.json")
 with open(VEC_PATH, encoding="utf-8") as _f:

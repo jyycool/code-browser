@@ -1,6 +1,6 @@
-"""LIVE humanized form input against a real Clearcote build (sdk/testdata/humanize_forms.html).
+"""LIVE humanized form input against a real CodeBrowser build (sdk/testdata/humanize_forms.html).
 
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is available for a PRO
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is available for a PRO
 build). Every assertion is about what a PAGE sees: trusted events, key holds, how many change events a
 selection fires, and the exact value left in the field -- the things a behavioural detector and a
 form backend read.
@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 FIXTURE = (Path(__file__).resolve().parents[2] / "testdata" / "humanize_forms.html").as_uri()
 MIN_HOLD_MS = 25   # a finger cannot hold a key or button shorter than this; persona floor is 45
@@ -33,8 +33,8 @@ def _no_font_cache_left_behind():
 
 @pytest.fixture(scope="module")
 def browser(_no_font_cache_left_behind):
-    import clearcote
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="forms-live-1",
+    import code_browser
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="forms-live-1",
                          quiet=True)
     yield b
     b.close()
@@ -51,7 +51,7 @@ def page(browser):
 @pytest.fixture
 def typos(monkeypatch):
     def set_rate(r):
-        monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", str(r))
+        monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", str(r))
     return set_rate
 
 
@@ -581,7 +581,7 @@ def test_a_select_under_a_floating_overlay_opens_and_picks_once(page):
 
 
 def test_typo_gate_reads_through_shadow_roots_and_fails_closed_in_frames(page):
-    from clearcote._isolated import ACTIVE_FIELD, world_for
+    from code_browser._isolated import ACTIVE_FIELD, world_for
     page.click("#spw #inner")
     assert (world_for(page).evaluate(ACTIVE_FIELD) or {}).get("type") == "password"
     page.frame_locator("#fr").locator("#fpw").click()
@@ -912,10 +912,10 @@ def _date_round(page, gaps, rolls):
 
 def test_date_segments_use_the_typing_model_across_identities():
     import statistics
-    import clearcote
+    import code_browser
     gaps, rolls = [], []
     for ident in ("dt-id-1", "dt-id-2", "dt-id-3"):
-        b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint=ident, quiet=True)
+        b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint=ident, quiet=True)
         try:
             p = b.new_page()
             p.goto(FIXTURE)
@@ -929,7 +929,7 @@ def test_date_segments_use_the_typing_model_across_identities():
 def test_date_segments_survive_rollover_on_every_key(page, monkeypatch):
     # Every eligible digit pair rolled over (the next key down before the last one is up): a segment
     # that auto-advances must still get the right digits.
-    from clearcote import _humanize
+    from code_browser import _humanize
     monkeypatch.setattr(_humanize, "rollover_rate", lambda p: 1.0)
     gaps, rolls = [], []
     _date_round(page, gaps, rolls)
@@ -940,7 +940,7 @@ def test_select_open_click_is_held_as_planned(page, monkeypatch):
     # The open click's hold was the click-hold model PLUS the time the page took to open the popup
     # (mouse.down returns after the press is handled): ~206 ms in the SC 209 lab for a 60-150 ms plan.
     import statistics
-    from clearcote import _humanize
+    from code_browser import _humanize
     monkeypatch.setattr(_humanize, "click_hold", lambda p, rng=None: 120.0)
     holds = []
     for label in ("Iceland", "Norway", "Chile", "Kenya", "Malta", "Spain"):

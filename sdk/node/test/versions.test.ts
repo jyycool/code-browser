@@ -74,7 +74,7 @@ describe("resolveVersion (validate-first, tier-aware)", () => {
 
   it("lists what's available when the version doesn't exist", async () => {
     mockCatalog();
-    await expect(resolveVersion("151", true)).rejects.toThrow(/No Clearcote build matches version '151'.*Available/s);
+    await expect(resolveVersion("151", true)).rejects.toThrow(/No CodeBrowser build matches version '151'.*Available/s);
   });
 
   it("'latest' resolves to the newest ACCESSIBLE build", async () => {
@@ -104,15 +104,15 @@ describe("backwards compatibility: version must not change existing precedence",
     expect(await executablePath({ executablePath: exe, version: "150" })).toBe(exe);
   });
 
-  it("CLEARCOTE_BINARY wins over a version selector (legacy env path unaffected)", async () => {
-    const OLD = process.env.CLEARCOTE_BINARY;
+  it("CODE_BROWSER_BINARY wins over a version selector (legacy env path unaffected)", async () => {
+    const OLD = process.env.CODE_BROWSER_BINARY;
     const exe = fakeBinary();
-    process.env.CLEARCOTE_BINARY = exe;
+    process.env.CODE_BROWSER_BINARY = exe;
     try {
       expect(await executablePath({ version: "150" })).toBe(exe);
     } finally {
-      if (OLD === undefined) delete process.env.CLEARCOTE_BINARY;
-      else process.env.CLEARCOTE_BINARY = OLD;
+      if (OLD === undefined) delete process.env.CODE_BROWSER_BINARY;
+      else process.env.CODE_BROWSER_BINARY = OLD;
     }
   });
 });

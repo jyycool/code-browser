@@ -49,7 +49,7 @@ def _no_probe():
 
 def test_the_sandbox_is_on_when_the_probe_passes():
     on, line = _check().decide([], 10001, run_probe=lambda: (True, None))
-    assert on is True and line == "[clearcote] sandbox: on (Chrome's user, PID and network namespace sandbox)"
+    assert on is True and line == "[code-browser] sandbox: on (Chrome's user, PID and network namespace sandbox)"
 
 
 def test_without_the_profile_it_falls_back_and_says_why_and_how_in_one_line():
@@ -57,21 +57,21 @@ def test_without_the_profile_it_falls_back_and_says_why_and_how_in_one_line():
     status = {"/proc/self/status": "Name:\tpython\nSeccomp:\t2\nSeccomp_filters:\t1\n"}
     on, line = sc.decide([], 10001, run_probe=lambda: (False, ("clone-user", errno.EPERM)), read=status.get)
     assert on is False and "\n" not in line
-    assert line.startswith("[clearcote] sandbox: OFF, Chrome runs with --no-sandbox: clone(CLONE_NEWUSER) failed")
+    assert line.startswith("[code-browser] sandbox: OFF, Chrome runs with --no-sandbox: clone(CLONE_NEWUSER) failed")
     assert "seccomp profile blocks" in line  # why
     assert "--security-opt seccomp=" in line and sc.PROFILE_IN_IMAGE in line  # how
-    assert sc.PROFILE_IN_IMAGE == "/etc/clearcote/seccomp.json"
+    assert sc.PROFILE_IN_IMAGE == "/etc/code-browser/seccomp.json"
 
 
 def test_a_no_sandbox_the_caller_passed_is_honoured_without_probing():
     on, line = _check().decide(["--lang=de", "--no-sandbox"], 10001, run_probe=_no_probe)
-    assert on is False and line == "[clearcote] sandbox: off (--no-sandbox was asked for)"
+    assert on is False and line == "[code-browser] sandbox: off (--no-sandbox was asked for)"
 
 
 def test_the_canvas_bridge_keeps_no_sandbox():
     # the bridge opens its socket from the renderer, which the sandbox (its own network namespace) does not allow
     on, line = _check().decide(["--canvas-bridge-url=ws://gpu-host:9099"], 10001, run_probe=_no_probe)
-    assert on is False and line == "[clearcote] sandbox: off (the canvas bridge needs --no-sandbox)"
+    assert on is False and line == "[code-browser] sandbox: off (the canvas bridge needs --no-sandbox)"
 
 
 @pytest.mark.parametrize("args,why", [
@@ -85,14 +85,14 @@ def test_the_canvas_bridge_keeps_no_sandbox():
 ])
 def test_switches_chrome_cannot_run_its_sandbox_with_turn_it_off_without_probing(args, why):
     on, line = _check().decide(args, 10001, run_probe=_no_probe)
-    assert on is False and line.startswith("[clearcote] sandbox: off (" + why)
+    assert on is False and line.startswith("[code-browser] sandbox: off (" + why)
 
 
 @pytest.mark.parametrize("args", [["--zygote-cmd-prefix=env"], ["--utility-cmd-prefix=env"], ["--single-process"]])
 def test_switches_that_leave_the_renderers_in_their_namespaces_keep_the_sandbox(args):
     # measured with the profile: renderers still in user namespaces of their own
     on, line = _check().decide(args, 10001, run_probe=lambda: (True, None))
-    assert on is True and line.startswith("[clearcote] sandbox: on")
+    assert on is True and line.startswith("[code-browser] sandbox: on")
 
 
 def test_root_runs_without_the_sandbox_because_chrome_refuses_it_there():
@@ -187,7 +187,7 @@ def test_the_filter_kills_a_process_whose_syscalls_are_another_cpus(arch, code):
 
 def test_the_profile_is_dockers_default_plus_only_the_namespace_calls_chromes_sandbox_makes():
     profile = _profile()
-    added = [s for s in profile["syscalls"] if str(s.get("comment", "")).startswith("clearcote:")]
+    added = [s for s in profile["syscalls"] if str(s.get("comment", "")).startswith("code-browser:")]
     rest = dict(profile, syscalls=[s for s in profile["syscalls"] if s not in added])
     canon = json.dumps(rest, sort_keys=True, separators=(",", ":")).encode()
     assert hashlib.sha256(canon).hexdigest() == DOCKER_DEFAULT_V0_2_3  # the rest is Docker's, unchanged
@@ -209,7 +209,7 @@ def test_the_profile_is_dockers_default_plus_only_the_namespace_calls_chromes_sa
 def test_the_image_ships_the_profile_and_the_probe():
     with open(os.path.join(DOCKER, "Dockerfile"), encoding="utf-8") as fh:
         dockerfile = fh.read()
-    assert "COPY seccomp.json /etc/clearcote/seccomp.json" in dockerfile
+    assert "COPY seccomp.json /etc/code-browser/seccomp.json" in dockerfile
     copy = next(ln for ln in dockerfile.splitlines() if ln.startswith("COPY serve.py"))
     assert "sandbox_check.py" in copy.split()
     label = re.search(r'LABEL com\.clearcotelabs\.serve-protocol="(\d+)"', dockerfile)

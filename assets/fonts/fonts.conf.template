@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <!--
-  clearcote self-contained font configuration (ships with the Linux release).
+  code-browser self-contained font configuration (ships with the Linux release).
 
   The SDK substitutes @FONTS_DIR@ / @CACHE_DIR@ at launch and points FONTCONFIG_FILE
   at the result. It is DELIBERATELY self-contained (it does NOT <include> the host's

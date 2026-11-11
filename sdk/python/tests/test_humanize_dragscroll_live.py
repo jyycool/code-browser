@@ -1,6 +1,6 @@
-"""LIVE drag + scroll (SC 232 lane E) against a real Clearcote build, headless.
+"""LIVE drag + scroll (SC 232 lane E) against a real CodeBrowser build, headless.
 
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary. What a PAGE sees on
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary. What a PAGE sees on
 sdk/testdata/humanize_dragscroll.html: wheel events before every scroll, where the target ends up, where
 a drag presses and releases, the hesitation after the press, a knob dragged by a delta, a trackpad stream.
 """
@@ -9,16 +9,16 @@ import os
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 HTML = open(os.path.join(os.path.dirname(__file__), "..", "..", "testdata", "humanize_dragscroll.html"),
             encoding="utf-8").read()
 
 
 @pytest.fixture(scope="module")
 def browser():
-    import clearcote
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="dragscroll-live-1",
+    import code_browser
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="dragscroll-live-1",
                          quiet=True)
     yield b
     b.close()
@@ -41,7 +41,7 @@ def test_click_far_target_is_wheeled_in(page):
     wheels, scrolls = _ev(page, "wheel"), _ev(page, "scroll")
     assert wheels and all(w["tr"] for w in wheels)
     assert scrolls and scrolls[0]["ts"] >= wheels[0]["ts"], "no scroll before the first wheel"
-    assert getattr(page, "_clearcote_last_fallback", None) is None
+    assert getattr(page, "_code_browser_last_fallback", None) is None
     r = page.evaluate("(() => { const r = document.getElementById('far').getBoundingClientRect(); "
                       "return [r.y, r.height, innerHeight]; })()")
     frac = (r[0] + r[1] / 2) / r[2]
@@ -54,7 +54,7 @@ def test_nested_container_is_wheeled(page):
     page.click("#deep")
     st = page.evaluate("document.getElementById('box').scrollTop")
     assert st > 0
-    assert getattr(page, "_clearcote_last_fallback", None) is None
+    assert getattr(page, "_code_browser_last_fallback", None) is None
     ids = {s["id"] for s in _ev(page, "scroll")}
     assert "box" in ids
     assert _ev(page, "click")[-1]["id"] == "deep"
@@ -62,7 +62,7 @@ def test_nested_container_is_wheeled(page):
 
 def test_non_scrollable_panel_falls_back_and_reports(page):
     page.click("#hid")
-    fb = page._clearcote_last_fallback   # lane A's report: outermost api, the scroll step in the reason
+    fb = page._code_browser_last_fallback   # lane A's report: outermost api, the scroll step in the reason
     assert fb["reason"] == "scroll into view: not_scrollable" and fb["api"].endswith("click")
     assert _ev(page, "click")[-1]["id"] == "hid"
 
@@ -84,11 +84,11 @@ def test_drag_by_knob(page):
     left = page.evaluate("document.getElementById('knob').offsetLeft")
     assert abs((left - 2) - 150) <= 2, left
     assert abs(got[0] - 150) <= 2
-    assert 1 <= page._clearcote_drag_legs <= 3
+    assert 1 <= page._code_browser_drag_legs <= 3
 
 
 def test_trackpad_stream(page):
-    page._clearcote_input_device = "trackpad"
+    page._code_browser_input_device = "trackpad"
     page.mouse.move(600, 300)
     page.mouse.wheel(0, 700)
     w = _ev(page, "wheel")

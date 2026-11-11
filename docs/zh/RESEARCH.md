@@ -1,4 +1,4 @@
-# Clearcote：研究与构建蓝图
+# CodeBrowser：研究与构建蓝图
 
 *如何构建一个全新的、100% 开源、真正优于同类的反检测 Chromium。*
 
@@ -15,8 +15,8 @@ SeleniumBase · undetected-chromedriver。
 | 项目 | 引擎 | 方式 | 开源？ | 值得借鉴的一点 |
 |---|---|---|:-:|---|
 | **brave-core** | Chromium | 按站点 **farbling**（确定性随机化） | ✅ 完全 | *正确的*随机化模型：按 eTLD+1、按会话的种子 |
-| **cromite** | Chromium | 把 Brave farbling 移植到 ungoogled 风格的基础上 | ✅ 完全 | clearcote 需要的移植模式 + 学术论文 |
-| **adryfish/fingerprint-chromium** | Chromium | 种子 → 指纹，基于 ungoogled | ⚠️ 延迟发布（按标签） | clearcote 所基于的确切基础 |
+| **cromite** | Chromium | 把 Brave farbling 移植到 ungoogled 风格的基础上 | ✅ 完全 | code-browser 需要的移植模式 + 学术论文 |
+| **adryfish/fingerprint-chromium** | Chromium | 种子 → 指纹，基于 ungoogled | ⚠️ 延迟发布（按标签） | code-browser 所基于的确切基础 |
 | **CloakBrowser** | Chromium | 源码补丁 + 人类化 + geoip | ❌ 二进制闭源 | 人类化预设、geoip、持久化配置的用户体验 |
 | **ChromiumFish** | Chromium | 引擎补丁 + 画像种子 + **TLS 固定** | ⚠️ 只有补丁 | 把 TLS sigalgs/JA3 固定到所宣称的 UA；canvas 桥 |
 | **BotBrowser** | Chromium | 加密的设备**档案**，按上下文 | ❌ 引擎闭源 | 按上下文的指纹、经 SOCKS5 的 UDP、端口保护 |
@@ -29,14 +29,14 @@ SeleniumBase · undetected-chromedriver。
 | **nodriver** | — | 无 WebDriver 的直接 CDP | ✅ | 基准测试零拦截；值得模仿的自动化传输方式 |
 | **SeleniumBase / undetected-chromedriver** | — | 经典的标志/痕迹清理 | ✅ | 基础的检测向量 |
 
-**两大阵营：** *引擎级分支*（表格上半部分，clearcote 所属的类别）和*客户端/CDP 补丁*（下半部分）。
-Clearcote 是引擎分支，所以上面几行是蓝图，下面几行是**你还必须在引擎内消除的检测向量目录**。
+**两大阵营：** *引擎级分支*（表格上半部分，code-browser 所属的类别）和*客户端/CDP 补丁*（下半部分）。
+CodeBrowser 是引擎分支，所以上面几行是蓝图，下面几行是**你还必须在引擎内消除的检测向量目录**。
 
 ---
 
 ## 2. 大家共有的论点，以及多数人忽略的洞见
 
-**共有论点：** 在 C++ 引擎中伪装，绝不用注入的 JS。JS 垫片恰好会在指纹审计工具检查的地方留下篡改痕迹。adryfish（clearcote 的基础）已经这样做了。
+**共有论点：** 在 C++ 引擎中伪装，绝不用注入的 JS。JS 垫片恰好会在指纹审计工具检查的地方留下篡改痕迹。adryfish（code-browser 的基础）已经这样做了。
 
 **更深的洞见，只有 Brave 完全做对了：** 好的指纹既不是*随机的*也不是*静态的*，而是**按站点确定、并且内部自洽的**。
 
@@ -49,16 +49,16 @@ Brave 的 farbling 从 `(session_token × eTLD+1)` 种子推导出每一个半�
 canvas、audio、webgl、**webgpu**、screen、plugins、useragent、languages、hardwareConcurrency、deviceMemory、
 speech-synthesis、USB、enumerateDevices（见 `browser/farbling/*_browsertest.cc`）。
 
-> **对 clearcote 而言：** 采用 Brave 的*模型*（按 eTLD+1 的确定性种子），而不只是逐个面加噪。这是相对 adryfish、CloakBrowser
+> **对 code-browser 而言：** 采用 Brave 的*模型*（按 eTLD+1 的确定性种子），而不只是逐个面加噪。这是相对 adryfish、CloakBrowser
 > 和 ChromiumFish 最大的一项正确性提升，它们都使用单一全局种子（每个站点看到相同的 canvas → 可跨站关联）。
 
 ---
 
-## 3. 检测面矩阵（clearcote 必须覆盖的）
+## 3. 检测面矩阵（code-browser 必须覆盖的）
 
-✅ = 基础已覆盖 · ➕ = clearcote 必须新增/升级 · ★ = 差异化机会
+✅ = 基础已覆盖 · ➕ = code-browser 必须新增/升级 · ★ = 差异化机会
 
-| 指纹面 | adryfish 基础 | 最佳参考实现 | Clearcote 的行动 |
+| 指纹面 | adryfish 基础 | 最佳参考实现 | CodeBrowser 的行动 |
 |---|:-:|---|---|
 | UA + 完整 Client Hints | ✅ | Camoufox navigator | ✅ 保留 |
 | navigator.webdriver / cdc_ 清理 | ✅ | BotBrowser `removeHeadless.diff` | ✅ 保留 + 审计 |
@@ -84,7 +84,7 @@ speech-synthesis、USB、enumerateDevices（见 `browser/farbling/*_browsertest.
 
 ---
 
-## 4. 同类的不足 → clearcote 的机会
+## 4. 同类的不足 → code-browser 的机会
 
 1. **全局种子，而不是按站点。** CloakBrowser/ChromiumFish/adryfish 对所有站点使用同一个种子 → 可跨站关联。
    **Brave 风格的按 eTLD+1 farbling 能解决这个问题，而*隐身*领域里还没有人照搬它。**
@@ -94,18 +94,18 @@ speech-synthesis、USB、enumerateDevices（见 `browser/farbling/*_browsertest.
 4. **并非真正私密。** ChromiumFish *自己*的审计（在你的本地文件中）发现它会联系 Google（组件更新器 + :5228 上的 GCM）。
    对一个"100% 开源"的项目来说，真正去 Google 化的构建是一个实在的、可检验的差异点。
 5. **规模。** 每个身份一个进程很浪费。BotBrowser 的按上下文指纹（共享 GPU/网络进程、毫秒级切换、约节省 29% 内存）是可扩展性的前沿，而且是闭源的。
-6. **闭源二进制。** CloakBrowser、ChromiumFish、BotBrowser、Kameleo 都发布无法阅读的二进制。**Clearcote 逐字节可复现 + 完全开源，本身就是信任上的差异点。**
+6. **闭源二进制。** CloakBrowser、ChromiumFish、BotBrowser、Kameleo 都发布无法阅读的二进制。**CodeBrowser 逐字节可复现 + 完全开源，本身就是信任上的差异点。**
 
 ---
 
-## 5. 提议的 clearcote 架构
+## 5. 提议的 code-browser 架构
 
 ```
                  ungoogled-chromium 149   (de-Google base, build wiring)
                           │
         ┌─────────────────┼──────────────────────────────────┐
         │                 │                                   │
-  adryfish patches   Brave farbling model            clearcote-native patches
+  adryfish patches   Brave farbling model            code-browser-native patches
   (ported 142→149)   (per-eTLD+1 seed engine)         (TLS pin, QUIC/SOCKS5,
   canvas/webgl/audio  applied to every surface         timing, sensors, media,
   /ua/fonts/webrtc    instead of single global seed     port-protect, full de-Google)
@@ -147,9 +147,9 @@ speech-synthesis、USB、enumerateDevices（见 `browser/farbling/*_browsertest.
 
 ---
 
-## 7. clearcote *更好*在哪里（卖点）
+## 7. code-browser *更好*在哪里（卖点）
 
-| 维度 | 同类现状 | Clearcote |
+| 维度 | 同类现状 | CodeBrowser |
 |---|---|---|
 | 跨站可关联性 | 单一全局种子（可关联） | **按 eTLD+1 farbling（不可关联）** |
 | TLS 一致性 | adryfish 忽略了 | **固定到所宣称的 UA** |

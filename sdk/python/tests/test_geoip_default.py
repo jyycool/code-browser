@@ -2,9 +2,9 @@
 The same cases as sdk/node/test/geoip-default.test.ts, with a stubbed resolver."""
 import pytest
 
-import clearcote
-from clearcote import _docker
-from clearcote.geoip import geoip_mode
+import code_browser
+from code_browser import _docker
+from code_browser.geoip import geoip_mode
 
 GEO = {"ip": "203.0.113.7", "country": "DE", "timezone": "Europe/Berlin", "accept_language": "de-DE",
        "location": "52.52,13.405"}
@@ -17,17 +17,17 @@ def test_geoip_mode_is_auto_when_unset_strict_for_true_off_for_false():
     assert geoip_mode(False, {}) == "off"
 
 
-def test_clearcote_geoip_0_turns_the_default_off_but_not_an_explicit_true():
+def test_code_browser_geoip_0_turns_the_default_off_but_not_an_explicit_true():
     for v in ("0", "false", "OFF", "no", " off "):
-        assert geoip_mode(None, {"CLEARCOTE_GEOIP": v}) == "off"
-    assert geoip_mode(None, {"CLEARCOTE_GEOIP": "1"}) == "auto"
-    assert geoip_mode(True, {"CLEARCOTE_GEOIP": "0"}) == "strict"
+        assert geoip_mode(None, {"CODE_BROWSER_GEOIP": v}) == "off"
+    assert geoip_mode(None, {"CODE_BROWSER_GEOIP": "1"}) == "auto"
+    assert geoip_mode(True, {"CODE_BROWSER_GEOIP": "0"}) == "strict"
 
 
 @pytest.fixture
 def resolver(monkeypatch):
     """The resolver apply_geoip asks: records the proxy and answers ``state["answer"]``."""
-    clearcote._reset_direct_geo_cache()
+    code_browser._reset_direct_geo_cache()
     state = {"answer": (dict(GEO), None, 5), "asked": [], "timeouts": []}
 
     def resolve(proxy, quiet=False, timeout=None):
@@ -35,17 +35,17 @@ def resolver(monkeypatch):
         state["timeouts"].append(timeout)
         return state["answer"]
 
-    monkeypatch.setattr(clearcote, "resolve_geo_detailed", resolve)
-    monkeypatch.setattr(clearcote, "warn_on_egress_drift", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "resolve_geo_detailed", resolve)
+    monkeypatch.setattr(code_browser, "warn_on_egress_drift", lambda *a, **k: None)
     monkeypatch.delenv("CLEARCOTE_GEOIP_TIMEOUT_SECONDS", raising=False)
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
     yield state
-    clearcote._reset_direct_geo_cache()
+    code_browser._reset_direct_geo_cache()
 
 
 def test_auto_with_no_proxy_looks_this_machines_own_ip_up_and_fills_every_field(resolver):
     fp = {}
-    geo, auto_webrtc_ip = clearcote.apply_geoip_mode(fp, None, "auto", quiet=True)
+    geo, auto_webrtc_ip = code_browser.apply_geoip_mode(fp, None, "auto", quiet=True)
     assert resolver["asked"] == [None]
     assert fp == {"timezone": "Europe/Berlin", "accept_language": "de-DE", "location": "52.52,13.405",
                   "webrtc_ip": "203.0.113.7"}
@@ -53,37 +53,37 @@ def test_auto_with_no_proxy_looks_this_machines_own_ip_up_and_fills_every_field(
     assert resolver["timeouts"] == [10.0]  # the default lookup's own budget
 
 
-def test_auto_budget_follows_clearcote_geoip_timeout_seconds(resolver, monkeypatch):
+def test_auto_budget_follows_code_browser_geoip_timeout_seconds(resolver, monkeypatch):
     monkeypatch.setenv("CLEARCOTE_GEOIP_TIMEOUT_SECONDS", "3")
-    clearcote.apply_geoip_mode({}, PROXY, "auto", quiet=True)
+    code_browser.apply_geoip_mode({}, PROXY, "auto", quiet=True)
     assert resolver["timeouts"] == [3.0]
 
 
 def test_auto_reuses_a_no_proxy_lookup_but_looks_a_proxy_up_every_launch(resolver):
-    clearcote.apply_geoip_mode({}, None, "auto", quiet=True)
+    code_browser.apply_geoip_mode({}, None, "auto", quiet=True)
     fp = {}
-    _geo, auto_webrtc_ip = clearcote.apply_geoip_mode(fp, None, "auto", quiet=True)
+    _geo, auto_webrtc_ip = code_browser.apply_geoip_mode(fp, None, "auto", quiet=True)
     assert len(resolver["asked"]) == 1
     assert fp["timezone"] == "Europe/Berlin" and auto_webrtc_ip is True
-    clearcote.apply_geoip_mode({}, PROXY, "auto", quiet=True)
-    clearcote.apply_geoip_mode({}, PROXY, "auto", quiet=True)
+    code_browser.apply_geoip_mode({}, PROXY, "auto", quiet=True)
+    code_browser.apply_geoip_mode({}, PROXY, "auto", quiet=True)
     assert resolver["asked"] == [None, PROXY, PROXY]
 
 
 def test_auto_keeps_what_the_caller_set_and_skips_the_lookup_when_nothing_is_left(resolver):
     fp = {"timezone": "Asia/Tokyo"}
-    clearcote.apply_geoip_mode(fp, PROXY, "auto", quiet=True)
+    code_browser.apply_geoip_mode(fp, PROXY, "auto", quiet=True)
     assert fp["timezone"] == "Asia/Tokyo" and fp["accept_language"] == "de-DE"
     resolver["asked"] = []
     full = {"timezone": "a", "accept_language": "b", "location": "1,2", "webrtc_ip": "198.51.100.1"}
-    assert clearcote.apply_geoip_mode(full, PROXY, "auto", quiet=True) == (None, False)
+    assert code_browser.apply_geoip_mode(full, PROXY, "auto", quiet=True) == (None, False)
     assert resolver["asked"] == []
 
 
 def test_auto_warns_and_launches_when_the_region_cannot_be_resolved(resolver, capsys):
     resolver["answer"] = (None, "could not determine the exit IP", 5)
     fp = {}
-    assert clearcote.apply_geoip_mode(fp, PROXY, "auto", quiet=False) == (None, False)
+    assert code_browser.apply_geoip_mode(fp, PROXY, "auto", quiet=False) == (None, False)
     assert fp == {}
     err = capsys.readouterr().err
     assert "geoip (on by default)" in err and "geoip=False" in err
@@ -92,19 +92,19 @@ def test_auto_warns_and_launches_when_the_region_cannot_be_resolved(resolver, ca
 
 def test_auto_failure_is_silent_when_quiet(resolver, capsys):
     resolver["answer"] = (None, "could not determine the exit IP", 5)
-    clearcote.apply_geoip_mode({}, PROXY, "auto", quiet=True)
+    code_browser.apply_geoip_mode({}, PROXY, "auto", quiet=True)
     assert capsys.readouterr().err == ""
 
 
 def test_strict_still_fails_closed(resolver):
     resolver["answer"] = (None, "could not determine the exit IP", 5)
-    with pytest.raises(clearcote.GeoipError):
-        clearcote.apply_geoip_mode({}, PROXY, "strict", quiet=True)
+    with pytest.raises(code_browser.GeoipError):
+        code_browser.apply_geoip_mode({}, PROXY, "strict", quiet=True)
 
 
 def test_off_asks_nothing(resolver):
     fp = {}
-    assert clearcote.apply_geoip_mode(fp, PROXY, "off", quiet=True) == (None, False)
+    assert code_browser.apply_geoip_mode(fp, PROXY, "off", quiet=True) == (None, False)
     assert resolver["asked"] == [] and fp == {}
 
 
@@ -113,16 +113,16 @@ def test_drop_auto_webrtc_ip_only_on_an_open_build_launch_through_a_proxy():
         return {"timezone": "Europe/Berlin", "webrtc_ip": "203.0.113.7"}
 
     f = fp()
-    clearcote.drop_auto_webrtc_ip(f, (None, True), PROXY, False)
+    code_browser.drop_auto_webrtc_ip(f, (None, True), PROXY, False)
     assert "webrtc_ip" not in f and f["timezone"] == "Europe/Berlin"
     f = fp()
-    clearcote.drop_auto_webrtc_ip(f, (None, True), PROXY, True)
+    code_browser.drop_auto_webrtc_ip(f, (None, True), PROXY, True)
     assert f["webrtc_ip"] == "203.0.113.7"
     f = fp()
-    clearcote.drop_auto_webrtc_ip(f, (None, True), None, False)
+    code_browser.drop_auto_webrtc_ip(f, (None, True), None, False)
     assert f["webrtc_ip"] == "203.0.113.7"
     f = fp()
-    clearcote.drop_auto_webrtc_ip(f, (None, False), PROXY, False)
+    code_browser.drop_auto_webrtc_ip(f, (None, False), PROXY, False)
     assert f["webrtc_ip"] == "203.0.113.7"
 
 
@@ -135,20 +135,20 @@ def _fake_exe(tmp_path):
 
 
 def _prepare_args(tmp_path, **kw):
-    exe, args, _pw, *_ = clearcote._prepare({"executable_path": _fake_exe(tmp_path), "quiet": True,
+    exe, args, _pw, *_ = code_browser._prepare({"executable_path": _fake_exe(tmp_path), "quiet": True,
                                               "widevine": False, **kw})
     return args
 
 
 def test_launch_default_fills_the_persona_from_the_egress(resolver, monkeypatch, tmp_path):
-    monkeypatch.delenv("CLEARCOTE_GEOIP", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_GEOIP", raising=False)
     args = _prepare_args(tmp_path)
     assert resolver["asked"] == [None]
     assert "--timezone=Europe/Berlin" in args and "--webrtc-ip=203.0.113.7" in args
 
 
 def test_launch_open_build_through_a_proxy_keeps_no_default_webrtc_ip(resolver, monkeypatch, tmp_path):
-    monkeypatch.delenv("CLEARCOTE_GEOIP", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_GEOIP", raising=False)
     args = _prepare_args(tmp_path, proxy=PROXY)
     assert "--timezone=Europe/Berlin" in args
     assert not any(a.startswith("--webrtc-ip=") for a in args)
@@ -157,15 +157,15 @@ def test_launch_open_build_through_a_proxy_keeps_no_default_webrtc_ip(resolver, 
     assert "--webrtc-ip=203.0.113.7" in _prepare_args(tmp_path, proxy=PROXY, geoip=True)
 
 
-def test_launch_with_clearcote_geoip_0_asks_nothing(resolver, monkeypatch, tmp_path):
-    monkeypatch.setenv("CLEARCOTE_GEOIP", "0")
+def test_launch_with_code_browser_geoip_0_asks_nothing(resolver, monkeypatch, tmp_path):
+    monkeypatch.setenv("CODE_BROWSER_GEOIP", "0")
     args = _prepare_args(tmp_path, proxy=PROXY)
     assert resolver["asked"] == [] and not any(a.startswith("--webrtc-ip=") for a in args)
 
 
 def test_docker_default_drops_the_webrtc_ip_without_a_key_and_keeps_it_with_one(resolver, monkeypatch,
                                                                                  tmp_path):
-    monkeypatch.delenv("CLEARCOTE_GEOIP", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_GEOIP", raising=False)
     monkeypatch.delenv("CLEARCOTE_LICENSE_KEY", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))  # this machine's own saved key is never read
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
@@ -181,24 +181,24 @@ def test_docker_default_drops_the_webrtc_ip_without_a_key_and_keeps_it_with_one(
 # The same cases as sdk/node/test/webrtc-direct-stun.test.ts.
 
 def test_apply_geoip_mode_reports_the_egress_ip_it_found(resolver):
-    applied = clearcote.apply_geoip_mode({}, None, "auto", quiet=True)
+    applied = code_browser.apply_geoip_mode({}, None, "auto", quiet=True)
     assert applied.ip == "203.0.113.7" and applied.geo["ip"] == "203.0.113.7" and applied.auto_webrtc_ip
-    cached = clearcote.apply_geoip_mode({}, None, "auto", quiet=True)  # from the 10-minute no-proxy cache
+    cached = code_browser.apply_geoip_mode({}, None, "auto", quiet=True)  # from the 10-minute no-proxy cache
     assert len(resolver["asked"]) == 1 and cached.ip == "203.0.113.7" and cached == (None, True)
-    assert clearcote.apply_geoip_mode({}, PROXY, "strict", quiet=True).ip == "203.0.113.7"
-    assert clearcote.apply_geoip_mode({}, PROXY, "off", quiet=True).ip is None
+    assert code_browser.apply_geoip_mode({}, PROXY, "strict", quiet=True).ip == "203.0.113.7"
+    assert code_browser.apply_geoip_mode({}, PROXY, "off", quiet=True).ip is None
 
 
 def test_direct_stun_eligible_only_with_no_proxy_and_the_webrtc_ip_the_lookup_found():
     own = "203.0.113.7"
     fp = {"webrtc_ip": own}
-    ok = clearcote.direct_stun_eligible
-    assert ok(fp, clearcote.GeoipApplied(None, True, own), None) is True
-    assert ok(fp, clearcote.GeoipApplied(None, False, own), None) is True  # geoip=True
-    assert ok(fp, clearcote.GeoipApplied(None, True, own), PROXY) is False
-    assert ok({"webrtc_ip": "198.51.100.9"}, clearcote.GeoipApplied(None, False, own), None) is False
-    assert ok({}, clearcote.GeoipApplied(None, False, own), None) is False
-    assert ok(fp, clearcote.GeoipApplied(None, False), None) is False  # geoip off, hand-set IP
+    ok = code_browser.direct_stun_eligible
+    assert ok(fp, code_browser.GeoipApplied(None, True, own), None) is True
+    assert ok(fp, code_browser.GeoipApplied(None, False, own), None) is True  # geoip=True
+    assert ok(fp, code_browser.GeoipApplied(None, True, own), PROXY) is False
+    assert ok({"webrtc_ip": "198.51.100.9"}, code_browser.GeoipApplied(None, False, own), None) is False
+    assert ok({}, code_browser.GeoipApplied(None, False, own), None) is False
+    assert ok(fp, code_browser.GeoipApplied(None, False), None) is False  # geoip off, hand-set IP
     assert ok(fp, (None, True), None) is False  # a plain tuple carries no IP
 
 
@@ -209,7 +209,7 @@ def _engine(tmp_path, name, switch):
 
 
 def test_webrtc_direct_stun_args_only_on_an_engine_that_has_the_switch(tmp_path):
-    from clearcote._launchopts import webrtc_direct_stun_args
+    from code_browser._launchopts import webrtc_direct_stun_args
     r54 = _engine(tmp_path, "r54.bin", b"webrtc-direct-stun")
     r53 = _engine(tmp_path, "r53.bin", b"socks5-udp")
     assert webrtc_direct_stun_args(r54, True, []) == ["--webrtc-direct-stun"]
@@ -222,11 +222,11 @@ def test_webrtc_direct_stun_args_only_on_an_engine_that_has_the_switch(tmp_path)
 
 
 def test_launch_emits_direct_stun_only_for_this_machines_own_webrtc_ip(resolver, monkeypatch, tmp_path):
-    monkeypatch.delenv("CLEARCOTE_GEOIP", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_GEOIP", raising=False)
     exe = _engine(tmp_path, "r54-chrome.exe", b"webrtc-direct-stun")
 
     def args(**kw):
-        _exe, a, _pw, *_ = clearcote._prepare({"executable_path": exe, "quiet": True, "widevine": False, **kw})
+        _exe, a, _pw, *_ = code_browser._prepare({"executable_path": exe, "quiet": True, "widevine": False, **kw})
         return a
 
     assert "--webrtc-direct-stun" in args()

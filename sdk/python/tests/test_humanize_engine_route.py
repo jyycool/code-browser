@@ -8,11 +8,11 @@ added an idle second walk's worth of time to every click.
 """
 import pytest
 
-import clearcote._humanize as H
+import code_browser._humanize as H
 
 
 class _Clock:
-    """Virtual time for clearcote._humanize: sleep advances it, monotonic reads it."""
+    """Virtual time for code_browser._humanize: sleep advances it, monotonic reads it."""
 
     def __init__(self):
         self.now = 0.0
@@ -99,7 +99,7 @@ class _Page:
 def page(monkeypatch):
     clock = _Clock()
     monkeypatch.setattr(H, "time", clock)
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", raising=False)
     eng = _Engine(clock)
     p = _Page(eng)
     H.attach_humanize(None, p, humanize=True, seed="route")
@@ -147,7 +147,7 @@ def test_the_engine_answer_after_its_walk_is_not_followed_by_a_second_wait(page)
 
 
 def test_engine_clicks_off_keeps_every_click_on_the_planner(page, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", "off")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", "off")
     page.mouse.click(300, 300)
     page.mouse.click(400, 200)
     assert page._eng.calls == []
@@ -157,14 +157,14 @@ def test_engine_clicks_off_keeps_every_click_on_the_planner(page, monkeypatch):
 def test_engine_clicks_mode_values(monkeypatch):
     for v, want in (("", "coords"), ("0", "off"), ("off", "off"), ("False", "off"), ("all", "all"),
                     ("selector", "all"), ("coords", "coords"), ("whatever", "coords")):
-        monkeypatch.setenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", v)
+        monkeypatch.setenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", v)
         assert H._engine_clicks_mode() == want, v
 
 
 # --- the async humanizer: same guard, same wait ---------------------------------------------------
 
 class _AsyncShim:
-    """Stands in for the asyncio module inside clearcote._humanize_async: sleep advances the virtual
+    """Stands in for the asyncio module inside code_browser._humanize_async: sleep advances the virtual
     clock and yields once, everything else is the real asyncio."""
 
     def __init__(self, clock):
@@ -243,11 +243,11 @@ class _APage:
 
 def _async_page(monkeypatch):
     import asyncio
-    import clearcote._humanize_async as HA
+    import code_browser._humanize_async as HA
     clock = _Clock()
     monkeypatch.setattr(HA, "time", clock, raising=False)
     monkeypatch.setattr(HA, "asyncio", _AsyncShim(clock))
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", raising=False)
     eng = _AEngine(clock)
     p = _APage(eng)
     asyncio.run(HA.attach_humanize(None, p, humanize=True, seed="route"))
@@ -341,7 +341,7 @@ class _LoggingEngine(_Engine):
 def test_the_engine_walk_is_sent_only_after_the_frame_wait(monkeypatch):
     clock, log = _Clock(), []
     monkeypatch.setattr(H, "time", clock)
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", raising=False)
     eng = _LoggingEngine(clock, log)
     p = _Page(eng)
     target = _FramesTarget(clock, log)
@@ -354,11 +354,11 @@ def test_the_engine_walk_is_sent_only_after_the_frame_wait(monkeypatch):
 
 def test_async_the_engine_walk_is_sent_only_after_the_frame_wait(monkeypatch):
     import asyncio
-    import clearcote._humanize_async as HA
+    import code_browser._humanize_async as HA
     clock, log = _Clock(), []
     monkeypatch.setattr(HA, "time", clock, raising=False)
     monkeypatch.setattr(HA, "asyncio", _AsyncShim(clock))
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", raising=False)
 
     class _AEng(_LoggingEngine):
         async def send(self, method, params=None):

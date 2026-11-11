@@ -1,6 +1,6 @@
 // In-browser AI agent (OpenRouter / any OpenAI-compatible endpoint).
 //
-//   import { launchAgent, runAgentTask } from "clearcote";
+//   import { launchAgent, runAgentTask } from "code-browser";
 //   const ctx = await launchAgent({
 //     agentLlmKey: process.env.OPENROUTER_API_KEY,   // turns the agent on
 //     agentModel: "openai/gpt-4o-mini",              // any OpenRouter model slug
@@ -14,7 +14,7 @@
 // and drives real (trusted) input through Chrome's Actor framework. Setting `agentLlmKey` (or
 // `agentLlmUrl`) is all that's needed — the engine auto-enables the Actor framework whenever
 // `--agent-llm-url` is present, so no `--enable-features`/`--disable-actor-safety-checks` flags are
-// required. Requires a Clearcote binary that exposes `Browser.agentRunTask`.
+// required. Requires a CodeBrowser binary that exposes `Browser.agentRunTask`.
 //
 // IMPORTANT — the agent needs a REGULAR profile. Chrome's Actor framework only attaches to a normal
 // (persistent) profile, not an incognito one, so drive the agent from `launchAgent()` or
@@ -168,7 +168,7 @@ export async function runAgentTask(
     res = await session.send("Browser.agentRunTask" as any, params as any);
   } catch (e) {
     throw new Error(
-      "Browser.agentRunTask failed — make sure this is a Clearcote build with the AI agent and that " +
+      "Browser.agentRunTask failed — make sure this is a CodeBrowser build with the AI agent and that " +
         "the browser was launched with agentLlmKey/agentLlmUrl set. Underlying error: " +
         (e as Error).message
     );

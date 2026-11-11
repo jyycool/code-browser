@@ -1,4 +1,4 @@
-"""SC 232 integration (lane G's score hook in lanes C/D/E): with ``CLEARCOTE_HUMANIZE_SCORE=1`` every humanized
+"""SC 232 integration (lane G's score hook in lanes C/D/E): with ``CODE_BROWSER_HUMANIZE_SCORE=1`` every humanized
 surface records a scored line -- a hover dwell as ``hover``, a held leg as ``drag`` (the held button on every
 sample), ambient motion as ``ambient``, a typed run as one ``typed`` line of the characters' down/up, and one
 ``wheel`` line per mouse.wheel call -- in the sync and the async humanizer, on the forms simulator. The hook is
@@ -12,10 +12,10 @@ import pytest
 
 import test_humanize_forms_async as SIM
 from _hz_sync_sim import sync_page
-from clearcote import _humanize as HS
-from clearcote import _humanize_async as HA
-from clearcote import _pacing
-from clearcote._motion import make_persona, mulberry32, plan_drag
+from code_browser import _humanize as HS
+from code_browser import _humanize_async as HA
+from code_browser import _pacing
+from code_browser._motion import make_persona, mulberry32, plan_drag
 
 
 def _field():
@@ -60,16 +60,16 @@ def fast(monkeypatch):
         return None
     monkeypatch.setattr(HA.asyncio, "sleep", nosleep)
     monkeypatch.setattr(HS.time, "sleep", lambda s: None)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", raising=False)
 
 
 @pytest.fixture
 def hook(tmp_path, monkeypatch):
     out = tmp_path / "score.jsonl"
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE", "1")
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE_FILE", str(out))
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE_FILE", str(out))
     return out
 
 
@@ -108,8 +108,8 @@ def test_every_humanized_surface_records_its_kind(fast, hook, mode):
 @pytest.mark.parametrize("mode", MODES, ids=lambda m: m.name)
 def test_hook_off_by_default_records_nothing(fast, tmp_path, monkeypatch, mode):
     out = tmp_path / "score.jsonl"
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_SCORE", raising=False)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE_FILE", str(out))
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_SCORE", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE_FILE", str(out))
     sim, page = mode.page(_field())
     _drive(mode, page)
     assert not out.exists()

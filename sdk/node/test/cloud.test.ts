@@ -19,9 +19,9 @@ import { FINGERPRINT_KEYS } from "../src/fingerprint.js";
 import { AGENT_KEYS } from "../src/agent.js";
 import { API_KEY, LIVE, RECORDING, startFakeCloud, type FakeCloud } from "./helpers/fake-cloud.js";
 
-// HOME and the licence key too: a local launch here must never find a real key (~/.clearcote/license.key on a
+// HOME and the licence key too: a local launch here must never find a real key (~/.code-browser/license.key on a
 // developer machine) and take a real lease from the licence server.
-const ENV = ["CLEARCOTE_API_KEY", "CLEARCOTE_API_URL", "CLEARCOTE_CLOUD", "CLEARCOTE_LICENSE_KEY", "HOME", "USERPROFILE"];
+const ENV = ["CODE_BROWSER_API_KEY", "CODE_BROWSER_API_URL", "CODE_BROWSER_CLOUD", "CLEARCOTE_LICENSE_KEY", "HOME", "USERPROFILE"];
 const saved: Record<string, string | undefined> = {};
 let api: FakeCloud;
 let tmp: string;
@@ -29,9 +29,9 @@ let tmp: string;
 beforeEach(async () => {
   for (const k of ENV) saved[k] = process.env[k];
   api = await startFakeCloud();
-  process.env.CLEARCOTE_API_KEY = API_KEY;
-  process.env.CLEARCOTE_API_URL = api.url;
-  delete process.env.CLEARCOTE_CLOUD;
+  process.env.CODE_BROWSER_API_KEY = API_KEY;
+  process.env.CODE_BROWSER_API_URL = api.url;
+  delete process.env.CODE_BROWSER_CLOUD;
   tmp = mkdtempSync(join(tmpdir(), "cc-cloud-"));
   process.env.HOME = tmp;
   process.env.USERPROFILE = tmp;
@@ -49,44 +49,44 @@ afterEach(async () => {
 
 describe("local or cloud", () => {
   it.each([["1", true], ["true", true], ["YES", true], [" yes ", true], ["0", false], ["", false], ["no", false], ["cloud", false]])(
-    "CLEARCOTE_CLOUD=%j -> %s", (value, expected) => {
-      process.env.CLEARCOTE_CLOUD = value as string;
+    "CODE_BROWSER_CLOUD=%j -> %s", (value, expected) => {
+      process.env.CODE_BROWSER_CLOUD = value as string;
       expect(cloudRequested(undefined)).toBe(expected);
     });
 
   it("an explicit flag beats the environment", () => {
-    process.env.CLEARCOTE_CLOUD = "1";
+    process.env.CODE_BROWSER_CLOUD = "1";
     expect(cloudRequested(false)).toBe(false);
     expect(cloudRequested("false" as never)).toBe(false);
-    delete process.env.CLEARCOTE_CLOUD;
+    delete process.env.CODE_BROWSER_CLOUD;
     expect(cloudRequested(true)).toBe(true);
   });
 
-  it("launch() follows CLEARCOTE_CLOUD, and cloud:false keeps it local", async () => {
+  it("launch() follows CODE_BROWSER_CLOUD, and cloud:false keeps it local", async () => {
     const connect = vi.spyOn(chromium, "connectOverCDP").mockResolvedValue(fakeBrowser() as never);
-    process.env.CLEARCOTE_CLOUD = "1";
+    process.env.CODE_BROWSER_CLOUD = "1";
     await launch({ country: "us" } as never);
     expect(connect).toHaveBeenCalledTimes(1);
     // a cloud launch humanizes in the SDK by default, so it switches the server's own mouse humanizer off
     expect(api.requests("POST", "/api/v1/browsers")[0].body).toEqual({ country: "us", humanize: false });
     // local: refused on the missing binary before any browser starts, without ever talking to the API
     const local = vi.spyOn(chromium, "launchPersistentContext");
-    await expect(launch({ cloud: false, executablePath: join(tmp, "missing", "chrome"), apiKey: "k", quiet: true })).rejects.toThrow(/Clearcote binary not found/);
+    await expect(launch({ cloud: false, executablePath: join(tmp, "missing", "chrome"), apiKey: "k", quiet: true })).rejects.toThrow(/CodeBrowser binary not found/);
     expect(local).not.toHaveBeenCalled();
     expect(api.requests("POST")).toHaveLength(1);
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
   it("needs an API key", async () => {
-    delete process.env.CLEARCOTE_API_KEY;
-    expect(() => new Cloud()).toThrow(/CLEARCOTE_API_KEY/);
-    await expect(launch({ cloud: true, country: "us" })).rejects.toThrow(/CLEARCOTE_API_KEY/);
+    delete process.env.CODE_BROWSER_API_KEY;
+    expect(() => new Cloud()).toThrow(/CODE_BROWSER_API_KEY/);
+    await expect(launch({ cloud: true, country: "us" })).rejects.toThrow(/CODE_BROWSER_API_KEY/);
   });
 
   it("base URL: default, env, argument", () => {
-    delete process.env.CLEARCOTE_API_URL;
+    delete process.env.CODE_BROWSER_API_URL;
     expect(new Cloud({ apiKey: "k" }).baseUrl).toBe("https://www.clearcotelabs.com");
-    process.env.CLEARCOTE_API_URL = "http://127.0.0.1:8480/";
+    process.env.CODE_BROWSER_API_URL = "http://127.0.0.1:8480/";
     expect(new Cloud({ apiKey: "k" }).baseUrl).toBe("http://127.0.0.1:8480");
     expect(new Cloud({ apiKey: "k", baseUrl: "https://staging.example" }).baseUrl).toBe("https://staging.example");
     expect(JSON.stringify(new Cloud({ apiKey: "cc_live_secret" }))).not.toContain("cc_live_secret");
@@ -101,7 +101,7 @@ describe("local or cloud", () => {
   it.each(["http://www.clearcotelabs.com", "http://10.0.0.5:8480", "http://127.0.0.2", "http://localhost.evil.com",
     "http://127.0.0.1.nip.io", "http://[::2]"])("refuses plain http off this machine: %s", async (url) => {
     expect(() => new Cloud({ apiKey: "k", baseUrl: url })).toThrow(/unencrypted/);
-    process.env.CLEARCOTE_API_URL = url;
+    process.env.CODE_BROWSER_API_URL = url;
     await expect(launch({ cloud: true, apiKey: "k" })).rejects.toThrow(/unencrypted/);
   });
 
@@ -254,14 +254,14 @@ describe("launch({ cloud: true })", () => {
     expect(humanized).toEqual([true, true, false]); // unset -> the SDK's humanize is ON
   });
 
-  it("CLEARCOTE_CLOUD=1 moves an unedited script to the cloud humanized too", async () => {
+  it("CODE_BROWSER_CLOUD=1 moves an unedited script to the cloud humanized too", async () => {
     const fb = fakeBrowser();
     vi.spyOn(chromium, "connectOverCDP").mockResolvedValue(fb as never);
-    process.env.CLEARCOTE_CLOUD = "1";
+    process.env.CODE_BROWSER_CLOUD = "1";
     try {
       await launch({ identity: "a" } as never);
     } finally {
-      delete process.env.CLEARCOTE_CLOUD;
+      delete process.env.CODE_BROWSER_CLOUD;
     }
     expect(api.requests("POST", "/api/v1/browsers").at(-1)!.body).toEqual({ identity: "a", humanize: false });
     expect((fb.contexts()[0] as { listens: string[] }).listens).toContain("page");

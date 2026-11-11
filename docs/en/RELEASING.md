@@ -1,6 +1,6 @@
-# Releasing Clearcote — the standing runbook
+# Releasing CodeBrowser — the standing runbook
 
-**This is the canonical process for cutting a Clearcote release. Follow it every time, top to bottom.** It exists so that every published build is *reproducible, checksummed, and GPG-signed against a pinned key* — a user must always be able to prove, without trusting us, that what they downloaded is exactly what we built and that it hasn't been tampered with.
+**This is the canonical process for cutting a CodeBrowser release. Follow it every time, top to bottom.** It exists so that every published build is *reproducible, checksummed, and GPG-signed against a pinned key* — a user must always be able to prove, without trusting us, that what they downloaded is exactly what we built and that it hasn't been tampered with.
 
 If you deviate, document why in the release notes. Do not silently skip a step — especially a verification or signing step.
 
@@ -16,7 +16,7 @@ If you deviate, document why in the release notes. Do not silently skip a step �
 4. **Reproducible & auditable — but don't over-claim.** The build is rebuildable from the pinned `UPSTREAM_REVISION` + the readable patch set + the published `config/args.gn`. Chromium cross-builds are **not yet bit-for-bit deterministic**, so frame the guarantee as "every change is an auditable patch and the config is public," not "rebuild and the hash matches." Reserve the hash-match/attestation promise for when a deterministic build lands (ROADMAP Phase 4).
 5. **Pre-release until validated.** Any build not yet passed against live detection sites on real Windows is `--prerelease` with the caveats spelled out. No exceptions.
 6. **Honest caveats, gated on the real artifact.** The release notes must state what is *not* done (§9). Drop a caveat only when the **actual built artifact's `args.gn`** (not the repo's reference config) justifies it.
-7. **Brand is `clearcote`.** Public-facing names, asset names, SDK import, and docs all say *clearcote* (org `clearcotelabs`, repo `clearcote-browser`). "clearcoat" is only the internal build codename on the host — it must never leak into a published asset *name*. (Note: the current signing key's UID still reads "clearcoat release signing" — see §6; that prints on `gpg --verify`. Rotating to a `clearcote`-named key is tracked as a cleanup.)
+7. **Brand is `code-browser`.** Public-facing names, asset names, SDK import, and docs all say *code-browser* (org `clearcotelabs`, repo `code-browser-browser`). "code-browser" is only the internal build codename on the host — it must never leak into a published asset *name*. (Note: the current signing key's UID still reads "code-browser release signing" — see §6; that prints on `gpg --verify`. Rotating to a `code-browser`-named key is tracked as a cleanup.)
 
 ---
 
@@ -28,31 +28,31 @@ Set these in your environment per release — **never commit them**:
 export BOX=user@your-build-host      # the Linux build/signing host (private; keep its address out of the repo)
 ```
 ```powershell
-$STAGE = "C:\clearcote\release"        # local staging dir for the artifacts (your machine; not committed)
+$STAGE = "C:\code-browser\release"        # local staging dir for the artifacts (your machine; not committed)
 ```
 
 | Thing | Location |
 |---|---|
 | Build host | `$BOX` (key-based SSH) |
-| Build tree (host) | `~/clearcoat/build/src`, output in `out/Default` |
-| Dist/staging dir (host) | `~/clearcoat/dist/` |
-| VC++ runtime DLLs (host) | `~/clearcoat/dist/vcredist/` |
+| Build tree (host) | `~/code-browser/build/src`, output in `out/Default` |
+| Dist/staging dir (host) | `~/code-browser/dist/` |
+| VC++ runtime DLLs (host) | `~/code-browser/dist/vcredist/` |
 | GPG signing key | ed25519, fingerprint `CA96F185F96A693AEDB3AC1FCB00D851B7A86B0F`, **no passphrase**, in the host keyring |
 | Local staging (Windows) | `$STAGE` |
 | Repo clone (Windows) | a fresh temp dir, re-cloned per release (§11) |
 | `gh` CLI | the GitHub CLI, authenticated as a repo **ADMIN** |
-| Repo | `clearcotelabs/clearcote-browser`, default branch `main` |
+| Repo | `jyycool/code-browser`, default branch `main` |
 
 > The private key lives **only on the build host** and has no passphrase, so it signs non-interactively. Treat the host as the signing authority. Never copy the private key off it; never print it.
 >
-> Keep `dist/` tidy: remove any stale **codename-named** leftovers (`clearcoat-signing-key.asc`, old `clearcoat-*.zip`) so a later wildcard `scp`/upload can't accidentally pick up a `clearcoat`-named file.
+> Keep `dist/` tidy: remove any stale **codename-named** leftovers (`code-browser-signing-key.asc`, old `code-browser-*.zip`) so a later wildcard `scp`/upload can't accidentally pick up a `code-browser`-named file.
 
 ---
 
 ## 2. Versioning & tags
 
 - Tag format: `vMAJOR.MINOR.PATCH` with a `-pre.N` suffix while unvalidated, e.g. `v0.1.0-pre.1`, … then `v0.1.0` once a build passes Windows validation (§13).
-- The **Chromium version** goes in the *asset* name; the tag tracks Clearcote's own release line.
+- The **Chromium version** goes in the *asset* name; the tag tracks CodeBrowser's own release line.
 - **One tag = one immutable artifact set.** To fix a published release, cut a **new** `-pre.N+1`; never re-point an existing tag others may have pulled (§14).
 
 ---
@@ -62,21 +62,21 @@ $STAGE = "C:\clearcote\release"        # local staging dir for the artifacts (yo
 For Chromium version `$V` (e.g. `151.0.7922.108`) and platform `$PLAT` (e.g. `windows-x64`):
 
 ```
-clearcote-$V-$PLAT.zip            # the build
-clearcote-$V-$PLAT.zip.sha256     # per-artifact checksum (sha256sum -c compatible)
-clearcote-$V-$PLAT.zip.sha256.asc # GPG detached sig of the above
+code-browser-$V-$PLAT.zip            # the build
+code-browser-$V-$PLAT.zip.sha256     # per-artifact checksum (sha256sum -c compatible)
+code-browser-$V-$PLAT.zip.sha256.asc # GPG detached sig of the above
 SHA256SUMS.txt                    # aggregate: zip + chrome.exe + chrome.dll
 SHA256SUMS.txt.asc                # GPG detached sig of SHA256SUMS.txt
-clearcote-signing-key.asc         # ASCII-armored public signing key (convenience copy; trust the pinned fingerprint, §0.2)
+code-browser-signing-key.asc         # ASCII-armored public signing key (convenience copy; trust the pinned fingerprint, §0.2)
 ```
 
-[VERIFY.md](VERIFY.md) documents `clearcote-<version>-<platform>.zip` + `.sha256` to users — the published names **must** match it, or the verify instructions break.
+[VERIFY.md](VERIFY.md) documents `code-browser-<version>-<platform>.zip` + `.sha256` to users — the published names **must** match it, or the verify instructions break.
 
 ---
 
 ## 4. Build + stage the artifact
 
-Full recipe: [BUILDING.md](BUILDING.md); deep cross-build gotchas: [RESEARCH-DOSSIER.md](RESEARCH-DOSSIER.md). On the build host: ungoogled-chromium `$V` → prune → apply ungoogled patches → apply Clearcote patches → copy `config/args.gn` → `gn gen out/Default` → **`ninja -C out/Default chrome`** (same `out/Default` as BUILDING.md/AGENTS.md — do not use `out/Release`, which only holds the in-tree `gn`).
+Full recipe: [BUILDING.md](BUILDING.md); deep cross-build gotchas: [RESEARCH-DOSSIER.md](RESEARCH-DOSSIER.md). On the build host: ungoogled-chromium `$V` → prune → apply ungoogled patches → apply CodeBrowser patches → copy `config/args.gn` → `gn gen out/Default` → **`ninja -C out/Default chrome`** (same `out/Default` as BUILDING.md/AGENTS.md — do not use `out/Release`, which only holds the in-tree `gn`).
 
 Pre-flight checks:
 
@@ -89,14 +89,14 @@ Pre-flight checks:
 ```bash
 ssh "$BOX" 'bash -s' <<'EOF'
 set -e
-cd ~/clearcoat/build/src/out/Default
-zip -r ~/clearcoat/dist/clearcoat-win-x64.zip \
+cd ~/code-browser/build/src/out/Default
+zip -r ~/code-browser/dist/code-browser-win-x64.zip \
     chrome.exe chrome.dll chrome_elf.dll chrome_wer.dll \
     *.manifest \
     *.pak *.bin *.dat *.json locales \
     libEGL.dll libGLESv2.dll d3dcompiler_47.dll \
     vk_swiftshader.dll vulkan-1.dll VkICD_mock_icd.dll VkLayer_khronos_validation.dll
-echo "staged:"; unzip -l ~/clearcoat/dist/clearcoat-win-x64.zip | tail -1
+echo "staged:"; unzip -l ~/code-browser/dist/code-browser-win-x64.zip | tail -1
 EOF
 ```
 
@@ -106,15 +106,15 @@ EOF
 
 ## 4a. Patch-integrity gate — MANDATORY (blocks packaging, signing, and publish)
 
-Clearcote *is* its patch set, and a lost stealth patch **fails open** — the browser still
+CodeBrowser *is* its patch set, and a lost stealth patch **fails open** — the browser still
 launches, just less stealthy — so before you package or sign anything, prove that **every patch
 is actually in the tree that built this binary AND compiled into the binary itself.** This is
-the standard; see [PATCH-INTEGRITY.md](PATCH-INTEGRITY.md). Run from your Clearcote repo checkout
+the standard; see [PATCH-INTEGRITY.md](PATCH-INTEGRITY.md). Run from your CodeBrowser repo checkout
 (the one whose `patches/` produced this build), against the build tree and the freshly-built
 `chrome.dll`:
 
 ```bash
-# $SRC = the build tree (e.g. ~/clearcote-build/build/src on the build host)
+# $SRC = the build tree (e.g. ~/code-browser-build/build/src on the build host)
 python3 scripts/verify_patches.py \
   --tree "$SRC" --target windows \
   --binary "$SRC/out/Default/chrome.dll"
@@ -151,13 +151,13 @@ concrt140.dll  msvcp140.dll  ucrtbase.dll  vcruntime140.dll  vcruntime140_1.dll
 ```bash
 ssh "$BOX" 'bash -s' <<'EOF'
 set -e
-cd ~/clearcoat/dist
+cd ~/code-browser/dist
 V=151.0.7922.108            # <-- set to this release's Chromium version
 PLAT=windows-x64
-ASSET=clearcote-${V}-${PLAT}.zip
+ASSET=code-browser-${V}-${PLAT}.zip
 
-test -f clearcoat-win-x64.zip || { echo 'staged build zip not found — run the §4 staging step'; exit 1; }
-cp -f clearcoat-win-x64.zip "$ASSET"          # internal codename -> public name
+test -f code-browser-win-x64.zip || { echo 'staged build zip not found — run the §4 staging step'; exit 1; }
+cp -f code-browser-win-x64.zip "$ASSET"          # internal codename -> public name
 
 # add the VC++ 2015-2022 runtime at the archive root (-j junks paths)
 zip -j "$ASSET" vcredist/concrt140.dll vcredist/msvcp140.dll vcredist/ucrtbase.dll \
@@ -177,9 +177,9 @@ EOF
 ```bash
 ssh "$BOX" 'bash -s' <<'EOF'
 set -e
-cd ~/clearcoat/dist
+cd ~/code-browser/dist
 V=151.0.7922.108; PLAT=windows-x64
-ASSET=clearcote-${V}-${PLAT}.zip
+ASSET=code-browser-${V}-${PLAT}.zip
 FPR=CA96F185F96A693AEDB3AC1FCB00D851B7A86B0F
 
 # hash the zip; hash the two key binaries (extracted names, unchanged by repackaging)
@@ -199,23 +199,23 @@ SIGN SHA256SUMS.txt        SHA256SUMS.txt.asc
 SIGN "${ASSET}.sha256"     "${ASSET}.sha256.asc"
 
 # export the public key under the PUBLIC name, and remove any codename-named copy
-gpg --armor --export "$FPR" > clearcote-signing-key.asc
-rm -f clearcoat-signing-key.asc
+gpg --armor --export "$FPR" > code-browser-signing-key.asc
+rm -f code-browser-signing-key.asc
 
 echo "ZIPHASH=$ZIPHASH"
 EOF
 ```
 
-> The key's UID currently prints as **`clearcoat release signing …`** on `gpg --verify` — expected for now (it's a UID, not an asset name). Before a *stable* release, rotate to a `clearcote`-named key and re-sign so the codename doesn't surface to users (§0.7).
+> The key's UID currently prints as **`code-browser release signing …`** on `gpg --verify` — expected for now (it's a UID, not an asset name). Before a *stable* release, rotate to a `code-browser`-named key and re-sign so the codename doesn't surface to users (§0.7).
 
 ---
 
 ## 7. Verify on the build host (before you move anything)
 
 ```bash
-ssh "$BOX" 'cd ~/clearcoat/dist && \
+ssh "$BOX" 'cd ~/code-browser/dist && \
   gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt && \
-  sha256sum -c clearcote-*-windows-x64.zip.sha256'
+  sha256sum -c code-browser-*-windows-x64.zip.sha256'
 ```
 
 **Acceptance:** `Good signature` **and** the signing key's fingerprint equals the pinned `CA96F185…B7A86B0F` (on the host it shows `[ultimate]` because the key is in the keyring — that trust marker is *not* the proof; the fingerprint match is). Checksum must report `OK`. If either fails, stop — do not transfer or publish.
@@ -230,9 +230,9 @@ Run from the parent of `$STAGE` so the destination is a **relative** path — `s
 # ensure the local dest dir exists first (scp errors "not a directory" otherwise)
 mkdir -p release
 scp -o StrictHostKeyChecking=no \
-  "$BOX:~/clearcoat/dist/clearcote-151.0.7922.108-windows-x64.zip*" \
-  "$BOX:~/clearcoat/dist/SHA256SUMS.txt*" \
-  "$BOX:~/clearcoat/dist/clearcote-signing-key.asc" \
+  "$BOX:~/code-browser/dist/code-browser-151.0.7922.108-windows-x64.zip*" \
+  "$BOX:~/code-browser/dist/SHA256SUMS.txt*" \
+  "$BOX:~/code-browser/dist/code-browser-signing-key.asc" \
   release/
 ```
 
@@ -241,7 +241,7 @@ scp -o StrictHostKeyChecking=no \
 Then confirm the transfer is byte-identical to the signed value (PowerShell):
 
 ```powershell
-$z = "$STAGE\clearcote-151.0.7922.108-windows-x64.zip"
+$z = "$STAGE\code-browser-151.0.7922.108-windows-x64.zip"
 (Get-FileHash $z -Algorithm SHA256).Hash.ToLower()   # must equal ZIPHASH / the zip line in SHA256SUMS.txt
 ```
 
@@ -253,13 +253,13 @@ If it doesn't match, re-transfer. Never upload a local file whose hash doesn't m
 
 Create `RELEASE_NOTES.md` in `$STAGE`. It **must** contain: the download table, the verify block (GPG + checksum commands + the actual hashes), the working quickstart, and the caveats checklist. **Pin the notes to this build** by including the exact `ZIPHASH`.
 
-Canonical quickstart (keep byte-consistent with the README — Python `executable_path`, snake_case; `clearcote`-branded path):
+Canonical quickstart (keep byte-consistent with the README — Python `executable_path`, snake_case; `code-browser`-branded path):
 
 ```python
 from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     b = p.chromium.launch(
-        executable_path=r"C:\clearcote\chrome.exe",
+        executable_path=r"C:\code-browser\chrome.exe",
         args=["--fingerprint=seed-123", "--fingerprint-platform=windows"],
     )
     b.new_page().goto("https://abrahamjuliot.github.io/creepjs/")
@@ -280,7 +280,7 @@ Build a full PowerShell **arg array and splat it** — no backtick line-continua
 ```powershell
 $gh   = "gh"                              # GitHub CLI on PATH (or its full path)
 $git  = "git"
-$repo = "$env:TEMP\clearcote-pub"         # the fresh clone (§11)
+$repo = "$env:TEMP\code-browser-pub"         # the fresh clone (§11)
 $tag  = "v0.1.0-pre.1"
 $V    = "151.0.7922.108"
 
@@ -289,23 +289,23 @@ $V    = "151.0.7922.108"
 & $git -C $repo rev-parse origin/main      # confirm == the commit you intend to tag; if not, fix main first, don't publish
 
 $assets = @(
- "$STAGE\clearcote-$V-windows-x64.zip",
- "$STAGE\clearcote-$V-windows-x64.zip.sha256",
- "$STAGE\clearcote-$V-windows-x64.zip.sha256.asc",
+ "$STAGE\code-browser-$V-windows-x64.zip",
+ "$STAGE\code-browser-$V-windows-x64.zip.sha256",
+ "$STAGE\code-browser-$V-windows-x64.zip.sha256.asc",
  "$STAGE\SHA256SUMS.txt",
  "$STAGE\SHA256SUMS.txt.asc",
- "$STAGE\clearcote-signing-key.asc"
+ "$STAGE\code-browser-signing-key.asc"
 )
-$ghArgs  = @('release','create',$tag,'--repo','clearcotelabs/clearcote-browser')
+$ghArgs  = @('release','create',$tag,'--repo','jyycool/code-browser')
 $ghArgs += $assets
-$ghArgs += @('--title', "Clearcote Browser $tag (Chromium $V, Windows x64)")
+$ghArgs += @('--title', "CodeBrowser Browser $tag (Chromium $V, Windows x64)")
 $ghArgs += @('--notes-file', "$STAGE\RELEASE_NOTES.md", '--prerelease')
 & $gh @ghArgs
 ```
 
 > Drop `--prerelease` only for a validated stable release. `gh release create` creates the tag on `main`'s current HEAD — that's why the pre-publish `rev-parse` check matters.
 
-Amend notes after publishing: `& $gh release edit $tag --repo clearcotelabs/clearcote-browser --notes-file "$STAGE\RELEASE_NOTES.md"`.
+Amend notes after publishing: `& $gh release edit $tag --repo jyycool/code-browser --notes-file "$STAGE\RELEASE_NOTES.md"`.
 
 ---
 
@@ -313,7 +313,7 @@ Amend notes after publishing: `& $gh release edit $tag --repo clearcotelabs/clea
 
 ```powershell
 # fresh clone (avoid Remove-Item -Recurse on protected paths)
-& $gh repo clone clearcotelabs/clearcote-browser "$env:TEMP\clearcote-pub"
+& $gh repo clone jyycool/code-browser "$env:TEMP\code-browser-pub"
 
 # one-time, in this clone: keep commits on the public handle only — no personal email
 & $git -C $repo config user.name  pim97
@@ -325,7 +325,7 @@ Amend notes after publishing: `& $gh release edit $tag --repo clearcotelabs/clea
 Every release MUST refresh `patches/` so a third party can rebuild the published binary from source. The committed set **drifts** — the build tree gets edited between releases without re-capturing — so **always regenerate; never assume `patches/` is current.** On the build host:
 
 ```bash
-ssh "$BOX" 'cd ~/clearcoat && bash gen_patches.sh'   # diffs tree vs pristine baseline, groups, self-validates
+ssh "$BOX" 'cd ~/code-browser && bash gen_patches.sh'   # diffs tree vs pristine baseline, groups, self-validates
 ```
 
 `gen_patches.sh` reconstructs a pristine `151 → prune → ungoogled → windows-overlay` baseline, diffs the build tree against it (fetched toolchain **and** `*.cfbak*`/`*.bak`/`*.orig`/`*.rej` excluded), groups each changed file into exactly one concern-patch, writes `series`, then **self-validates that every patch re-applies with ZERO rejects** and leak-scans. **Acceptance:** `VALIDATION fail=0`, nothing left in `950-misc-REVIEW` (add a `group_for` mapping for any new file and re-run), and `leak scan clean`. Then copy `out_patches_full/*.patch` + `series` over `patches/`, update `patches/README.md`'s series table (new rows + revised descriptions), and commit them **in the same push** as the README banner below. Because each source file lives in exactly one patch, zero-reject per-patch equals a clean sequential apply — so applying the series to a fresh baseline reproduces this build's source tree. After regenerating, **re-run the §4a patch-integrity gate**: Layer 1 must now be clean (the refreshed `patches/` reverse-apply to the build tree), which is the machine-checkable proof that the committed set reproduces this binary. `gen_patches.sh` validates re-apply against a *pristine* baseline; the §4a gate validates it against the *actual built tree* + the *actual binary* — keep both.
@@ -343,8 +343,8 @@ ssh "$BOX" 'cd ~/clearcoat && bash gen_patches.sh'   # diffs tree vs pristine ba
 
 ```powershell
 $desc = "Open-source anti-detect Chromium <MAJOR> with engine-level fingerprint spoofing - de-Googled, drop-in Playwright, Windows x64, fully buildable and verifiable from source."
-$editArgs  = @('repo','edit','clearcotelabs/clearcote-browser','--description',$desc)
-$editArgs += @('--homepage','https://github.com/clearcotelabs/clearcote-browser')
+$editArgs  = @('repo','edit','jyycool/code-browser','--description',$desc)
+$editArgs += @('--homepage','https://github.com/jyycool/code-browser')
 foreach ($t in 'anti-detect-browser','chromium','fingerprint','playwright','ungoogled-chromium','web-scraping','stealth-browser','anti-fingerprinting') { $editArgs += @('--add-topic', $t) }
 & $gh @editArgs
 ```
@@ -357,18 +357,18 @@ foreach ($t in 'anti-detect-browser','chromium','fingerprint','playwright','ungo
 
 ```powershell
 # comma-free jq only (a jq expr with top-level commas gets mis-split by the shell)
-& $gh api repos/clearcotelabs/clearcote-browser/releases/tags/v0.1.0-pre.1 --jq '.assets[].name'
-& $gh api repos/clearcotelabs/clearcote-browser/releases/tags/v0.1.0-pre.1 --jq '.prerelease'
+& $gh api repos/jyycool/code-browser/releases/tags/v0.1.0-pre.1 --jq '.assets[].name'
+& $gh api repos/jyycool/code-browser/releases/tags/v0.1.0-pre.1 --jq '.prerelease'
 ```
 
 Confirm all **6** assets present and `prerelease` is `true` (until validated). Then do a **clean-room verify as a user would** — download the assets to a scratch dir and:
 
 ```bash
-gpg --with-fingerprint --show-keys clearcote-signing-key.asc   # fingerprint must equal CA96F185…6B0F
-gpg --import clearcote-signing-key.asc
+gpg --with-fingerprint --show-keys code-browser-signing-key.asc   # fingerprint must equal CA96F185…6B0F
+gpg --import code_browser-signing-key.asc
 gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt                  # Good signature (a "not certified" WARNING is expected)
-sha256sum -c clearcote-151.0.7922.108-windows-x64.zip.sha256    # OK
-unzip -p clearcote-151.0.7922.108-windows-x64.zip chrome.exe | sha256sum   # matches chrome.exe in SHA256SUMS.txt
+sha256sum -c code-browser-151.0.7922.108-windows-x64.zip.sha256    # OK
+unzip -p code-browser-151.0.7922.108-windows-x64.zip chrome.exe | sha256sum   # matches chrome.exe in SHA256SUMS.txt
 ```
 
 Then run the **stealth-coherence gate** against the shipped binary on real Windows — it asserts the persona/farble layer doesn't betray itself (text metrics on the 1/512 grid, main thread == worker, BCR == Range, render bytes origin-invariant, WebGPU vendor coheres with WebGL). It must report **no contract violation** (no REQUIRED check failing = no regression; no `KNOWN_GAP` newly passing without being promoted). See [docs/en/STEALTH-COHERENCE.md](STEALTH-COHERENCE.md).
@@ -390,7 +390,7 @@ Drop the `-pre.N` suffix and `--prerelease` only when **all** hold:
 - [ ] **Validated on real Windows** against CreepJS / BrowserScan / Pixelscan: same seed ⇒ stable fingerprint, different seeds differ, `navigator.webdriver=false`, canvas/WebGL/audio shift with the seed.
 - [ ] **Stealth-coherence gate passes** (`scripts/stealth_coherence.py`, or the "Stealth coherence" workflow): no REQUIRED check regressed, and any `KNOWN_GAP` that now passes has been promoted into `REQUIRED`. See [docs/en/STEALTH-COHERENCE.md](STEALTH-COHERENCE.md).
 - [ ] `config/args.gn` / `config/args.linux.gn` match the shipped binaries (§4).
-- [ ] Signing key rotated to a `clearcote`-named UID (§6) so verification output is on-brand.
+- [ ] Signing key rotated to a `code-browser`-named UID (§6) so verification output is on-brand.
 - [ ] The caveats that gated "pre-release" (§9) are genuinely resolved or explicitly accepted.
 
 ---
@@ -418,11 +418,11 @@ Drop the `-pre.N` suffix and `--prerelease` only when **all** hold:
 ```
 [ ] <repo>/UPSTREAM_REVISION == release Chromium version
 [ ] config/args.gn + args.linux.gn match the artifacts' actual args.gn (official, PGO profile name)
-[ ] built in out/Default; staged into clearcoat-win-x64.zip (full runtime, ~700 entries)
+[ ] built in out/Default; staged into code-browser-win-x64.zip (full runtime, ~700 entries)
 [ ] PATCH-INTEGRITY GATE green (§4a): verify_patches.py --tree (Layer 1) + --binary (Layer 2) exit 0 — BLOCKS publish
-[ ] repackaged to clearcote-$V-windows-x64.zip WITH the 5 VC++ runtime DLLs (unzip -l | grep)
+[ ] repackaged to code-browser-$V-windows-x64.zip WITH the 5 VC++ runtime DLLs (unzip -l | grep)
 [ ] SHA256SUMS.txt (zip+exe+dll) + per-asset .sha256 generated
-[ ] both signed; clearcote-signing-key.asc exported; codename leftovers removed from dist/
+[ ] both signed; code-browser-signing-key.asc exported; codename leftovers removed from dist/
 [ ] gpg --verify OK + fingerprint == CA96F185…6B0F + sha256sum -c OK  (ON THE HOST)
 [ ] scp to local (dest dir exists); Get-FileHash matches signed value
 [ ] RELEASE_NOTES.md written incl. caveats checklist + correct hashes + pinned ZIPHASH

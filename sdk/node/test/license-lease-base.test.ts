@@ -1,6 +1,6 @@
 // Where the lease calls go (SDK 0.55). By default: the licence lease server, and clearcotelabs.com when it
 // cannot be reached (network error, gateway error, challenge page), once per call, with the primary skipped
-// for a while after it failed. A base that is set (`licenseApiBase`, CLEARCOTE_LICENSE_API, CLEARCOTE_LEASE_API)
+// for a while after it failed. A base that is set (`licenseApiBase`, CODE_BROWSER_LICENSE_API, CODE_BROWSER_LEASE_API)
 // is the only one used. Real local HTTP servers stand in for both bases; fetch is wrapped to record every URL
 // and to refuse any host but this machine, so no test can reach a real licence server.
 import { describe, it, expect, afterEach } from "vitest";
@@ -14,8 +14,8 @@ import { tempDir } from "./helpers/temp.js";
 
 const realFetch = globalThis.fetch;
 const savedDefaults = { ...leaseDefaults, rateLimitRetryMs: [...leaseDefaults.rateLimitRetryMs] };
-const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_LICENSE_API", "CLEARCOTE_LEASE_API",
-  "CLEARCOTE_INSTANCE_ID", "CLEARCOTE_LICENSE_THROUGH_PROXY"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_LEASE_API",
+  "CODE_BROWSER_INSTANCE_ID", "CODE_BROWSER_LICENSE_THROUGH_PROXY"] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const servers: Server[] = [];
 const open: LeaseSession[] = [];
@@ -43,7 +43,7 @@ function isolate(): string {
   process.env.HOME = home;
   process.env.USERPROFILE = home;
   process.env.LOCALAPPDATA = home;
-  for (const k of ["CLEARCOTE_LICENSE_API", "CLEARCOTE_LEASE_API", "CLEARCOTE_INSTANCE_ID", "CLEARCOTE_LICENSE_THROUGH_PROXY"]) delete process.env[k];
+  for (const k of ["CODE_BROWSER_LICENSE_API", "CODE_BROWSER_LEASE_API", "CODE_BROWSER_INSTANCE_ID", "CODE_BROWSER_LICENSE_THROUGH_PROXY"]) delete process.env[k];
   leaseDefaults.rateLimitRetryMs = [1, 1, 1];
   const key = `cc_lic_base_${Date.now()}_${++seq}`;
   process.env.CLEARCOTE_LICENSE_KEY = key;
@@ -241,8 +241,8 @@ describe("default lease bases: the lease server, then clearcotelabs.com", () => 
   it("both bases unreachable + a valid paid grace token: the browser starts uncounted; the next checkout that gets through reports it", async () => {
     const key = isolate();
     const id = createHash("sha256").update(key).digest("hex").slice(0, 16);
-    mkdirSync(join(process.env.HOME!, ".clearcote"), { recursive: true });
-    writeFileSync(join(process.env.HOME!, ".clearcote", `grace-${id}.json`), JSON.stringify({ token: tokenFor("pro", 50), exp: now() + 3_600 }));
+    mkdirSync(join(process.env.HOME!, ".code-browser"), { recursive: true });
+    writeFileSync(join(process.env.HOME!, ".code-browser", `grace-${id}.json`), JSON.stringify({ token: tokenFor("pro", 50), exp: now() + 3_600 }));
     let fbUp = false;
     const fb = await fakeServer();
     const healthy = fb.handler;
@@ -264,8 +264,8 @@ describe("an older SDK's lease cache with both bases unreachable", () => {
   it("is the token, as before (it no longer skips the checkout, but it still rides out an outage)", async () => {
     const key = isolate();
     const id = createHash("sha256").update(key).digest("hex").slice(0, 16);
-    mkdirSync(join(process.env.HOME!, ".clearcote"), { recursive: true });
-    writeFileSync(join(process.env.HOME!, ".clearcote", `lease-${id}.json`),
+    mkdirSync(join(process.env.HOME!, ".code-browser"), { recursive: true });
+    writeFileSync(join(process.env.HOME!, ".code-browser", `lease-${id}.json`),
       JSON.stringify({ token: tokenFor("pro", 60), exp: now() + 3_600, lease_id: "L-old" })); // no scope mark
     const fb = await fakeServer(() => "reset");
     const primary = await closedBase();
@@ -277,7 +277,7 @@ describe("an older SDK's lease cache with both bases unreachable", () => {
 });
 
 describe("a base that is set is the only one used", () => {
-  it.each(["licenseApiBase", "CLEARCOTE_LICENSE_API", "CLEARCOTE_LEASE_API"] as const)("%s: no fallback, never the lease server", async (how) => {
+  it.each(["licenseApiBase", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_LEASE_API"] as const)("%s: no fallback, never the lease server", async (how) => {
     isolate();
     const set = await closedBase();
     const fb = await fakeServer();
@@ -291,22 +291,22 @@ describe("a base that is set is the only one used", () => {
     expect(urls.join(" ")).not.toContain("lease.clearcotelabs.com");
   });
 
-  it("precedence: licenseApiBase > CLEARCOTE_LICENSE_API > CLEARCOTE_LEASE_API", async () => {
+  it("precedence: licenseApiBase > CODE_BROWSER_LICENSE_API > CODE_BROWSER_LEASE_API", async () => {
     const [opt, licApi, leaseApi] = await Promise.all([fakeServer(), fakeServer(), fakeServer()]);
     guardFetch();
     const hitsOf = () => [opt, licApi, leaseApi].map((s) => s.hits.length);
     isolate();
-    process.env.CLEARCOTE_LICENSE_API = licApi.base;
-    process.env.CLEARCOTE_LEASE_API = leaseApi.base;
+    process.env.CODE_BROWSER_LICENSE_API = licApi.base;
+    process.env.CODE_BROWSER_LEASE_API = leaseApi.base;
     await launch({ licenseApiBase: opt.base });
     expect(hitsOf()).toEqual([1, 0, 0]);
     isolate();
-    process.env.CLEARCOTE_LICENSE_API = licApi.base;
-    process.env.CLEARCOTE_LEASE_API = leaseApi.base;
+    process.env.CODE_BROWSER_LICENSE_API = licApi.base;
+    process.env.CODE_BROWSER_LEASE_API = leaseApi.base;
     await launch();
     expect(hitsOf()).toEqual([1, 1, 0]);
     isolate();
-    process.env.CLEARCOTE_LEASE_API = leaseApi.base;
+    process.env.CODE_BROWSER_LEASE_API = leaseApi.base;
     await launch();
     expect(hitsOf()).toEqual([1, 1, 1]);
   });
@@ -317,7 +317,7 @@ describe("a base that is set is the only one used", () => {
     const fb = await fakeServer();
     leaseDefaults.fallback = fb.base;
     guardFetch();
-    process.env.CLEARCOTE_LEASE_API = set;
+    process.env.CODE_BROWSER_LEASE_API = set;
     expect((await getSessionSeats({})).state).toBe("unavailable");
     expect(fb.hits).toHaveLength(0);
   });

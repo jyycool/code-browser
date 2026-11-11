@@ -3,11 +3,11 @@
 * ``score_action(kind, samples)`` for glide / drag / ambient / typed / wheel / hover: a deliberately bad
   synthetic trace of each kind scores < 0.5 (the EVAL.md "G score hook" row), a human-shaped one >= 0.7.
 * The QWERTY finger map behind the same-finger / alternating-hand bigram ratio.
-* ``CLEARCOTE_HUMANIZE_SCORE=1``: ``_pacing.walk`` / ``walk_async`` append one JSON line per walked path
+* ``CODE_BROWSER_HUMANIZE_SCORE=1``: ``_pacing.walk`` / ``walk_async`` append one JSON line per walked path
   (actual dispatch times, not the plan) and warn below 0.7 naming the penalties; off by default; a
   failing tap never breaks the walk.
 * sdk/testdata/humanize_motion_vectors.json ``scores``: the three SDKs score the same traces the same.
-On origin/main ceb7983 every test here fails: score_action, finger_of and clearcote._trace do not exist.
+On origin/main ceb7983 every test here fails: score_action, finger_of and code_browser._trace do not exist.
 """
 import asyncio
 import json
@@ -15,9 +15,9 @@ import os
 
 import pytest
 
-from clearcote import _motionscore as ms
-from clearcote import _pacing
-from clearcote._motion import make_persona, mulberry32, plan_ambient, plan_move
+from code_browser import _motionscore as ms
+from code_browser import _pacing
+from code_browser._motion import make_persona, mulberry32, plan_ambient, plan_move
 
 VECTORS = os.path.join(os.path.dirname(__file__), "..", "..", "testdata", "humanize_motion_vectors.json")
 
@@ -108,10 +108,10 @@ def _lines(path):
 @pytest.fixture
 def hook(tmp_path, monkeypatch):
     out = tmp_path / "score.jsonl"
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE", "1")
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE_FILE", str(out))
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
-    from clearcote import _warnings
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE_FILE", str(out))
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
+    from code_browser import _warnings
     monkeypatch.setattr(_warnings, "_seen_notes", set())
     return out
 
@@ -149,7 +149,7 @@ def test_bad_walk_warns_naming_the_penalties(hook, capsys):
     ln = _lines(hook)[0]
     assert ln["score"] < 0.5
     err = capsys.readouterr().err
-    assert "clearcote: warning: humanize glide scored" in err
+    assert "code-browser: warning: humanize glide scored" in err
     assert "no-corrective-submovement" in err and "perfectly-straight-path" in err
 
 
@@ -165,34 +165,34 @@ def test_async_walk_records(hook):
 
 
 def test_hook_off_by_default(tmp_path, monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_SCORE", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_SCORE", raising=False)
     monkeypatch.chdir(tmp_path)
     c = _Clock()
     _pacing.walk([(1, 1, 8), (5, 5, 8)], lambda x, y: None, clock=c.now, sleep=c.sleep)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE", "0")
     _pacing.walk([(1, 1, 8), (5, 5, 8)], lambda x, y: None, clock=c.now, sleep=c.sleep)
     assert os.listdir(tmp_path) == []
 
 
 def test_default_file_is_cwd_jsonl(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE", "1")
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_SCORE_FILE", raising=False)
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE", "1")
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_SCORE_FILE", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     monkeypatch.chdir(tmp_path)
     c = _Clock()
     _pacing.walk([(1, 1, 8), (50, 5, 8), (90, 9, 8)], lambda x, y: None, clock=c.now, sleep=c.sleep)
-    assert len(_lines(tmp_path / "clearcote-humanize-score.jsonl")) == 1
+    assert len(_lines(tmp_path / "code-browser-humanize-score.jsonl")) == 1
 
 
 def test_a_failing_tap_never_breaks_the_walk(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE", "1")
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE_FILE", str(tmp_path / "no-such-dir" / "x.jsonl"))
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE_FILE", str(tmp_path / "no-such-dir" / "x.jsonl"))
     c = _Clock()
     assert _pacing.walk([(1, 1, 8), (50, 5, 8)], lambda x, y: None, clock=c.now, sleep=c.sleep) == 2
 
 
 def test_record_is_the_lane_tap(hook):
-    from clearcote import _trace
+    from code_browser import _trace
     r = _trace.record("typed", _case("typed", "robot")["samples"], {"field": "#name"})
     assert r is not None and r.kind == "typed"
     ln = _lines(hook)[0]

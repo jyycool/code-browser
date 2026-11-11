@@ -1,5 +1,5 @@
 /**
- * Pure planning for humanized form input (port of sdk/python/clearcote/_forms.py).
+ * Pure planning for humanized form input (port of sdk/python/code_browser/_forms.py).
  *
  * Nothing here touches a page: it decides WHAT a person would press for a form control, and
  * ./humanize.ts decides HOW (glides, holds, cadence). Keeping the decisions pure is what lets one set

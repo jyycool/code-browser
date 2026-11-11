@@ -2,7 +2,7 @@
 test_humanize_first_click_live.py for why). Its own module: the sync live tests keep a sync Playwright
 loop running.
 
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary.
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary.
 """
 import asyncio
 import os
@@ -14,8 +14,8 @@ from test_humanize_first_click_live import (  # noqa: F401
     AT_B, AT_C, PAGE, PAGES, TAKE, WAIT_UP, _no_font_cache_left_behind, check, summary,
 )
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 
 async def click_and_read(page, at=AT_B):
@@ -29,7 +29,7 @@ async def click_and_read(page, at=AT_B):
 
 def test_async_first_clicks(_no_font_cache_left_behind):
     async def run():
-        import clearcote.async_api as ca
+        import code_browser.async_api as ca
         b = await ca.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="first-click-live-pya",
                             quiet=True)
         try:

@@ -8,7 +8,7 @@ import urllib.request
 
 import pytest
 
-import clearcote_mcp
+import code_browser_mcp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PYPROJECT = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -24,7 +24,7 @@ def project(key: str) -> str:
 
 def test_server_json_version_matches_the_python_package():
     entry = server_json()
-    assert entry["version"] == project("version") == clearcote_mcp.__version__
+    assert entry["version"] == project("version") == code_browser_mcp.__version__
     assert {p["registryType"]: p["version"] for p in entry["packages"]} == {"pypi": entry["version"],
                                                                           "npm": entry["version"]}
 

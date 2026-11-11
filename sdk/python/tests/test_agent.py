@@ -1,4 +1,4 @@
-from clearcote._agent import AGENT_KEYS, OPENROUTER_BASE_URL, agent_args
+from code_browser._agent import AGENT_KEYS, OPENROUTER_BASE_URL, agent_args
 
 
 def test_agent_off_by_default():
@@ -103,7 +103,7 @@ def _fake_page(with_browser, session_cls=_Session):
 
 
 def test_run_agent_task_uses_the_browser_session_when_there_is_one():
-    from clearcote._agent import run_agent_task
+    from code_browser._agent import run_agent_task
     page, log = _fake_page(True)
     r = run_agent_task(page, "goal", max_steps=3)
     assert log[-1] == ("browser", "Browser.agentRunTask", {"targetId": "T1", "goal": "goal", "maxSteps": 3})
@@ -112,7 +112,7 @@ def test_run_agent_task_uses_the_browser_session_when_there_is_one():
 
 
 def test_run_agent_task_falls_back_to_the_page_session_without_a_browser():
-    from clearcote._agent import run_agent_task
+    from code_browser._agent import run_agent_task
     page, log = _fake_page(False)
     r = run_agent_task(page, "goal", model="m")
     assert log == [("page", "Target.getTargetInfo", None),
@@ -123,7 +123,7 @@ def test_run_agent_task_falls_back_to_the_page_session_without_a_browser():
 def test_run_agent_task_async_falls_back_to_the_page_session_without_a_browser():
     import asyncio
 
-    from clearcote._agent import run_agent_task_async
+    from code_browser._agent import run_agent_task_async
     page, log = _fake_page(False, _ASession)
     r = asyncio.run(run_agent_task_async(page, "goal", plan_json="{}"))
     assert log[-1] == ("page", "Browser.agentRunTask", {"targetId": "T1", "goal": "goal", "planJson": "{}"})

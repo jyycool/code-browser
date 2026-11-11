@@ -121,7 +121,7 @@ describe("omahaRequestBody", () => {
   /** The body the SDK sent before macOS existed, for Windows / Linux. */
   const before = (atOs: string, platform: string, version: string) => ({
     request: {
-      "@os": atOs, "@updater": "clearcote", acceptformat: "crx3", protocol: "3.1",
+      "@os": atOs, "@updater": "code-browser", acceptformat: "crx3", protocol: "3.1",
       arch: "x64", nacl_arch: "x86-64", prodversion: "149.0.0.0", updaterversion: "149.0.0.0", dedup: "cr",
       os: { arch: "x86_64", platform, version },
       app: [{ appid: W.WIDEVINE_APP_ID, version: "0.0.0.0", updatecheck: {}, ping: { r: -2 } }],

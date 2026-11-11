@@ -1,6 +1,6 @@
 import os
 
-from clearcote._containerseed import LEGACY_SHARED_SEED, SEED_FILE, container_seed
+from code_browser._containerseed import LEGACY_SHARED_SEED, SEED_FILE, container_seed
 
 
 def test_env_value_wins(tmp_path):

@@ -1,4 +1,4 @@
-// The ~/.clearcote files this SDK shares with the Python (and .NET) SDK: each must be readable whichever SDK
+// The ~/.code-browser files this SDK shares with the Python (and .NET) SDK: each must be readable whichever SDK
 // wrote it, and replacing one must not silently lose the newer content on Windows. Mirrors the Python side's
 // host.json / local-index.json / grace-file tests. Hermetic: temp dirs only, no browser, no network.
 import { describe, it, expect, afterAll } from "vitest";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 // PROFILE_DIR is read at module load, so the env must be set before the imports below.
 const root = mkdtempSync(join(tmpdir(), "cc-cacheparity-"));
-process.env.CLEARCOTE_PROFILE_DIR = join(root, "profiles");
+process.env.CODE_BROWSER_PROFILE_DIR = join(root, "profiles");
 
 const { readCachedHost, writeCachedHost, hostExeKey } = await import("../src/profilesource.js");
 const { loadLocalIndex } = await import("../src/profileauto.js");

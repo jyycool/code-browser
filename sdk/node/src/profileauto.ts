@@ -1,6 +1,6 @@
 // `profile: "auto"` — resolve a persona from the best source available.
 //
-// ORDER: the licensed clearcote service first, a local imported directory as backup.
+// ORDER: the licensed code-browser service first, a local imported directory as backup.
 //
 // The service is preferred because its corpus is fresher, larger and curated. But it can be
 // unreachable for reasons that are none of the caller's fault — no license, an exhausted daily
@@ -23,7 +23,7 @@ import { ensureLocalProfiles, hasLocalProfiles } from "./profilefetch.js";
 
 /** Where an imported (e.g. converted chrome-fingerprints) directory is looked for by default. */
 export const DEFAULT_LOCAL_DIR =
-  process.env.CLEARCOTE_PROFILE_SOURCE ?? join(homedir(), ".clearcote", "profiles", "imported");
+  process.env.CODE_BROWSER_PROFILE_SOURCE ?? join(homedir(), ".code-browser", "profiles", "imported");
 
 export type ProfileOrigin = "service" | "local";
 
@@ -47,7 +47,7 @@ export function engineSupportsProfiles(browserMajor: number): boolean {
 }
 
 export interface AutoOptions extends ProfileSourceOptions {
-  /** Directory of clearcote-profile JSON used when the service is unavailable. */
+  /** Directory of code-browser-profile JSON used when the service is unavailable. */
   localDir?: string;
   /** Skip the service entirely and use the local directory. */
   preferLocal?: boolean;
@@ -115,7 +115,7 @@ export function loadLocalIndex(dir: string): ProfileIndexEntry[] {
 }
 
 function note(quiet: boolean | undefined, msg: string): void {
-  if (!quiet) process.stderr.write(`[clearcote] [profile] ${msg}\n`);
+  if (!quiet) process.stderr.write(`[code-browser] [profile] ${msg}\n`);
 }
 
 /** The optional-backup tip is worth saying once, not on every launch. */
@@ -130,15 +130,15 @@ export function _resetHint(): void {
  * How to populate a local backup directory. Printed when the service is unavailable and no local
  * directory exists — the moment the caller actually needs it.
  *
- * OPTIONAL, AND NOT SOMETHING WE SHIP. Clearcote redistributes no third-party fingerprints; the
+ * OPTIONAL, AND NOT SOMETHING WE SHIP. CodeBrowser redistributes no third-party fingerprints; the
  * dataset is fetched by the user from its own repository under its own terms, and we only read
- * the converted format. Any directory of clearcote-profile JSON works just as well, which is
+ * the converted format. Any directory of code-browser-profile JSON works just as well, which is
  * why this is phrased as one example rather than the required path.
  */
 export function localSetupHint(dir: string): string {
   return [
     `A local profile directory is optional, and gives "auto" a backup when the service is`,
-    `unavailable. Any folder of clearcote-profile JSON works — your own captures, or a`,
+    `unavailable. Any folder of code-browser-profile JSON works — your own captures, or a`,
     `third-party dataset you convert yourself. For example, using the open chrome-fingerprints`,
     `dataset (fetched by you, from its own repo, under its own licence):`,
     ``,
@@ -146,7 +146,7 @@ export function localSetupHint(dir: string): string {
     `    python tools/fingerprint-collect/convert_dataset.py --out "${dir}" --count 500`,
     ``,
     `Or capture your own with tools/fingerprint-collect (collect.html), or point`,
-    `CLEARCOTE_PROFILE_SOURCE at a directory you already have.`,
+    `CODE_BROWSER_PROFILE_SOURCE at a directory you already have.`,
   ].join("\n");
 }
 
@@ -158,7 +158,7 @@ export function resolveLocal(host: HostFacts, opts: AutoOptions = {}): AutoResul
   }
   const index = loadLocalIndex(dir);
   if (index.length === 0) {
-    throw new Error(`local profile directory ${dir} contains no usable clearcote-profile JSON`);
+    throw new Error(`local profile directory ${dir} contains no usable code-browser-profile JSON`);
   }
   const selection = selectProfile(index, host, opts);
   return { profile: loadImportedProfile(dir, selection.entry.id), selection, source: "local" };

@@ -43,7 +43,7 @@ export interface MultiplexOptions extends Omit<ServeOptions, "port" | "host" | "
   host?: string;
   /**
    * Close an identity's browser this many seconds after its last WebSocket disconnects (0 = never,
-   * the default). Also read from CLEARCOTE_SERVE_IDLE_TIMEOUT.
+   * the default). Also read from CODE_BROWSER_SERVE_IDLE_TIMEOUT.
    */
   idleTimeoutSec?: number;
   /**
@@ -247,7 +247,7 @@ export function originAllowed(origin: string | undefined, extra: readonly string
 const QUERY_TAIL_PATH = /^(\?.*?)(\/json(?:\/version|\/list)?)\/?$/s;
 
 function idleTimeoutFromEnv(): number {
-  const n = Number((process.env.CLEARCOTE_SERVE_IDLE_TIMEOUT ?? "").trim());
+  const n = Number((process.env.CODE_BROWSER_SERVE_IDLE_TIMEOUT ?? "").trim());
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
@@ -332,7 +332,7 @@ export async function serveMultiplex(options: MultiplexOptions = {}): Promise<Mu
   const loopback = ["127.0.0.1", "localhost", "::1"].includes(host);
   if (!loopback && !base.quiet) {
     process.stderr.write(
-      `[clearcote] WARNING: serveMultiplex is bound to ${host}. Anyone who can reach this port can ` +
+      `[code-browser] WARNING: serveMultiplex is bound to ${host}. Anyone who can reach this port can ` +
         "start browsers and control them. Keep it on 127.0.0.1 or put authentication in front of it.\n",
     );
   }
@@ -627,7 +627,7 @@ export async function serveMultiplex(options: MultiplexOptions = {}): Promise<Mu
   process.once("exit", () => { for (const c of children.values()) void c.srv.close(); });
   if (!base.quiet) {
     process.stderr.write(
-      `[clearcote] multiplexed CDP endpoint ready: ${handle.url}\n` +
+      `[code-browser] multiplexed CDP endpoint ready: ${handle.url}\n` +
         `            connectOverCDP("${handle.url}?fingerprint=<seed>")  ·  status: GET ${handle.url}/\n`,
     );
   }

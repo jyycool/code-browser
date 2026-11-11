@@ -8,7 +8,7 @@ import type { HostFacts } from "../src/profilelib.js";
 
 let root: string;
 root = mkdtempSync(join(tmpdir(), "cc-auto-"));
-process.env.CLEARCOTE_PROFILE_DIR = join(root, "cache");
+process.env.CODE_BROWSER_PROFILE_DIR = join(root, "cache");
 
 const { resolveAuto, resolveLocal, localSetupHint, _resetHint } = await import("../src/profileauto.js");
 
@@ -154,7 +154,7 @@ describe("localSetupHint", () => {
   it("offers alternatives, so the dataset is one example and not a requirement", () => {
     const h = localSetupHint("/tmp/x");
     expect(h).toMatch(/your own captures|capture your own/i);
-    expect(h).toContain("CLEARCOTE_PROFILE_SOURCE");
+    expect(h).toContain("CODE_BROWSER_PROFILE_SOURCE");
   });
 });
 

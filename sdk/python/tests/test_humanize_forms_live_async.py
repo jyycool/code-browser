@@ -1,7 +1,7 @@
-"""LIVE humanized form input through clearcote.async_api, against a real Clearcote build.
+"""LIVE humanized form input through code_browser.async_api, against a real CodeBrowser build.
 
 The async mirror of test_humanize_forms_live.py: the same fixture (sdk/testdata/humanize_forms.html) and
-the same checks, driven through the async API. Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote
+the same checks, driven through the async API. Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser
 binary (and a licence is available for a PRO build). Every assertion is about what a PAGE sees: trusted
 events, key holds, how many change events a selection fires, and the exact value left in the field.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
 
 try:
     import pytest_asyncio
@@ -23,7 +23,7 @@ except Exception:  # noqa: BLE001
     pytest_asyncio, _PA = None, (0, 0)
 _LOOP_SCOPE_OK = _PA >= (0, 24)   # loop_scope= (one event loop, one browser, for the whole module)
 
-pytestmark = [pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)"),
+pytestmark = [pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)"),
               pytest.mark.skipif(not _LOOP_SCOPE_OK, reason="needs pytest-asyncio >= 0.24 (loop_scope)")]
 if _LOOP_SCOPE_OK:
     pytestmark.append(pytest.mark.asyncio(loop_scope="module"))
@@ -51,7 +51,7 @@ def _no_font_cache_left_behind():
 
 @_fixture(scope="module")
 async def browser(_no_font_cache_left_behind):
-    from clearcote import async_api
+    from code_browser import async_api
     b = await async_api.launch(executable_path=LIVE, headless=True, humanize=True,
                                fingerprint="forms-live-async-1", quiet=True)
     yield b
@@ -69,7 +69,7 @@ async def page(browser):
 @pytest.fixture
 def typos(monkeypatch):
     def set_rate(r):
-        monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", str(r))
+        monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", str(r))
     return set_rate
 
 
@@ -626,7 +626,7 @@ async def test_a_select_under_a_floating_overlay_opens_and_picks_once(page):
 
 
 async def test_typo_gate_reads_through_shadow_roots_and_fails_closed_in_frames(page):
-    from clearcote._isolated import ACTIVE_FIELD, async_world_for
+    from code_browser._isolated import ACTIVE_FIELD, async_world_for
     await page.click("#spw #inner")
     assert ((await async_world_for(page).evaluate(ACTIVE_FIELD)) or {}).get("type") == "password"
     await page.frame_locator("#fr").locator("#fpw").click()
@@ -680,7 +680,7 @@ async def test_a_click_cancelled_mid_press_leaves_no_button_or_key_down(page):
 async def test_typing_cancelled_mid_word_leaves_no_key_down(page, typos, monkeypatch):
     """Every pair rolls over (the next key goes down before this one comes up), so a cancellation
     almost always lands with a key held; each attempt cancels at a different moment."""
-    from clearcote import _humanize_async
+    from code_browser import _humanize_async
     monkeypatch.setattr(_humanize_async, "rollover_rate", lambda persona: 1.0)
     typos(0)
     await page.click("#bio")
@@ -975,7 +975,7 @@ DATE_VALUES = {"#d": ["1990-04-12", "2031-11-03"], "#t": ["14:35", "07:58"], "#m
 
 async def test_date_segments_use_the_typing_model_and_survive_rollover(page, monkeypatch):
     import statistics
-    from clearcote import _humanize_async
+    from code_browser import _humanize_async
     gaps, rolls = [], 0
     for forced in (False, True):
         if forced:   # every eligible digit pair rolled over: auto-advancing segments still get their digits
@@ -1001,7 +1001,7 @@ async def test_date_segments_use_the_typing_model_and_survive_rollover(page, mon
 
 async def test_select_open_click_is_held_as_planned(page, monkeypatch):
     import statistics
-    from clearcote import _humanize_async
+    from code_browser import _humanize_async
     monkeypatch.setattr(_humanize_async, "click_hold", lambda p, rng=None: 120.0)
     holds = []
     for label in ("Iceland", "Norway", "Chile", "Kenya", "Malta", "Spain"):

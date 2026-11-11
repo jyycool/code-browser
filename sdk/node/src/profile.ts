@@ -4,7 +4,7 @@
 // AND its `canvasBridge` config — under a name you can persist and re-launch as one coherent
 // identity:
 //
-//   import { Profile, launch } from "clearcote";
+//   import { Profile, launch } from "code-browser";
 //
 //   await new Profile("acct-1", {
 //     fingerprint: "acct-1",
@@ -15,8 +15,8 @@
 //
 //   const browser = await Profile.load("acct-1").launch({ headless: false }); // or launch({ profile: "acct-1" })
 //
-// Profiles are plain JSON at `~/.clearcote/profiles/<name>.json` (override the dir with
-// CLEARCOTE_PROFILE_DIR). The persona's claimed GPU, the bridge endpoint, and the bridge's
+// Profiles are plain JSON at `~/.code-browser/profiles/<name>.json` (override the dir with
+// CODE_BROWSER_PROFILE_DIR). The persona's claimed GPU, the bridge endpoint, and the bridge's
 // GPU-keyed cache stay coherent because they travel together in one file. Fingerprint option
 // keys are normalized on load, so a profile written by the Python SDK (snake_case) loads
 // correctly here (camelCase) and vice versa.
@@ -32,8 +32,8 @@ import { FINGERPRINT_KEYS, type FingerprintOptions } from "./fingerprint.js";
 import type { Browser, BrowserContext } from "playwright-core";
 import type { LaunchOptions, PersistentContextOptions } from "./index.js";
 
-/** Directory saved profiles live in (override with `CLEARCOTE_PROFILE_DIR`). */
-export const PROFILE_DIR = process.env.CLEARCOTE_PROFILE_DIR ?? join(homedir(), ".clearcote", "profiles");
+/** Directory saved profiles live in (override with `CODE_BROWSER_PROFILE_DIR`). */
+export const PROFILE_DIR = process.env.CODE_BROWSER_PROFILE_DIR ?? join(homedir(), ".code-browser", "profiles");
 
 /** A persisted set of launch options (a saved persona). */
 export type ProfileOptions = FingerprintOptions & Record<string, unknown>;
@@ -83,7 +83,7 @@ export class Profile {
     return this;
   }
 
-  /** `~/.clearcote/profiles/<name>.json` (or the explicit path the name resolves to). */
+  /** `~/.code-browser/profiles/<name>.json` (or the explicit path the name resolves to). */
   get path(): string {
     return profilePath(this.name);
   }

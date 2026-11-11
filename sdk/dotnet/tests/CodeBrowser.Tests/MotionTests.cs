@@ -1,0 +1,285 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using CodeBrowser;
+using Xunit;
+
+namespace CodeBrowser.Tests;
+
+/// <summary>
+/// Motion-model tests. The cross-SDK vectors are the important ones: the persona is derived from the
+/// FINGERPRINT SEED, so a profile driven from Python one day and .NET the next must move the same way.
+/// That only holds if mulberry32 and the FNV-1a seed hash agree bit for bit with the other SDKs —
+/// which is easy to break silently, because a subtly different RNG still looks perfectly random.
+///
+/// The expected values below were produced by the NODE implementation and pasted in. If a change to
+/// Motion.cs turns these red, the port has drifted and the personas have forked; do not "fix" the
+/// expectations without re-deriving them from Node and Python.
+/// </summary>
+public class MotionTests
+{
+    // Emitted by the Node implementation (sdk/node/dist/motion.js) — see the class comment.
+    [Theory]
+    [InlineData("code-browser", 840974591u)]
+    [InlineData("", 2166136261u)]
+    [InlineData("a", 3826002220u)]
+    public void HashSeed_matches_node(string seed, uint expected)
+        => Assert.Equal(expected, Motion.HashSeed(seed));
+
+    [Fact]
+    public void Mulberry32_stream_matches_node()
+    {
+        var rng = Motion.Mulberry32(12345);
+        var got = Enumerable.Range(0, 5).Select(_ => rng()).ToArray();
+        var want = new[]
+        {
+            0.979728267761, 0.3067522645, 0.484205421526, 0.817934412509, 0.509428369347,
+        };
+        for (int i = 0; i < want.Length; i++)
+            Assert.True(Math.Abs(got[i] - want[i]) < 1e-9, $"draw {i}: got {got[i]}, want {want[i]}");
+    }
+
+    [Fact]
+    public void Persona_matches_node_for_the_same_seed()
+    {
+        // The whole cross-SDK contract in one assertion: same seed, same motor signature. Every
+        // field is drawn from the shared RNG stream, so a single misordered draw shifts them all.
+        var p = Motion.MakePersona("identity-42");
+        Assert.Equal(1361500432u, p.Seed);
+        Assert.Equal(151, p.DeviceHz);
+        Assert.Equal(8.919656302, p.TremorHz, 8);
+        Assert.Equal(133.927525934, p.FittsA, 8);
+        Assert.Equal(0.878270189, p.PrimaryFrac, 8);
+        Assert.Equal(2, p.MaxCorrections);
+        Assert.Equal(-0.172724717, p.ApproachBias, 8);
+    }
+
+    [Fact]
+    public void Persona_is_stable_for_a_seed()
+    {
+        var a = Motion.MakePersona("identity-42");
+        var b = Motion.MakePersona("identity-42");
+        Assert.Equal(a.Seed, b.Seed);
+        Assert.Equal(a.DeviceHz, b.DeviceHz);
+        Assert.Equal(a.TremorHz, b.TremorHz);
+        Assert.Equal(a.FittsA, b.FittsA);
+        Assert.Equal(a.ApproachBias, b.ApproachBias);
+    }
+
+    [Fact]
+    public void Persona_differs_between_seeds()
+    {
+        var a = Motion.MakePersona("identity-a");
+        var b = Motion.MakePersona("identity-b");
+        Assert.NotEqual(a.Seed, b.Seed);
+    }
+
+    [Fact]
+    public void Persona_ranges_are_inside_the_documented_envelopes()
+    {
+        for (int i = 0; i < 200; i++)
+        {
+            var p = Motion.MakePersona($"seed-{i}");
+            Assert.InRange(p.DeviceHz, 110, 155);
+            Assert.InRange(p.TremorHz, 8, 12);
+            Assert.InRange(p.PrimaryFrac, 0.84, 0.94);
+            Assert.InRange(p.MaxCorrections, 1, 3);
+            Assert.InRange(p.ApproachBias, -0.25, 0.25);
+        }
+    }
+
+    [Fact]
+    public void KeyDwell_stays_in_the_human_window_and_is_never_instant()
+    {
+        // The whole point of the 0.19.3 fix in the other SDKs: a scripted keystroke holds ~1–3ms,
+        // which no finger does. Every draw must clear the floor.
+        var p = Motion.MakePersona("dwell");
+        var rng = Motion.Mulberry32(7);
+        for (int i = 0; i < 500; i++)
+        {
+            double d = Motion.KeyDwell(p, rng);
+            Assert.InRange(d, p.KeyDwellMinMs, p.KeyDwellMaxMs);
+            Assert.True(d >= 45, $"key dwell {d}ms is below the human floor");
+        }
+    }
+
+    [Fact]
+    public void ClickHold_stays_in_the_human_window()
+    {
+        var p = Motion.MakePersona("hold");
+        var rng = Motion.Mulberry32(9);
+        for (int i = 0; i < 500; i++)
+        {
+            double d = Motion.ClickHold(p, rng);
+            Assert.InRange(d, p.ClickHoldMinMs, p.ClickHoldMaxMs);
+            Assert.True(d >= 55, $"click hold {d}ms is below the human floor");
+        }
+    }
+
+    [Fact]
+    public void ClickPoint_disperses_and_stays_inside_the_box()
+    {
+        // pointer-landing-dispersion fails when a driver lands on the identical point every time.
+        var p = Motion.MakePersona("aim");
+        var rng = Motion.Mulberry32(11);
+        var box = new Box(100, 100, 120, 40);
+        var pts = new List<Point>();
+        for (int i = 0; i < 40; i++)
+        {
+            var pt = Motion.ClickPoint(box, new Point(0, 0), p, rng);
+            Assert.InRange(pt.X, box.X, box.X + box.Width);
+            Assert.InRange(pt.Y, box.Y, box.Y + box.Height);
+            pts.Add(pt);
+        }
+        int distinct = pts.Select(q => (Math.Round(q.X, 1), Math.Round(q.Y, 1))).Distinct().Count();
+        Assert.True(distinct > 30, $"only {distinct}/40 distinct landings — not enough dispersion");
+    }
+
+    [Fact]
+    public void ClickPoint_on_a_tiny_box_returns_the_centre_rather_than_escaping_it()
+    {
+        var p = Motion.MakePersona("tiny");
+        var box = new Box(10, 10, 3, 3);   // below the 4px inset: the clamp would invert
+        var pt = Motion.ClickPoint(box, new Point(0, 0), p, Motion.Mulberry32(3));
+        Assert.Equal(11.5, pt.X, 6);
+        Assert.Equal(11.5, pt.Y, 6);
+    }
+
+    [Fact]
+    public void PlanMove_produces_a_travelled_path_that_lands_on_target()
+    {
+        var p = Motion.MakePersona("path");
+        var steps = Motion.PlanMove(new Point(0, 0), new Point(600, 400), p, 40, false, Motion.Mulberry32(5));
+        Assert.True(steps.Count >= 10, $"only {steps.Count} samples for a 720px move");
+        var last = steps[^1];
+        Assert.Equal(600, last.X, 6);
+        Assert.Equal(400, last.Y, 6);
+        Assert.All(steps, s => Assert.InRange(s.SleepMs, 0, 200));
+        // pointer-movement-precedes-click: the path must actually visit distinct places.
+        Assert.True(steps.Select(s => (Math.Round(s.X), Math.Round(s.Y))).Distinct().Count() > 5);
+    }
+
+    [Fact]
+    public void PlanMove_for_a_negligible_distance_emits_a_single_sample()
+    {
+        var p = Motion.MakePersona("hop");
+        var steps = Motion.PlanMove(new Point(10, 10), new Point(10.5, 10.5), p, 24, false, Motion.Mulberry32(2));
+        Assert.Single(steps);
+    }
+
+    // A NUMBER seed hashes as JS (|seed| * 2654435761) >>> 0 — the product is far outside int range,
+    // so it has to wrap modulo 2^32 the way ToUint32 does. Values from the Python/Node hash_seed.
+    [Theory]
+    [InlineData(0, 0u)]
+    [InlineData(1111, 2730565415u)]
+    [InlineData(31337, 1421820825u)]
+    [InlineData(-31337, 1421820825u)]
+    public void HashSeed_of_a_number_matches_the_other_sdks(int seed, uint expected)
+        => Assert.Equal(expected, Motion.HashSeed(seed));
+
+    // Rollover share: the first draw of mulberry32(seed ^ 0x9E3779B9). Must match the Node
+    // rolloverRate and Python rollover_rate to the last digit (exact double equality here).
+    [Fact]
+    public void RolloverRate_matches_the_other_sdks()
+    {
+        Assert.Equal(0.18545862230472265, Motion.RolloverRate(Motion.MakePersona("1111")));
+        Assert.Equal(0.33123080658726395, Motion.RolloverRate(Motion.MakePersona(1111)));
+        Assert.Equal(0.3663359977304935, Motion.RolloverRate(Motion.MakePersona("abc")));
+        Assert.Equal(0.21331139486283063, Motion.RolloverRate(Motion.MakePersona(0)));
+        Assert.Equal(0.3733816216979176, Motion.RolloverRate(Motion.MakePersona(31337)));
+    }
+
+    [Fact]
+    public void RolloverRate_leaves_the_persona_draw_order_alone()
+    {
+        // It draws from its own salted stream, so the persona of a seed is what it was before.
+        var p = Motion.MakePersona("identity-42");
+        Motion.RolloverRate(p);
+        Assert.Equal(1361500432u, p.Seed);
+        Assert.Equal(151, p.DeviceHz);
+        Assert.Equal(-0.172724717, Motion.MakePersona("identity-42").ApproachBias, 8);
+    }
+
+    [Theory]
+    [InlineData(100, new double[] { 0, 3, 39, 49, 50, 100, 149, 151, 1000, -39, -250 }, new[] { 0, 1, 1, 1, 1, 1, 1, 2, 10, 1, 3 })]
+    [InlineData(120, new double[] { 0, 39, 59, 60, 100, 180, 1000 }, new[] { 0, 1, 1, 1, 1, 2, 8 })]
+    public void WheelNotches_is_the_nearest_count_rounded_half_up_and_at_least_one(double notch, double[] deltas, int[] want)
+        => Assert.Equal(want, deltas.Select(d => Motion.WheelNotches(d, notch)).ToArray());
+
+    [Fact]
+    public void WheelNotchPx_is_the_per_platform_notch()
+    {
+        Assert.Equal(100, Motion.WheelNotchPx["windows"]);
+        Assert.Equal(120, Motion.WheelNotchPx["linux"]);
+        Assert.Equal(40, Motion.WheelNotchPx["macos"]);
+        Assert.Equal(100, Motion.WheelNotchPx["android"]);
+    }
+
+    [Theory]
+    [InlineData("Win32", "windows")]
+    [InlineData("Windows", "windows")]
+    [InlineData("MacIntel", "macos")]
+    [InlineData("macOS", "macos")]
+    [InlineData("Linux x86_64", "linux")]
+    [InlineData("Linux armv8l", "linux")]
+    [InlineData("Android", "android")]
+    [InlineData("CrOS", "linux")]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    [InlineData("PlayStation 5", null)]
+    public void PlatformFromNavigator_maps_to_a_notch_key(string? navigator, string? want)
+        => Assert.Equal(want, Motion.PlatformFromNavigator(navigator));
+
+    [Fact]
+    public void MinJerk_is_a_monotone_zero_to_one_easing()
+    {
+        Assert.Equal(0, Motion.MinJerk(0), 9);
+        Assert.Equal(1, Motion.MinJerk(1), 9);
+        Assert.Equal(0.5, Motion.MinJerk(0.5), 9);
+        Assert.Equal(0, Motion.MinJerk(-3), 9);   // clamped
+        Assert.Equal(1, Motion.MinJerk(4), 9);
+        double prev = -1;
+        for (double t = 0; t <= 1.0001; t += 0.05)
+        {
+            double v = Motion.MinJerk(t);
+            Assert.True(v >= prev, $"not monotone at {t}");
+            prev = v;
+        }
+    }
+
+    // --- fresh-page entry (SC 239 / pro-r43-13) ---------------------------------------------------
+
+    [Fact]
+    public void EntryPoint_is_above_the_view_near_the_target()
+    {
+        for (uint k = 0; k < 200; k++)
+        {
+            var e = Motion.EntryPoint(new Point(640, 380), 1180, Motion.Mulberry32(k));
+            Assert.InRange(e.Y, -120, -30);
+            Assert.InRange(e.X, 8, 1172);
+            Assert.True(Math.Abs(e.X - 640) <= 0.3 * 1180 + 1e-9);
+        }
+        var d = Motion.EntryPoint(new Point(900, 500), 0, Motion.Mulberry32(1));   // no readable viewport: a 1000 px view
+        Assert.InRange(d.X, 8, 992);
+    }
+
+    [Fact]
+    public void EnterFromTop_first_sample_at_the_edge_nothing_above_target_untouched()
+    {
+        var p = Motion.MakePersona("entry");
+        for (uint k = 0; k < 50; k++)
+        {
+            var r = Motion.Mulberry32(100 + k);
+            var from = Motion.EntryPoint(new Point(640, 380), 1180, r);
+            var planned = Motion.PlanMove(from, new Point(640, 380), p, rng: r);
+            var steps = Motion.EnterFromTop(planned, from, r);
+            Assert.InRange(steps[0].Y, 0, 4);
+            Assert.All(steps, s => Assert.True(s.Y >= 0));
+            Assert.Equal((640.0, 380.0), (steps[^1].X, steps[^1].Y));
+            Assert.True(steps.Count <= planned.Count + 1);
+        }
+        var inside = Motion.PlanMove(new Point(300, 300), new Point(640, 380), p, rng: Motion.Mulberry32(5));
+        Assert.Same(inside, Motion.EnterFromTop(inside, new Point(300, 300), Motion.Mulberry32(6)));
+        Assert.Empty(Motion.EnterFromTop(new List<Step>(), new Point(300, -40)));
+    }
+}

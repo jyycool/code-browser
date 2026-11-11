@@ -12,8 +12,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from clearcote import _scroll as S  # noqa: E402
-from clearcote._motion import drag_hesitation, hesitate_then_drag, make_persona, mulberry32  # noqa: E402
+from code_browser import _scroll as S  # noqa: E402
+from code_browser._motion import drag_hesitation, hesitate_then_drag, make_persona, mulberry32  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "..", "testdata", "humanize_scroll_vectors.json")
 

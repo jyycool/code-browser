@@ -10,10 +10,10 @@ import warnings
 
 import pytest
 
-import clearcote
-from clearcote import _license
-from clearcote._net import proxied_request, to_proxy_spec
-from clearcote.geoip import GeoipError, geoip_timeout_seconds, resolve_geo_detailed
+import code_browser
+from code_browser import _license
+from code_browser._net import proxied_request, to_proxy_spec
+from code_browser.geoip import GeoipError, geoip_timeout_seconds, resolve_geo_detailed
 
 from _proxies import start_http_proxy, start_origin, start_silent, start_socks5
 
@@ -114,7 +114,7 @@ def test_ipv6_target_is_bracketed_in_connect_line(servers):
 
 
 def test_truncated_bodies_are_errors():
-    from clearcote._net import _parse_response
+    from code_browser._net import _parse_response
     with pytest.raises(ConnectionError, match="incomplete response body"):
         _parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc")
     with pytest.raises(ConnectionError, match="incomplete chunked"):
@@ -161,7 +161,7 @@ def test_geoip_names_a_proxy_scheme_it_cannot_tunnel_through():
     assert geo is None
     assert reason == "socks4:// proxies are not supported; use http, https or socks5"
     with pytest.raises(GeoipError, match="socks4:// proxies are not supported"):
-        clearcote.apply_geoip({}, {"server": "socks4://127.0.0.1:1"}, quiet=True)
+        code_browser.apply_geoip({}, {"server": "socks4://127.0.0.1:1"}, quiet=True)
 
 
 def test_geoip_refused_proxy_reports_exit_ip_reason():
@@ -180,13 +180,13 @@ def _geo_origin(servers):
 
 def test_geoip_goes_through_socks5_with_auth(servers, monkeypatch):
     # Point the IP echo + ip-api at a local origin and prove both requests went through SOCKS5.
-    from clearcote import geoip
+    from code_browser import geoip
     origin = _geo_origin(servers)
     socks = servers(start_socks5(user="u1", password="p1"))
     monkeypatch.setattr(geoip, "IPECHO_URLS", (f"http://localhost:{origin.port}/echo",))
     monkeypatch.setattr(geoip, "IPAPI_URL", f"http://localhost:{origin.port}/ipapi")
     monkeypatch.setattr(geoip, "_mmdb_lookup", lambda *a, **k: None)
-    monkeypatch.setenv("CLEARCOTE_GEOIP_IPAPI", "1")
+    monkeypatch.setenv("CODE_BROWSER_GEOIP_IPAPI", "1")
     geo, reason, _ms = resolve_geo_detailed(
         {"server": f"socks5://127.0.0.1:{socks.port}", "username": "u1", "password": "p1"}, quiet=True)
     assert reason is None
@@ -198,7 +198,7 @@ def test_geoip_goes_through_socks5_with_auth(servers, monkeypatch):
 def test_geoip_never_asks_ip_api_unless_opted_in(servers, monkeypatch):
     # ip-api.com's free endpoint is for non-commercial use only (45 requests/min per IP): it is not
     # in the default chain any more. Without the database there is no answer, and the reason says how.
-    from clearcote import geoip
+    from code_browser import geoip
     origin = _geo_origin(servers)
     monkeypatch.setattr(geoip, "IPECHO_URLS", (f"http://localhost:{origin.port}/echo",))
     monkeypatch.setattr(geoip, "IPAPI_URL", f"http://localhost:{origin.port}/ipapi")
@@ -207,19 +207,19 @@ def test_geoip_never_asks_ip_api_unless_opted_in(servers, monkeypatch):
         info["db"] = "downloading"
         return None
     monkeypatch.setattr(geoip, "_mmdb_lookup", no_db)
-    monkeypatch.delenv("CLEARCOTE_GEOIP_IPAPI", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_GEOIP_IPAPI", raising=False)
     geo, reason, _ms = resolve_geo_detailed(None, quiet=True, timeout=5)
     assert geo is None
-    assert "still downloading" in reason and "CLEARCOTE_GEOIP_IPAPI=1" in reason
+    assert "still downloading" in reason and "CODE_BROWSER_GEOIP_IPAPI=1" in reason
     assert [e["url"] for e in origin.log] == ["/echo"]
-    monkeypatch.setenv("CLEARCOTE_GEOIP_IPAPI", "1")
+    monkeypatch.setenv("CODE_BROWSER_GEOIP_IPAPI", "1")
     geo, reason, _ms = resolve_geo_detailed(None, quiet=True, timeout=5)
     assert reason is None and geo["timezone"] == "Asia/Tokyo"
     assert [e["url"] for e in origin.log] == ["/echo", "/echo", "/ipapi"]
 
 
 def test_geoip_echo_url_setting_replaces_the_public_echoes(servers, monkeypatch):
-    from clearcote import geoip
+    from code_browser import geoip
     origin = _geo_origin(servers)
     monkeypatch.setattr(geoip, "IPECHO_URLS", ("http://127.0.0.1:1/never",))
     monkeypatch.setenv("CLEARCOTE_GEOIP_ECHO_URL", f" http://localhost:{origin.port}/myecho ,")
@@ -237,14 +237,14 @@ def test_geoip_echo_url_setting_replaces_the_public_echoes(servers, monkeypatch)
 
 
 def test_geoip_echo_settings_and_answers():
-    from clearcote import geoip
+    from code_browser import geoip
     assert geoip.echo_urls({}) == ("https://api.ipify.org", "https://icanhazip.com")
     assert not any("ip-api" in u for u in geoip.echo_urls({}))
     assert geoip.echo_urls({"CLEARCOTE_GEOIP_ECHO_URL": "http://a/ip, http://b/ip"}) == ("http://a/ip", "http://b/ip")
     assert geoip.echo_urls({"CLEARCOTE_GEOIP_ECHO_URL": " , "}) == geoip.IPECHO_URLS
     assert geoip.ipapi_enabled({}) is False
-    assert all(geoip.ipapi_enabled({"CLEARCOTE_GEOIP_IPAPI": v}) for v in ("1", "true", "YES", "on"))
-    assert not geoip.ipapi_enabled({"CLEARCOTE_GEOIP_IPAPI": "0"})
+    assert all(geoip.ipapi_enabled({"CODE_BROWSER_GEOIP_IPAPI": v}) for v in ("1", "true", "YES", "on"))
+    assert not geoip.ipapi_enabled({"CODE_BROWSER_GEOIP_IPAPI": "0"})
     assert geoip._ip_from_echo("203.0.113.7\n") == "203.0.113.7"
     assert geoip._ip_from_echo('{"ip": "2001:db8::1"}') == "2001:db8::1"
     assert geoip._ip_from_echo('{"query": "203.0.113.8", "status": "success"}') == "203.0.113.8"
@@ -260,7 +260,7 @@ def short_geoip(monkeypatch):
 def test_apply_geoip_fails_closed(short_geoip):
     fp = {}
     with pytest.raises(GeoipError) as ei:
-        clearcote.apply_geoip(fp, {"server": "socks5://127.0.0.1:1"}, quiet=True)
+        code_browser.apply_geoip(fp, {"server": "socks5://127.0.0.1:1"}, quiet=True)
     assert ei.value.code == "GEOIP_UNRESOLVED"
     assert "timezone" not in fp
 
@@ -269,22 +269,22 @@ def test_apply_geoip_explicit_timezone_and_language_still_launches(short_geoip):
     fp = {"timezone": "Europe/Paris", "accept_language": "fr-FR,fr"}
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        assert clearcote.apply_geoip(fp, {"server": "socks5://127.0.0.1:1"}, quiet=False) is None
+        assert code_browser.apply_geoip(fp, {"server": "socks5://127.0.0.1:1"}, quiet=False) is None
     assert fp == {"timezone": "Europe/Paris", "accept_language": "fr-FR,fr"}
     assert any("using the explicit timezone and accept_language" in str(w.message) for w in caught)
 
 
 def test_apply_geoip_only_one_explicit_still_fails_closed(short_geoip):
     with pytest.raises(GeoipError):
-        clearcote.apply_geoip({"timezone": "Europe/Paris"}, {"server": "socks5://127.0.0.1:1"}, quiet=True)
+        code_browser.apply_geoip({"timezone": "Europe/Paris"}, {"server": "socks5://127.0.0.1:1"}, quiet=True)
 
 
 def test_prepare_raises_geoip_error_before_resolving_binary(monkeypatch):
     called = []
-    monkeypatch.setattr(clearcote, "_resolve_binary", lambda *a, **k: called.append(1))
+    monkeypatch.setattr(code_browser, "_resolve_binary", lambda *a, **k: called.append(1))
     monkeypatch.setenv("CLEARCOTE_GEOIP_TIMEOUT_SECONDS", "1.5")
     with pytest.raises(GeoipError):
-        clearcote._prepare({"geoip": True, "proxy": {"server": "socks5://127.0.0.1:1"}, "quiet": True})
+        code_browser._prepare({"geoip": True, "proxy": {"server": "socks5://127.0.0.1:1"}, "quiet": True})
     assert called == []
 
 
@@ -297,10 +297,10 @@ def test_launch_releases_lease_when_geoip_fails(monkeypatch):
         def stop(self):
             stopped.append(1)
 
-    monkeypatch.setattr(clearcote, "_acquire_lease_from_kwargs", lambda kw: Lease())
-    monkeypatch.setattr(clearcote, "_prepare", lambda kw: (_ for _ in ()).throw(GeoipError("x")))
+    monkeypatch.setattr(code_browser, "_acquire_lease_from_kwargs", lambda kw: Lease())
+    monkeypatch.setattr(code_browser, "_prepare", lambda kw: (_ for _ in ()).throw(GeoipError("x")))
     with pytest.raises(GeoipError):
-        clearcote.launch(ephemeral_profile=False, geoip=True)
+        code_browser.launch(ephemeral_profile=False, geoip=True)
     assert stopped == [1]
 
 
@@ -313,17 +313,17 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(h))
     monkeypatch.setenv("USERPROFILE", str(h))
     monkeypatch.delenv("CLEARCOTE_LICENSE_KEY", raising=False)
-    monkeypatch.delenv("CLEARCOTE_LICENSE_THROUGH_PROXY", raising=False)
-    monkeypatch.delenv("CLEARCOTE_LICENSE_API", raising=False)
-    monkeypatch.setenv("CLEARCOTE_INSTANCE_ID", "test-instance")
+    monkeypatch.delenv("CODE_BROWSER_LICENSE_THROUGH_PROXY", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_LICENSE_API", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_INSTANCE_ID", "test-instance")
     monkeypatch.setattr(_license, "_MACHINE_LEASES", {})
     return h
 
 
 def test_license_through_proxy_requested():
     assert _license.license_through_proxy_requested(None, {}) is False
-    assert _license.license_through_proxy_requested(None, {"CLEARCOTE_LICENSE_THROUGH_PROXY": "1"}) is True
-    assert _license.license_through_proxy_requested(False, {"CLEARCOTE_LICENSE_THROUGH_PROXY": "true"}) is False
+    assert _license.license_through_proxy_requested(None, {"CODE_BROWSER_LICENSE_THROUGH_PROXY": "1"}) is True
+    assert _license.license_through_proxy_requested(False, {"CODE_BROWSER_LICENSE_THROUGH_PROXY": "true"}) is False
 
 
 def test_get_session_seats_states(servers, home):
@@ -411,7 +411,7 @@ def test_license_key_storage(home):
 
 
 def _drift_setup(servers, monkeypatch, state):
-    from clearcote import geoip
+    from code_browser import geoip
     origin = servers(start_origin(lambda m, path, h, b: (200, state["ip"])))
     proxy = servers(start_http_proxy())
     monkeypatch.setattr(geoip, "IPECHO_URLS", (f"http://localhost:{origin.port}/echo",))
@@ -432,12 +432,12 @@ def test_egress_drift_detects_a_rotating_exit(servers, monkeypatch):
 def test_egress_drift_warning_prints_once_and_respects_quiet(servers, monkeypatch, capsys):
     state = {"ip": "203.0.113.99"}
     geoip, spec, _proxy = _drift_setup(servers, monkeypatch, state)
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
     assert geoip.warn_on_egress_drift(spec, "203.0.113.7", quiet=True) is None
     t = geoip.warn_on_egress_drift(spec, "203.0.113.7")
     t.join(10)
     err = capsys.readouterr().err
-    assert err.count("clearcote: warning:") == 1
+    assert err.count("code-browser: warning:") == 1
     assert "203.0.113.7 -> 203.0.113.99" in err and "sticky session" in err
     state["ip"] = "203.0.113.7"
     geoip.warn_on_egress_drift(spec, "203.0.113.7").join(10)

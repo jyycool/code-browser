@@ -4,9 +4,9 @@ import sys
 
 import pytest
 
-from clearcote import _persona
+from code_browser import _persona
 
-REFUSAL = "[clearcote] no valid license lease for this run. Set a license key (CLEARCOTE_LICENSE_KEY) via the SDK and check your plan's concurrency limit.\r\n"
+REFUSAL = "[code-browser] no valid license lease for this run. Set a license key (CLEARCOTE_LICENSE_KEY) via the SDK and check your plan's concurrency limit.\r\n"
 
 
 def test_returns_stdout_of_a_clean_run():
@@ -47,14 +47,14 @@ def test_reads_a_real_process():
 
 
 def test_reports_stderr_of_a_real_refusing_process():
-    cmd = [sys.executable, "-c", "import sys; print('[clearcote] refused here', file=sys.stderr); sys.exit(1)"]
+    cmd = [sys.executable, "-c", "import sys; print('[code-browser] refused here', file=sys.stderr); sys.exit(1)"]
     with pytest.raises(RuntimeError, match="it exited with code 1: refused here"):
         _persona._run_probe(cmd, None)
 
 
 def test_retries_from_a_recovered_copy_on_the_windows_race(monkeypatch):
     monkeypatch.setattr(_persona.sys, "platform", "win32")
-    import clearcote._winlaunch as wl
+    import code_browser._winlaunch as wl
     monkeypatch.setattr(wl, "recovered_exe", lambda exe: None)
     monkeypatch.setattr(wl, "make_recovered_copy", lambda exe, warm=None: "C:/recovered/chrome.exe")
     seen = []

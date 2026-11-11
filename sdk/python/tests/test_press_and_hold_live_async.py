@@ -1,7 +1,7 @@
-"""LIVE: the async press_and_hold (clearcote.async_api): `until` may be async, and a cancelled hold still
+"""LIVE: the async press_and_hold (code_browser.async_api): `until` may be async, and a cancelled hold still
 lets the button up. Its own module: the sync live tests keep a sync Playwright loop running.
 
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary.
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary.
 """
 import asyncio
 import os
@@ -10,8 +10,8 @@ import pytest
 
 from test_press_and_hold_live import PAGE, _held, _no_font_cache_left_behind  # noqa: F401
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 
 def test_async(_no_font_cache_left_behind, tmp_path):
@@ -19,7 +19,7 @@ def test_async(_no_font_cache_left_behind, tmp_path):
     f.write_text(PAGE, encoding="utf-8")
 
     async def run():
-        import clearcote.async_api as ca
+        import code_browser.async_api as ca
         b = await ca.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="hold-live-2", quiet=True)
         try:
             p = await b.new_page(viewport={"width": 1180, "height": 760})

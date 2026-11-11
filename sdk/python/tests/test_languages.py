@@ -1,12 +1,12 @@
 """Chrome's language defaults (mirrors sdk/node/test/languages.test.ts and
-sdk/dotnet/tests/Clearcote.Tests/LanguagesTests.cs)."""
+sdk/dotnet/tests/CodeBrowser.Tests/LanguagesTests.cs)."""
 import pytest
 
-from clearcote._fingerprint import fingerprint_args
-from clearcote._fonts import linux_locale_env
-from clearcote._languages import (CHROME_UI_LOCALES, chrome_accept_languages, chrome_ui_locale,
+from code_browser._fingerprint import fingerprint_args
+from code_browser._fonts import linux_locale_env
+from code_browser._languages import (CHROME_UI_LOCALES, chrome_accept_languages, chrome_ui_locale,
                                   resolve_languages)
-from clearcote.geoip import COUNTRY_LANG, accept_language_for_country
+from code_browser.geoip import COUNTRY_LANG, accept_language_for_country
 
 # Genuine Google Chrome 154 on Windows, fresh profile per OS locale (--lang=<os locale>):
 # (os locale, navigator.languages, Intl locale). 2026-09-25, SESSION-CONTEXT/118.

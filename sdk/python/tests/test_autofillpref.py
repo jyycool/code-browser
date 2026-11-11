@@ -12,9 +12,9 @@ import tempfile
 
 import pytest
 
-import clearcote
-from clearcote import _profile, _serve, async_api
-from clearcote._autofillpref import apply_autofill_prefs, seed_autofill_prefs
+import code_browser
+from code_browser import _profile, _serve, async_api
+from code_browser._autofillpref import apply_autofill_prefs, seed_autofill_prefs
 
 ON = {"profile_enabled": True, "credit_card_enabled": True}
 
@@ -82,11 +82,11 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(temp))
     for k in ("HOME", "USERPROFILE"):
         monkeypatch.setenv(k, str(home))
-    for k in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"):
+    for k in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"):
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     monkeypatch.setattr(_profile, "PROFILE_DIR", str(tmp_path / "no-saved-profiles"))
-    assert clearcote.resolve_license_key(None) is None
+    assert code_browser.resolve_license_key(None) is None
     d = tmp_path / "engine"
     d.mkdir()
     exe = d / ("chrome.exe" if os.name == "nt" else "chrome")
@@ -137,36 +137,36 @@ def pw(monkeypatch):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
     return seen
 
 
 def test_launch_persistent_context_seeds_before_the_browser_starts(tmp_path, env, pw):
     udd = str(tmp_path / "profile")
-    clearcote.launch_persistent_context(udd, executable_path=env["exe"], headless=False)
+    code_browser.launch_persistent_context(udd, executable_path=env["exe"], headless=False)
     assert pw[-1] == (udd, ON)
 
 
 def test_launch_persistent_context_keeps_an_explicit_off(tmp_path, env, pw):
     udd = tmp_path / "profile"
     _write(udd, {"autofill": {"profile_enabled": False}, "browser": {"x": 1}})
-    clearcote.launch_persistent_context(str(udd), executable_path=env["exe"], headless=False)
+    code_browser.launch_persistent_context(str(udd), executable_path=env["exe"], headless=False)
     assert _read(udd) == {"autofill": {"profile_enabled": False, "credit_card_enabled": True}, "browser": {"x": 1}}
 
 
 def test_launch_seeds_the_throwaway_profile(env, pw):
-    browser = clearcote.launch(executable_path=env["exe"], headless=False)
+    browser = code_browser.launch(executable_path=env["exe"], headless=False)
     udd, autofill = pw[-1]
-    assert os.path.basename(udd).startswith("clearcote-run-")
+    assert os.path.basename(udd).startswith("code-browser-run-")
     assert autofill == ON
     browser.close()
     assert os.listdir(env["temp"]) == []
 
 
 def test_incognito_launch_writes_nothing(tmp_path, env, pw):
-    clearcote.launch(executable_path=env["exe"], headless=False, ephemeral_profile=False)
+    code_browser.launch(executable_path=env["exe"], headless=False, ephemeral_profile=False)
     assert pw[-1] == (None, None)
     assert os.listdir(env["temp"]) == []
     assert sorted(os.listdir(tmp_path)) == ["engine", "home", "temp"]
@@ -260,11 +260,11 @@ def test_serve_seeds_before_the_browser_starts(tmp_path, env, monkeypatch, own):
         spawned.append((udd, _autofill_or_none(udd)))
         return _Proc()
 
-    monkeypatch.setattr(clearcote, "_win_av_retry", lambda start, exe: start(exe))
+    monkeypatch.setattr(code_browser, "_win_av_retry", lambda start, exe: start(exe))
     monkeypatch.setattr(_serve.subprocess, "Popen", _popen)
     monkeypatch.setattr(_serve.urllib.request, "urlopen", lambda *a, **k: None)
     kw = {} if own else {"user_data_dir": str(tmp_path / "served")}
-    srv = clearcote.serve(executable_path=env["exe"], headless=False, quiet=True, ready_timeout=5, **kw)
+    srv = code_browser.serve(executable_path=env["exe"], headless=False, quiet=True, ready_timeout=5, **kw)
     try:
         udd, autofill = spawned[-1]
         assert autofill == ON

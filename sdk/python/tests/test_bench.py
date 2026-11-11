@@ -1,10 +1,10 @@
-"""`clearcote bench` and the Host section of `clearcote info`: the summary and the printed lines are a
+"""`code-browser bench` and the Host section of `code-browser info`: the summary and the printed lines are a
 contract shared with the Node SDK (test/bench.test.ts reads the same fixture and expected lines)."""
 import json
 import os
 
-from clearcote import _commands
-from clearcote._bench import (_secs, bench_lines, browser_tree, host_info, host_lines, proxy_label, ram_safe_count,
+from code_browser import _commands
+from code_browser._bench import (_secs, bench_lines, browser_tree, host_info, host_lines, proxy_label, ram_safe_count,
                               summarize_bench, windows_name)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -68,7 +68,7 @@ def test_never_prints_proxy_credentials():
 
 
 def test_browser_tree_follows_the_profile_dir():
-    d = "C:\\Temp\\clearcote-bench-abc"
+    d = "C:\\Temp\\code-browser-bench-abc"
     table = [
         {"pid": 1, "ppid": 0, "cmd": f"chrome.exe --user-data-dir={d} --headless", "cpuMs": 10, "memMB": 100},
         {"pid": 2, "ppid": 1, "cmd": "chrome.exe --type=renderer", "cpuMs": 20, "memMB": 200},
@@ -115,7 +115,7 @@ def test_names_windows_11_although_its_product_name_says_10():
 
 def test_documented_with_its_flags():
     u = _commands.usage()
-    for s in ("clearcote bench", "BENCH FLAGS", "--concurrency", "--duration"):
+    for s in ("code-browser bench", "BENCH FLAGS", "--concurrency", "--duration"):
         assert s in u
     assert "--force" in _commands.command_usage("bench")
     assert "seats" in _commands.command_usage("bench")

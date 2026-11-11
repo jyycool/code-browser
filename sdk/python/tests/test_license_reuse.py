@@ -4,7 +4,7 @@ calls; the machine-lease registry + on-disk cache are reset between cases."""
 import json
 import time
 
-import clearcote._license as L
+import code_browser._license as L
 
 KEY = "cc_lic_TESTKEY"
 
@@ -40,7 +40,7 @@ def _counter():
 
 def _env(monkeypatch):
     monkeypatch.setenv("CLEARCOTE_LICENSE_KEY", KEY)
-    monkeypatch.setenv("CLEARCOTE_LICENSE_API", "http://test.local")
+    monkeypatch.setenv("CODE_BROWSER_LICENSE_API", "http://test.local")
 
 
 def test_one_checkout_shared_across_launches(monkeypatch):
@@ -134,7 +134,7 @@ def test_expired_cache_triggers_checkout(monkeypatch):
 def test_free_mode_no_key_no_calls(monkeypatch, tmp_path):
     _reset()
     monkeypatch.delenv("CLEARCOTE_LICENSE_KEY", raising=False)
-    # "no key" must also mean no ~/.clearcote/license.key: a machine that has ever used a PRO key
+    # "no key" must also mean no ~/.code-browser/license.key: a machine that has ever used a PRO key
     # persists one there, which made this test fail on exactly the machines that release the SDK.
     monkeypatch.setattr(L.Path, "home", classmethod(lambda cls: tmp_path))
     calls, ok = _counter(); monkeypatch.setattr(L, "_post", ok)
@@ -333,7 +333,7 @@ def _ua_server():
 
 
 def test_lease_calls_send_one_user_agent_naming_the_sdk_and_version(monkeypatch):
-    import clearcote
+    import code_browser
     srv, seen = _ua_server()
     try:
         base = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -341,12 +341,12 @@ def test_lease_calls_send_one_user_agent_naming_the_sdk_and_version(monkeypatch)
         assert L.get_session_seats(KEY, api_base=base)["state"] == "ok"
     finally:
         srv.shutdown()
-    want = f"clearcote-sdk-python/{clearcote.__version__}"
+    want = f"clearcote-sdk-python/{code_browser.__version__}"
     assert seen == [("/api/v1/lease/heartbeat", [want]), ("/api/v1/lease/seats", [want])]
 
 
 def test_proxied_lease_calls_override_the_proxy_helpers_default_user_agent(monkeypatch):
-    import clearcote
+    import code_browser
     got = []
 
     class Res:
@@ -366,5 +366,5 @@ def test_proxied_lease_calls_override_the_proxy_helpers_default_user_agent(monke
     L._post("http://test.local/api/v1/lease/heartbeat", KEY, {"lease_id": "L1"}, proxy=object())
     # Exactly "User-Agent": _net merges the caller's headers over its own {"User-Agent": "clearcote-sdk"},
     # so any other spelling would put two User-Agent headers on the wire.
-    assert got[0]["User-Agent"] == f"clearcote-sdk-python/{clearcote.__version__}"
+    assert got[0]["User-Agent"] == f"clearcote-sdk-python/{code_browser.__version__}"
     assert not [k for k in got[0] if k.lower() == "user-agent" and k != "User-Agent"]

@@ -1,7 +1,7 @@
 """Live: Widevine ON by default for a licensed (PRO) launch, against a real engine.
 
-Skipped unless CLEARCOTE_LIVE_ENGINE points at a PRO chrome binary (r32+, it has --widevine-cdm-path) AND a licence
-key resolves (CLEARCOTE_LICENSE_KEY or ~/.clearcote/license.key). Downloads Google's CDM from Google into a temp
+Skipped unless CODE_BROWSER_LIVE_ENGINE points at a PRO chrome binary (r32+, it has --widevine-cdm-path) AND a licence
+key resolves (CLEARCOTE_LICENSE_KEY or ~/.code-browser/license.key). Downloads Google's CDM from Google into a temp
 cache once, so it needs the network. Headless. These belong in the release gate.
 """
 import http.server
@@ -10,12 +10,12 @@ import threading
 
 import pytest
 
-import clearcote
-from clearcote import _widevine as W
+import code_browser
+from code_browser import _widevine as W
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE or not clearcote.resolve_license_key(),
-                                reason="needs CLEARCOTE_LIVE_ENGINE (a PRO engine) and a licence key")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE or not code_browser.resolve_license_key(),
+                                reason="needs CODE_BROWSER_LIVE_ENGINE (a PRO engine) and a licence key")
 
 EME = """async () => { try {
   const a = await navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{initDataTypes: ['cenc'],
@@ -62,8 +62,8 @@ def cdm_cache(tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def _no_opt_out(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_WIDEVINE", raising=False)
-    monkeypatch.setenv("CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS", "120")  # a first download on a slow link
+    monkeypatch.delenv("CODE_BROWSER_WIDEVINE", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS", "120")  # a first download on a slow link
 
 
 def _eme(context_or_browser, url):
@@ -74,7 +74,7 @@ def _eme(context_or_browser, url):
 
 def test_a_default_licensed_launch_downloads_the_cdm_and_has_widevine(cdm_cache, page_url, tmp_path):
     assert W.cached_cdm(cdm_cache) is None
-    ctx = clearcote.launch_persistent_context(str(tmp_path / "udd"), executable_path=LIVE, headless=True, quiet=True,
+    ctx = code_browser.launch_persistent_context(str(tmp_path / "udd"), executable_path=LIVE, headless=True, quiet=True,
                                               args=["--no-sandbox"])
     try:
         assert _eme(ctx, page_url) == "ok com.widevine.alpha"
@@ -87,7 +87,7 @@ def test_a_default_licensed_launch_downloads_the_cdm_and_has_widevine(cdm_cache,
 
 def test_a_second_launch_uses_the_cache_without_any_network(cdm_cache, page_url, monkeypatch):
     monkeypatch.setattr(W, "fetch_widevine", lambda *a, **k: pytest.fail("network used"))
-    browser = clearcote.launch(executable_path=LIVE, headless=True, quiet=True, args=["--no-sandbox"])  # throwaway profile
+    browser = code_browser.launch(executable_path=LIVE, headless=True, quiet=True, args=["--no-sandbox"])  # throwaway profile
     try:
         assert _eme(browser, page_url) == "ok com.widevine.alpha"
     finally:
@@ -95,7 +95,7 @@ def test_a_second_launch_uses_the_cache_without_any_network(cdm_cache, page_url,
 
 
 def test_an_incognito_launch_has_it_too(cdm_cache, page_url):
-    browser = clearcote.launch(executable_path=LIVE, headless=True, quiet=True, ephemeral_profile=False,
+    browser = code_browser.launch(executable_path=LIVE, headless=True, quiet=True, ephemeral_profile=False,
                                args=["--no-sandbox"])
     try:
         assert _eme(browser, page_url) == "ok com.widevine.alpha"
@@ -107,10 +107,10 @@ def test_an_incognito_launch_has_it_too(cdm_cache, page_url):
 def test_opting_out_leaves_no_widevine(cdm_cache, page_url, tmp_path, monkeypatch, how):
     kw = {}
     if how == "env":
-        monkeypatch.setenv("CLEARCOTE_WIDEVINE", "0")
+        monkeypatch.setenv("CODE_BROWSER_WIDEVINE", "0")
     else:
         kw["widevine"] = False
-    ctx = clearcote.launch_persistent_context(str(tmp_path / "udd"), executable_path=LIVE, headless=True, quiet=True,
+    ctx = code_browser.launch_persistent_context(str(tmp_path / "udd"), executable_path=LIVE, headless=True, quiet=True,
                                               args=["--no-sandbox"], **kw)
     try:
         assert _eme(ctx, page_url) == "NotSupportedError"
@@ -120,7 +120,7 @@ def test_opting_out_leaves_no_widevine(cdm_cache, page_url, tmp_path, monkeypatc
 
 def test_the_async_api_follows(cdm_cache, page_url):
     import asyncio
-    from clearcote import async_api
+    from code_browser import async_api
 
     async def run():
         browser = await async_api.launch(executable_path=LIVE, headless=True, quiet=True, args=["--no-sandbox"])

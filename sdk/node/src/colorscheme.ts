@@ -1,7 +1,7 @@
 /**
  * Leave `prefers-color-scheme` to the engine's persona.
  *
- * From engine r32 the persona decides the colour scheme a Clearcote browser reports (about one
+ * From engine r32 the persona decides the colour scheme a CodeBrowser browser reports (about one
  * persona in three is dark; `--fingerprint-color-scheme=light|dark` overrides), and every surface
  * follows it: CSS and `matchMedia`, the `Sec-CH-Prefers-Color-Scheme` request header and the system
  * colours of `color-scheme: light dark` content.
@@ -14,7 +14,7 @@
  * Only for an engine that has the switch (an older engine keeps Playwright's default exactly as
  * before), and never over a `colorScheme` the caller passed.
  *
- * A browser the SDK CONNECTS to (the Clearcote Docker container, over CDP) gets the same default, and
+ * A browser the SDK CONNECTS to (the CodeBrowser Docker container, over CDP) gets the same default, and
  * also for the context(s) that exist already, which callers use directly
  * (`browser.contexts()[0].newPage()`): the emulation is per page, so there it is turned off on each
  * page as it opens (`emulateMedia({ colorScheme: null })`) and on the pages open at connect time.

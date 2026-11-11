@@ -15,7 +15,7 @@ import pytest
 
 from _fake_build import BINARY, FakeBuildServer, verified_tree
 
-download = importlib.import_module("clearcote.download")  # the module: `clearcote.download` is also a function
+download = importlib.import_module("code_browser.download")  # the module: `code_browser.download` is also a function
 
 pro_platform = pytest.mark.skipif(sys.platform == "darwin", reason="the PRO route serves Windows and Linux")
 
@@ -30,8 +30,8 @@ def home(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(h))
     monkeypatch.setenv("USERPROFILE", str(h))
     monkeypatch.setenv("LOCALAPPDATA", str(h))
-    monkeypatch.delenv("CLEARCOTE_LICENSE_API", raising=False)
-    monkeypatch.delenv("CLEARCOTE_RELEASE_CHANNEL", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_LICENSE_API", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_RELEASE_CHANNEL", raising=False)
     monkeypatch.setattr(download, "_pro_meta_memo", {})
     return h
 
@@ -106,7 +106,7 @@ def test_once_the_pause_is_over_the_new_build_is_installed_and_the_pause_file_re
 def test_a_429_with_nothing_installed_fails_then_fails_fast_while_paused(home, tmp_path, srv):
     cache = str(tmp_path / "cache")
     srv.archive_status, srv.retry_after = 429, "600"
-    with pytest.raises(download.DownloadHttpError, match=r"(?s)HTTP 429.*CLEARCOTE_CACHE") as e:
+    with pytest.raises(download.DownloadHttpError, match=r"(?s)HTTP 429.*CODE_BROWSER_CACHE") as e:
         ensure(srv, cache, "cc_lic_fb3")
     assert e.value.status == 429 and e.value.retry_after_sec == 600
     with pytest.raises(RuntimeError, match="download is paused until"):
@@ -173,7 +173,7 @@ def test_a_damaged_older_build_is_not_a_fall_back(home, tmp_path, srv):
 
 @pro_platform
 def test_the_archive_download_says_which_sdk_fetched_it(home, tmp_path, srv):
-    from clearcote import __version__
+    from code_browser import __version__
 
     cache = str(tmp_path / "cache")
     ensure(srv, cache, "cc_lic_fb9")
@@ -186,9 +186,9 @@ def test_the_archive_download_says_which_sdk_fetched_it(home, tmp_path, srv):
 def test_the_download_route_is_asked_with_the_sdk_version(home, tmp_path, srv, capsys):
     # Since 156-r51 a build can carry a minimum client version; the route holds back a client that
     # names no version (every SDK before 0.63 sent plain "clearcote-sdk" here), so the version must go.
-    from clearcote import __version__
+    from code_browser import __version__
 
-    srv.meta_extra = {"notice": "Clearcote 156-r51 needs a newer client; you were given 155-r50 instead."}
+    srv.meta_extra = {"notice": "CodeBrowser 156-r51 needs a newer client; you were given 155-r50 instead."}
     download.pro_ensure_binary("cc_lic_fb10", api_base=srv.url, cache_dir=str(tmp_path / "cache"), quiet=False)
     assert srv.meta_user_agents[0] == f"clearcote-sdk-python/{__version__}"
     assert re.fullmatch(r"clearcote-sdk-python/\d+\.\d+\.\d+.*", srv.meta_user_agents[0])

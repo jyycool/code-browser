@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Patch-integrity release gate for Clearcote.
+"""Patch-integrity release gate for CodeBrowser.
 
-Clearcote *is* its patch set — every stealth behavior lives in `patches/`, applied on top
+CodeBrowser *is* its patch set — every stealth behavior lives in `patches/`, applied on top
 of a pinned Chromium. A patch that silently fails to apply, gets dropped on an incremental
 rebuild, or is left out of a stale committed set does NOT crash the browser: it still
 launches and runs, just **less stealthy**. That failure is invisible to any "does it start?"
@@ -33,10 +33,10 @@ abort. See docs/en/PATCH-INTEGRITY.md for the standard and how to add a witness 
 Usage:
   # Layer 0 (series/manifest integrity) always runs.
   # Layer 1 — against the build tree (run at build time AND right before packaging):
-  python scripts/verify_patches.py --tree ~/clearcote-build/build/src --target windows
+  python scripts/verify_patches.py --tree ~/code-browser-build/build/src --target windows
   # Layer 2 — against a shipped binary, a directory of binaries, or the release zip:
   python scripts/verify_patches.py --binary out/Default/chrome.dll
-  python scripts/verify_patches.py --binary clearcote-151.0.7922.108-windows-x64.zip
+  python scripts/verify_patches.py --binary code-browser-151.0.7922.108-windows-x64.zip
   # Both (the full pre-release gate):
   python scripts/verify_patches.py --tree <src> --target windows --binary <chrome.dll>
 
@@ -317,7 +317,7 @@ def layer2_binary(binary: Path, manifest: dict, series: list[str], target: str |
 
 # --------------------------------------------------------------------------- main
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Clearcote patch-integrity release gate")
+    ap = argparse.ArgumentParser(description="CodeBrowser patch-integrity release gate")
     ap.add_argument("--tree", type=Path, help="build source tree to reverse-apply patches against (Layer 1)")
     ap.add_argument("--target", choices=("windows", "linux"),
                     help="build target for --tree (which patches to expect); required with --tree")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 r"""
-clearcote stealth-coherence gate
+code-browser stealth-coherence gate
 ================================
 
 Launches the built ``chrome.exe`` and asserts that the persona/farble layer is
@@ -51,7 +51,7 @@ are enforced forward the moment they land.
 USAGE
 -----
   py -3 scripts/stealth_coherence.py                 # gate the default binary
-  py -3 scripts/stealth_coherence.py --binary C:\clearcote\chrome.exe
+  py -3 scripts/stealth_coherence.py --binary C:\code-browser\chrome.exe
   py -3 scripts/stealth_coherence.py --baseline      # also sanity-check stock Chrome passes
   py -3 scripts/stealth_coherence.py --headed --json out.json
   py -3 scripts/stealth_coherence.py --selftest      # validate the check logic, no binary needed
@@ -256,13 +256,13 @@ def verdict(checks):
 # --- browser driving ---------------------------------------------------------
 
 def _default_binary():
-    for env in ("CLEARCOTE_BINARY", "CLEARCOAT_BINARY"):
+    for env in ("CODE_BROWSER_BINARY", "CLEARCOAT_BINARY"):
         if os.environ.get(env):
             return os.environ[env]
     for c in [os.path.join(HERE, "win-x64", "chrome.exe"),
               os.path.join(HERE, "..", "win-x64", "chrome.exe"),
               os.path.join(os.getcwd(), "win-x64", "chrome.exe"),
-              r"C:\clearcote\chrome.exe"]:
+              r"C:\code-browser\chrome.exe"]:
         if os.path.exists(c):
             return os.path.abspath(c)
     return os.path.join(HERE, "win-x64", "chrome.exe")
@@ -313,7 +313,7 @@ def run_gate(binary, seed, platform, headed, baseline):
 
     if baseline:
         # Sanity: stock Chrome must PASS every check — proves the gate's notion of
-        # "coherent" matches a real browser (and that a failure is clearcote's, not ours).
+        # "coherent" matches a real browser (and that a failure is code-browser's, not ours).
         with sync_playwright() as pw:
             br = pw.chromium.launch(channel="chrome", headless=not headed,
                                     args=["--no-first-run", "--no-default-browser-check"], timeout=60000)
@@ -333,7 +333,7 @@ SYM = {"PASS": "[PASS] ", "FAIL": "[FAIL] ", "KNOWN": "[gap]  ", "FIXED": "[FIXE
 
 def print_report(out):
     print("=" * 72)
-    print("clearcote stealth-coherence gate")
+    print("code-browser stealth-coherence gate")
     print("binary :", out["binary"])
     print("seed   :", out["seed"], "| platform:", out["platform"])
     print("=" * 72)
@@ -347,7 +347,7 @@ def print_report(out):
         print("-" * 72)
         if b_fail:
             print(f"  ! baseline (stock Chrome) FAILED: {b_fail} — the gate's reference logic or"
-                  f" environment is suspect; investigate before trusting clearcote results.")
+                  f" environment is suspect; investigate before trusting code-browser results.")
         else:
             print("  baseline (stock Chrome): all checks pass (gate logic validated against real Chrome)")
     print("-" * 72)
@@ -413,7 +413,7 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    ap = argparse.ArgumentParser(description="clearcote stealth-coherence gate")
+    ap = argparse.ArgumentParser(description="code-browser stealth-coherence gate")
     ap.add_argument("--binary", default=_default_binary())
     ap.add_argument("--seed", default="coherence-gate")
     ap.add_argument("--platform", default="windows")
@@ -432,7 +432,7 @@ def main():
         print("[X] dependency missing:  py -3 -m pip install playwright")
         sys.exit(2)
     if not os.path.exists(a.binary):
-        print(f"[X] chrome.exe not found: {a.binary}  (set CLEARCOTE_BINARY or pass --binary)")
+        print(f"[X] chrome.exe not found: {a.binary}  (set CODE_BROWSER_BINARY or pass --binary)")
         sys.exit(2)
 
     try:

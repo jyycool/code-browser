@@ -3,8 +3,8 @@
 Playwright's page.screenshot() first sets an inline caret-color on every input, textarea and contenteditable (and
 restores it afterwards): changes a page script can observe. The facade captures through raw CDP instead.
 
-The first test runs anywhere (fakes, no browser). The second drives a real Clearcote browser and is opt-in:
-CLEARCOTE_MCP_BROWSER_TESTS=1.
+The first test runs anywhere (fakes, no browser). The second drives a real CodeBrowser browser and is opt-in:
+CODE_BROWSER_MCP_BROWSER_TESTS=1.
 """
 import base64
 import os
@@ -12,7 +12,7 @@ import struct
 
 import pytest
 
-from clearcote_mcp._facade import ClearcoteBrowser
+from code_browser_mcp._facade import CodeBrowserBrowser
 
 PNG = base64.b64decode(  # a 1x1 PNG
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
@@ -50,7 +50,7 @@ class FakeContext:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("full_page", [True, False])
 async def test_screenshot_captures_through_cdp(tmp_path, full_page):
-    b = ClearcoteBrowser()
+    b = CodeBrowserBrowser()
     b._ctx, b._page = FakeContext(), FakePage()
     out = await b.screenshot(str(tmp_path / "s.png"), full_page=full_page)
     assert out == {"status": "ok", "url": FakePage.url, "path": str(tmp_path / "s.png")}
@@ -80,10 +80,10 @@ def png_size(path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(os.environ.get("CLEARCOTE_MCP_BROWSER_TESTS") != "1",
-                    reason="drives a real Clearcote browser; set CLEARCOTE_MCP_BROWSER_TESTS=1")
+@pytest.mark.skipif(os.environ.get("CODE_BROWSER_MCP_BROWSER_TESTS") != "1",
+                    reason="drives a real CodeBrowser browser; set CODE_BROWSER_MCP_BROWSER_TESTS=1")
 async def test_screenshot_leaves_the_dom_untouched_in_a_real_browser(tmp_path):
-    b = ClearcoteBrowser({"headless": True})
+    b = CodeBrowserBrowser({"headless": True})
     await b.start()
     try:
         page = tmp_path / "p.html"

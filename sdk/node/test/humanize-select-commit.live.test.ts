@@ -1,6 +1,6 @@
 /**
  * LIVE: a humanized selectOption whose change handler stalls the page keeps to its timeout, as stock
- * selectOption does. Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary. Mirrors
+ * selectOption does. Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary. Mirrors
  * sdk/python/tests/test_humanize_select_commit_live.py. Strict humanize: a fallback to stock Playwright would pass
  * the timing checks too, so it fails the test.
  *
@@ -17,7 +17,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { errors, type Browser } from "playwright-core";
 import { launch } from "../src/index.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const T = 90_000;
 const OPTS = '<option value="a">Alpha</option><option value="b">Bravo</option></select>';
 const PAGES: Record<string, string> = {

@@ -15,11 +15,11 @@ describe("serve (raw CDP endpoint)", () => {
     expect(s.isAlive()).toBe(true);
   });
 
-  it.skipIf(!process.env.CLEARCOTE_TEST_BINARY)(
+  it.skipIf(!process.env.CODE_BROWSER_TEST_BINARY)(
     "serves a stealthy CDP endpoint (webdriver stays false)",
     async () => {
       const srv = await serve({
-        executablePath: process.env.CLEARCOTE_TEST_BINARY,
+        executablePath: process.env.CODE_BROWSER_TEST_BINARY,
         headless: true, quiet: true, fingerprint: "t", platform: "windows",
         args: ["--no-sandbox", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
       } as never);

@@ -1,4 +1,4 @@
-from clearcote.geoip import accept_language_for_country, resolve_geo
+from code_browser.geoip import accept_language_for_country, resolve_geo
 
 
 def test_accept_language_for_country():

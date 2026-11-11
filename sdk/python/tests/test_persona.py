@@ -9,8 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from clearcote import _persona
-from clearcote._persona import (PersonaServiceError, apply, apply_to_pw_kwargs, inject_persona_token,
+from code_browser import _persona
+from code_browser._persona import (PersonaServiceError, apply, apply_to_pw_kwargs, inject_persona_token,
                                 selector_from_args)
 
 

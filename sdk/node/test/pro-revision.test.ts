@@ -10,7 +10,7 @@ import { tempDir } from "./helpers/temp.js";
 const realFetch = globalThis.fetch;
 const OLD = { home: process.env.HOME, profile: process.env.USERPROFILE };
 beforeEach(() => {
-  // the PRO download route's answer is kept in ~/.clearcote: never this machine's
+  // the PRO download route's answer is kept in ~/.code-browser: never this machine's
   const home = tempDir("cc-rev-home-");
   process.env.HOME = home;
   process.env.USERPROFILE = home;

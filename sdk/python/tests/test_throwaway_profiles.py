@@ -11,7 +11,7 @@ binary guard and the temp-directory handling all run for real.
 
 AND NOT UNDER A LIVE BROWSER: Playwright fires ``close`` when the browser's pipe drops, ~100 ms
 before the process exits on Linux, and Chrome keeps writing the profile until then -- it even
-writes the directory back after it was deleted. Deleting it on the event left one clearcote-run-*
+writes the directory back after it was deleted. Deleting it on the event left one code-browser-run-*
 directory in /tmp per release smoke run, so the stand-in context below behaves the same way.
 """
 import inspect
@@ -25,8 +25,8 @@ import threading
 
 import pytest
 
-import clearcote
-from clearcote import _profile, async_api
+import code_browser
+from code_browser import _profile, async_api
 
 BROWSER_FAILED = "browser failed to start"
 POSIX_ONLY = pytest.mark.skipif(
@@ -46,11 +46,11 @@ def temp(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(temp))
     for k in ("HOME", "USERPROFILE"):
         monkeypatch.setenv(k, str(home))
-    for k in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"):
+    for k in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"):
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     monkeypatch.setattr(_profile, "PROFILE_DIR", str(tmp_path / "no-saved-profiles"))
-    assert clearcote.resolve_license_key(None) is None  # harness: no launch here takes a real lease
+    assert code_browser.resolve_license_key(None) is None  # harness: no launch here takes a real lease
     return temp
 
 
@@ -130,8 +130,8 @@ def pw(monkeypatch):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
     return state
 
 
@@ -144,20 +144,20 @@ def _close(context):
 def test_launch_removes_its_profile_when_the_browser_fails(temp, exe, pw):
     pw["fail"] = RuntimeError(BROWSER_FAILED)
     with pytest.raises(RuntimeError, match=BROWSER_FAILED):
-        clearcote.launch(executable_path=exe, headless=False)
-    assert os.path.basename(pw["dirs"][-1]).startswith("clearcote-run-")
+        code_browser.launch(executable_path=exe, headless=False)
+    assert os.path.basename(pw["dirs"][-1]).startswith("code-browser-run-")
     assert os.listdir(temp) == []
 
 
 def test_launch_removes_its_profile_when_options_fail_before_any_browser(temp, exe, pw):
     with pytest.raises(FileNotFoundError):
-        clearcote.launch(executable_path=exe, headless=False, profile="no-such-profile")
+        code_browser.launch(executable_path=exe, headless=False, profile="no-such-profile")
     assert pw["dirs"] == []
     assert os.listdir(temp) == []
 
 
 def test_launch_still_removes_its_profile_on_close(temp, exe, pw):
-    browser = clearcote.launch(executable_path=exe, headless=False)
+    browser = code_browser.launch(executable_path=exe, headless=False)
     assert len(os.listdir(temp)) == 1
     _close(browser)
     assert os.listdir(temp) == []
@@ -167,13 +167,13 @@ def test_launch_still_removes_its_profile_on_close(temp, exe, pw):
 def test_launch_agent_removes_its_profile_when_the_launch_fails(temp, exe, pw):
     pw["fail"] = RuntimeError(BROWSER_FAILED)
     with pytest.raises(RuntimeError, match=BROWSER_FAILED):
-        clearcote.launch_agent(executable_path=exe, headless=False)
-    assert os.path.basename(pw["dirs"][-1]).startswith("clearcote-agent-")
+        code_browser.launch_agent(executable_path=exe, headless=False)
+    assert os.path.basename(pw["dirs"][-1]).startswith("code-browser-agent-")
     assert os.listdir(temp) == []
 
 
 def test_launch_agent_removes_the_profile_it_created_on_close(temp, exe, pw):
-    context = clearcote.launch_agent(executable_path=exe, headless=False)
+    context = code_browser.launch_agent(executable_path=exe, headless=False)
     udd = pw["dirs"][-1]
     assert os.path.isdir(udd)
     _close(context)
@@ -184,7 +184,7 @@ def test_launch_agent_removes_the_profile_it_created_on_close(temp, exe, pw):
 def test_launch_agent_keeps_a_profile_the_caller_named(tmp_path, temp, exe, pw):
     keep = tmp_path / "keep-me"
     keep.mkdir()
-    context = clearcote.launch_agent(str(keep), executable_path=exe, headless=False)
+    context = code_browser.launch_agent(str(keep), executable_path=exe, headless=False)
     assert pw["dirs"][-1] == str(keep)
     assert "close" not in context.handlers  # nothing registered to delete it
     assert keep.is_dir()
@@ -224,7 +224,7 @@ async def test_async_launch_agent_removes_its_profile_when_the_launch_fails(temp
     async_pw["fail"] = RuntimeError(BROWSER_FAILED)
     with pytest.raises(RuntimeError, match=BROWSER_FAILED):
         await async_api.launch_agent(executable_path=exe, headless=False)
-    assert os.path.basename(async_pw["dirs"][-1]).startswith("clearcote-agent-")
+    assert os.path.basename(async_pw["dirs"][-1]).startswith("code-browser-agent-")
     assert os.listdir(temp) == []
 
 
@@ -247,13 +247,13 @@ async def test_async_launch_agent_close_removes_the_profile_only_after_the_brows
 
 
 # ------------------------------------------------------------- never under a live browser (sync)
-# Regression (0.35.0/0.36.0 release smoke on Linux: a clearcote-run-* directory per run): the
+# Regression (0.35.0/0.36.0 release smoke on Linux: a code-browser-run-* directory per run): the
 # profile was deleted by the ``close`` handler while the browser was still shutting down, and the
 # browser wrote it back after the cleanup had already marked itself done.
 @pytest.mark.parametrize("entry", ["launch", "launch_agent"])
 def test_close_removes_the_profile_only_after_the_browser_has_exited(temp, exe, pw, entry):
     pw["shutdown"] = _shutdown_writes
-    browser = getattr(clearcote, entry)(executable_path=exe, headless=False)
+    browser = getattr(code_browser, entry)(executable_path=exe, headless=False)
     browser.close()
     assert os.listdir(temp) == []
 
@@ -264,7 +264,7 @@ def test_an_entry_vanishing_mid_delete_is_not_taken_for_the_profile_being_gone(t
     Chrome renaming its ``.org.chromium.Chromium.*`` temp file into ``Local State`` -- not only for
     the directory itself. Taking that for "already gone" marked the cleanup done and leaked the
     directory (2 of 10 launches on Linux)."""
-    browser = clearcote.launch(executable_path=exe, headless=False)
+    browser = code_browser.launch(executable_path=exe, headless=False)
     udd = pw["dirs"][-1]
     real_rmtree, calls = shutil.rmtree, []
 
@@ -290,7 +290,7 @@ def test_a_browser_that_exits_on_its_own_loses_its_profile_only_once_its_process
     try:
         pw["on_launch"] = lambda udd: os.symlink(f"test-host-{proc.pid}",
                                                  os.path.join(udd, "SingletonLock"))
-        browser = clearcote.launch(executable_path=exe, headless=False)
+        browser = code_browser.launch(executable_path=exe, headless=False)
         udd = pw["dirs"][-1]
         real_rmtree, alive_at_delete = shutil.rmtree, []
 
@@ -326,7 +326,7 @@ def test_the_browsers_singleton_socket_directory_goes_with_the_profile(temp, exe
     (sock / "SingletonSocket").write_bytes(b"")
     pw["on_launch"] = lambda udd: os.symlink(str(sock / "SingletonSocket"),
                                              os.path.join(udd, "SingletonSocket"))
-    clearcote.launch(executable_path=exe, headless=False).close()
+    code_browser.launch(executable_path=exe, headless=False).close()
     assert os.listdir(temp) == []
 
 
@@ -337,7 +337,7 @@ def test_a_singleton_socket_link_to_anything_else_is_never_followed(tmp_path, te
     (precious / "SingletonSocket").write_bytes(b"")
     pw["on_launch"] = lambda udd: os.symlink(str(precious / "SingletonSocket"),
                                              os.path.join(udd, "SingletonSocket"))
-    clearcote.launch(executable_path=exe, headless=False).close()
+    code_browser.launch(executable_path=exe, headless=False).close()
     assert os.listdir(temp) == []
     assert (precious / "SingletonSocket").exists()
 
@@ -345,7 +345,7 @@ def test_a_singleton_socket_link_to_anything_else_is_never_followed(tmp_path, te
 # --------------------------------------------------------------- interpreter exit, browser open
 _EXIT_SCRIPT = textwrap.dedent('''
     import atexit, os, sys
-    import clearcote
+    import code_browser
 
     class Context:
         def __init__(self):
@@ -372,15 +372,15 @@ _EXIT_SCRIPT = textwrap.dedent('''
 
     driver, started = Driver(), []
 
-    def _playwright():  # as clearcote._playwright: started on the first launch, stopped at exit
+    def _playwright():  # as code_browser._playwright: started on the first launch, stopped at exit
         if not started:
             started.append(1)
-            atexit.register(clearcote._stop_quietly, driver)
+            atexit.register(code_browser._stop_quietly, driver)
         return driver
 
-    clearcote._playwright = _playwright
-    clearcote.install_humanize_on_context = lambda *a, **k: None
-    clearcote.launch(executable_path=sys.argv[1], headless=False)
+    code_browser._playwright = _playwright
+    code_browser.install_humanize_on_context = lambda *a, **k: None
+    code_browser.launch(executable_path=sys.argv[1], headless=False)
     print("launched", Driver.dirs[-1])
     # ... and exit with the browser still open
 ''')
@@ -395,15 +395,15 @@ def test_a_browser_left_open_at_exit_loses_its_profile_after_the_driver_has_clos
     temp.mkdir()
     home.mkdir()
     env = {k: v for k, v in os.environ.items()
-           if k not in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION")}
+           if k not in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION")}
     env.update(TMPDIR=str(temp), TEMP=str(temp), TMP=str(temp), HOME=str(home),
-               USERPROFILE=str(home), CLEARCOTE_NO_WARN="1",
-               CLEARCOTE_PROFILE_DIR=str(tmp_path / "no-saved-profiles"),
-               PYTHONPATH=os.path.dirname(os.path.dirname(os.path.abspath(clearcote.__file__))))
+               USERPROFILE=str(home), CODE_BROWSER_NO_WARN="1",
+               CODE_BROWSER_PROFILE_DIR=str(tmp_path / "no-saved-profiles"),
+               PYTHONPATH=os.path.dirname(os.path.dirname(os.path.abspath(code_browser.__file__))))
     r = subprocess.run([sys.executable, "-c", _EXIT_SCRIPT, exe], env=env, capture_output=True,
                        text=True, timeout=120)
     assert r.returncode == 0, r.stderr
-    assert "launched" in r.stdout and "clearcote-run-" in r.stdout  # the launch really happened
+    assert "launched" in r.stdout and "code-browser-run-" in r.stdout  # the launch really happened
     assert os.listdir(temp) == []
 
 
@@ -417,7 +417,7 @@ def paid_licence(monkeypatch):
     import time
     import uuid
 
-    import clearcote._license as L
+    import code_browser._license as L
 
     token = base64.urlsafe_b64encode(json.dumps({"v": 1, "plan": "pro", "n": 1}).encode()).decode().rstrip("=") + ".sig"
 
@@ -431,7 +431,7 @@ def paid_licence(monkeypatch):
     return {"license_key": f"cc_lic_pro_{uuid.uuid4().hex}", "license_api_base": "http://test.local"}
 
 
-# A licensed launch writes a run-token file for the engine (<tmp>/clearcote-rt-*.tok) before the
+# A licensed launch writes a run-token file for the engine (<tmp>/code-browser-rt-*.tok) before the
 # browser starts. When the browser then failed to start, the lease was released but the file stayed in
 # the temp directory until the interpreter exited (a paid lease is shared, so its stop() only drops a
 # reference) -- and for good when the process was killed.
@@ -439,7 +439,7 @@ def paid_licence(monkeypatch):
 def test_a_licensed_launch_that_fails_to_start_leaves_no_run_token_file(temp, exe, pw, paid_licence, ephemeral):
     pw["fail"] = RuntimeError(BROWSER_FAILED)
     with pytest.raises(RuntimeError, match=BROWSER_FAILED):
-        clearcote.launch(executable_path=exe, headless=False, ephemeral_profile=ephemeral, **paid_licence)
+        code_browser.launch(executable_path=exe, headless=False, ephemeral_profile=ephemeral, **paid_licence)
     assert len(pw["dirs"]) == 1  # the browser really was asked to start, under a lease
     assert os.listdir(temp) == []
 
@@ -456,12 +456,12 @@ async def test_async_licensed_launch_that_fails_to_start_leaves_no_run_token_fil
 # ------------------------------------------------------------------------ a binary that is not there
 # Handed an executable that does not exist, Playwright fails only after creating temp directories it
 # then leaves behind (playwright-artifacts-*, plus playwright_chromiumdev_profile-* for launch()).
-@pytest.mark.parametrize("how", ["executable_path", "CLEARCOTE_BINARY"])
+@pytest.mark.parametrize("how", ["executable_path", "CODE_BROWSER_BINARY"])
 def test_a_missing_binary_is_refused_before_any_browser_starts(tmp_path, temp, pw, monkeypatch, how):
     missing = str(tmp_path / "nowhere" / ("chrome.exe" if os.name == "nt" else "chrome"))
-    if how == "CLEARCOTE_BINARY":
-        monkeypatch.setenv("CLEARCOTE_BINARY", missing)
-    with pytest.raises(FileNotFoundError, match="Clearcote binary not found"):
-        clearcote.launch(headless=False, **({"executable_path": missing} if how == "executable_path" else {}))
+    if how == "CODE_BROWSER_BINARY":
+        monkeypatch.setenv("CODE_BROWSER_BINARY", missing)
+    with pytest.raises(FileNotFoundError, match="CodeBrowser binary not found"):
+        code_browser.launch(headless=False, **({"executable_path": missing} if how == "executable_path" else {}))
     assert pw["dirs"] == []
     assert os.listdir(temp) == []

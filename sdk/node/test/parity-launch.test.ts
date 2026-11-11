@@ -260,8 +260,8 @@ describe("fingerprintVoices", () => {
 describe("release channel (#5)", () => {
   it("defaults to stable, honours the option over the env, and rejects typos", () => {
     expect(resolveReleaseChannel(undefined, {})).toBe("stable");
-    expect(resolveReleaseChannel(undefined, { CLEARCOTE_RELEASE_CHANNEL: "preview" })).toBe("preview");
-    expect(resolveReleaseChannel("stable", { CLEARCOTE_RELEASE_CHANNEL: "preview" })).toBe("stable");
+    expect(resolveReleaseChannel(undefined, { CODE_BROWSER_RELEASE_CHANNEL: "preview" })).toBe("preview");
+    expect(resolveReleaseChannel("stable", { CODE_BROWSER_RELEASE_CHANNEL: "preview" })).toBe("stable");
     expect(resolveReleaseChannel(" Preview ", {})).toBe("preview");
     expect(() => resolveReleaseChannel("beta", {})).toThrow(/Unknown release channel 'beta'/);
   });

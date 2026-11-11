@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Verify that clearcote actually loads a fingerprint profile — that the surfaces a page reads
+"""Verify that code-browser actually loads a fingerprint profile — that the surfaces a page reads
 match what the profile says they should be.
 
-Launches the clearcote binary with ``--fingerprint-profile`` (gzip+base64-encoding the profile
+Launches the code-browser binary with ``--fingerprint-profile`` (gzip+base64-encoding the profile
 exactly as the SDK does), probes the fingerprint surfaces in-page, and compares each to the
 profile. Prints a PASS/FAIL table and exits non-zero if anything important diverges.
 
-    pip install playwright          # (one-time) python -m playwright install is NOT needed; we use the clearcote binary
-    python verify_profile.py --executable /path/to/clearcote/chrome.exe profile.json
+    pip install playwright          # (one-time) python -m playwright install is NOT needed; we use the code-browser binary
+    python verify_profile.py --executable /path/to/code-browser/chrome.exe profile.json
 
 Use it on a profile you captured (collect.html) or one from the curated library
 (https://github.com/clearcotelabs/clearcote-profiles).
@@ -69,7 +69,7 @@ def expected(profile):
         "maxTextureSize": params.get("MAX_TEXTURE_SIZE"),
         "redBits": params.get("RED_BITS"),
         "audioSampleRate": audio.get("BaseAudioContextSampleRate"),
-        # an empty profile voice list falls back to clearcote's default Windows trio (3)
+        # an empty profile voice list falls back to code-browser's default Windows trio (3)
         "voiceCount": (len(speech) if speech else 3),
         "colorGamut": gamut,
     }
@@ -94,8 +94,8 @@ def actual(probe):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("profile", help="path to a clearcote-profile JSON")
-    ap.add_argument("--executable", required=True, help="path to the clearcote chrome(.exe) binary")
+    ap.add_argument("profile", help="path to a code-browser-profile JSON")
+    ap.add_argument("--executable", required=True, help="path to the code-browser chrome(.exe) binary")
     ap.add_argument("--fingerprint", default="verify-seed", help="--fingerprint seed (fallback for absent fields)")
     ap.add_argument("--url", default="https://example.com", help="page to probe on")
     ap.add_argument("--show-fonts", type=int, default=10, help="how many of the profile's fonts to probe")
@@ -142,7 +142,7 @@ def main():
     if fonts:
         print("\n  fonts: %d/%d probed profile fonts detected present (%s)" %
               (len(font_hits), len(fonts), ", ".join(font_hits[:8]) or "none — none of the sample are installed locally"))
-    print("\n%s" % ("VERIFIED: clearcote is loading the profile." if not failed
+    print("\n%s" % ("VERIFIED: code-browser is loading the profile." if not failed
                     else "MISMATCH: %d surface(s) did not match the profile." % failed))
     sys.exit(0 if not failed else 1)
 

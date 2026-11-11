@@ -1,7 +1,7 @@
 /**
- * LIVE humanized form input against a real Clearcote build (sdk/testdata/humanize_forms.html).
+ * LIVE humanized form input against a real CodeBrowser build (sdk/testdata/humanize_forms.html).
  *
- * Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is available for a PRO
+ * Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is available for a PRO
  * build). Every assertion is about what a PAGE sees: trusted events, key holds, how many change
  * events a selection fires, and the exact value left in the field -- the things a behavioural detector
  * and a form backend read. Mirrors sdk/python/tests/test_humanize_forms_live.py check for check.
@@ -15,7 +15,7 @@ import { errors, type Browser, type Page } from "playwright-core";
 import { launch } from "../src/index.js";
 import { ISO_ACTIVE_FIELD, worldFor } from "../src/isolated.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const FIXTURE = pathToFileURL(fileURLToPath(new URL("../../testdata/humanize_forms.html", import.meta.url))).href;
 const MIN_HOLD_MS = 25; // a finger cannot hold a key or button shorter than this; persona floor is 45
 const T = 90_000;
@@ -29,7 +29,7 @@ type E = {
 describe.runIf(LIVE)("live humanized form input", () => {
   let browser: Browser;
   let page: Page;
-  const ENV = "CLEARCOTE_HUMANIZE_TYPO_RATE";
+  const ENV = "CODE_BROWSER_HUMANIZE_TYPO_RATE";
   const savedRate = process.env[ENV];
   const typos = (r: number) => { process.env[ENV] = String(r); };
 

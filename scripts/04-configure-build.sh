@@ -4,11 +4,11 @@
 #       linux   -> natively compile chrome + chrome_sandbox + chrome_crashpad_handler for Linux x64
 #
 #   TARGET  windows | linux   (default: windows)
-#   WORK    working dir (default: ~/clearcote-build)
+#   WORK    working dir (default: ~/code-browser-build)
 #   REPO    path to this repository (default: parent of this script)
 set -euo pipefail
 TARGET="${TARGET:-windows}"
-WORK="${WORK:-$HOME/clearcote-build}"
+WORK="${WORK:-$HOME/code-browser-build}"
 SRC="$WORK/build/src"
 GN="$WORK/bin/gn"
 REPO="${REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -25,7 +25,7 @@ mkdir -p out/Default
 # ungoogled domain substitution. The released 151 binaries are built from a tree WITH it (it rewrites
 # Google hostnames baked into the source, so it changes the binary). It must come after step 02 —
 # it also rewrites the toolchain download URLs — and 02 reverts it from this cache if re-run. Applying
-# it after the Clearcote series gives the same tree as applying it before, so it sits here.
+# it after the CodeBrowser series gives the same tree as applying it before, so it sits here.
 UG="$WORK/ungoogled-chromium"
 DOMSUB_CACHE="$WORK/build/domsubcache.tar.gz"
 if [ ! -f "$DOMSUB_CACHE" ]; then

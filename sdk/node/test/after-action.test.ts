@@ -106,14 +106,14 @@ const setup = async (seed: string, humanize: any = true) => {
   return f;
 };
 const moves = (f: { log: Ev[] }, since = -Infinity) => f.log.filter((e) => e.op === "move" && e.t >= since);
-const trace = (f: { page: any }): any[][] => (Array.isArray(f.page._clearcoteAfterTrace) ? f.page._clearcoteAfterTrace : []);
+const trace = (f: { page: any }): any[][] => (Array.isArray(f.page._code_browserAfterTrace) ? f.page._code_browserAfterTrace : []);
 const settle = (f: { page: any }) => (typeof f.page.settle === "function" ? f.page.settle() : Promise.resolve(undefined));
 
 beforeEach(() => {
-  process.env.CLEARCOTE_HUMANIZE_ENGINE_CLICKS = "off";
+  process.env.CODE_BROWSER_HUMANIZE_ENGINE_CLICKS = "off";
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance", "Date"] });
 });
-afterEach(() => { vi.useRealTimers(); delete process.env.CLEARCOTE_HUMANIZE_ENGINE_CLICKS; });
+afterEach(() => { vi.useRealTimers(); delete process.env.CODE_BROWSER_HUMANIZE_ENGINE_CLICKS; });
 
 const afterArrival = (f: { log: Ev[] }, t0: number) => {
   const mv = moves(f, t0);
@@ -253,7 +253,7 @@ describe("eager move-off (SC 299)", () => {
 describe("never on trial / held / hold", () => {
   it("a trial moves nothing and runs nothing after-action", async () => {
     const f = await setup("ha-1");
-    f.page._clearcoteAttention = true;
+    f.page._code_browserAttention = true;
     f.fire("load");
     const n = f.log.length;
     await drive(f.page.click("#t", { trial: true }));
@@ -278,7 +278,7 @@ describe("never on trial / held / hold", () => {
 
   it("press-and-hold: nothing moves mid-hold and no move-off follows", async () => {
     const f = await setup("ha-1");
-    f.page._clearcoteAttention = true;
+    f.page._code_browserAttention = true;
     await drive(f.page.pressAndHold("#t", { duration: 1500, tremor: false }));
     const d = f.log.findIndex((e) => e.op === "down"), u = f.log.findIndex((e) => e.op === "up");
     expect(d).toBeGreaterThanOrEqual(0);
@@ -290,7 +290,7 @@ describe("never on trial / held / hold", () => {
 describe("attention", () => {
   const firstPress = async (seed: string, textLen: number) => {
     const f = await setup(seed);
-    f.page._clearcoteAttention = true;
+    f.page._code_browserAttention = true;
     f.st.textLen = textLen;
     f.fire("load");
     const t = Date.now();
@@ -322,13 +322,13 @@ describe("attention", () => {
     expect(Date.now() - t).toBeLessThan(3000);
     expect(trace(f2).filter((e) => e[0] === "read" || e[0] === "drift")).toEqual([]);
     const f3 = await setup("ha-1");
-    f3.page._clearcoteAttention = false;   // the page flag overrides both ways
+    f3.page._code_browserAttention = false;   // the page flag overrides both ways
     f3.st.textLen = 20000;
     f3.fire("load");
     await drive(f3.page.click("#t"));
     expect(trace(f3).filter((e) => e[0] === "read" || e[0] === "drift")).toEqual([]);
     const f4 = await setup("ha-1", { attention: false });
-    f4.page._clearcoteAttention = true;
+    f4.page._code_browserAttention = true;
     f4.st.textLen = 20000;
     f4.fire("load");
     await drive(f4.page.click("#t"));
@@ -337,7 +337,7 @@ describe("attention", () => {
 
   it("idle drifts after a gap > 1.5 s only", async () => {
     const f = await setup("ha-4");
-    f.page._clearcoteAttention = true;
+    f.page._code_browserAttention = true;
     await drive(f.page.mouse.click(300, 300));
     await vi.advanceTimersByTimeAsync(1000);
     await drive(f.page.mouse.click(500, 300));
@@ -360,7 +360,7 @@ describe("ambient option", () => {
     // Through the real options object (optionsOf(page)); the flag the options also set is cleared, so the
     // burst can only come from the option itself.
     const f2 = await setup("ha-1", { ambient: "load" });
-    f2.page._clearcoteAutoAmbient = false;
+    f2.page._code_browserAutoAmbient = false;
     f2.fire("load");
     await vi.advanceTimersByTimeAsync(3000);
     expect(moves(f2).length).toBeGreaterThan(20);
@@ -369,7 +369,7 @@ describe("ambient option", () => {
     await drive(g.page.click("#t"));
     expect(trace(g).some((e) => e[0] === "read")).toBe(true);
     const h = await setup("ha-1");
-    h.page._clearcoteAutoAmbient = true;
+    h.page._code_browserAutoAmbient = true;
     h.fire("load");
     await vi.advanceTimersByTimeAsync(3000);
     expect(moves(h).length).toBeGreaterThan(20);
@@ -444,7 +444,7 @@ describe("shared after-action vectors (Python, Node and .NET)", () => {
 describe("per-call humanize: false", () => {
   it("goes straight to the stock call and skips the after-action step (lanes A + C)", async () => {
     const f = await setup("ha-1");
-    f.page._clearcoteAttention = true;
+    f.page._code_browserAttention = true;
     f.fire("load");
     await drive(f.page.click("#t", { humanize: false }));
     expect(trace(f).some((e) => e[0] === "read" || e[0] === "drift" || e[0] === "move_off")).toBe(false);

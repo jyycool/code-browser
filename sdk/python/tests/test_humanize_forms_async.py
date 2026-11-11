@@ -1,6 +1,6 @@
-"""Humanized form input on the ASYNC surface (clearcote._humanize_async), against a simulated page.
+"""Humanized form input on the ASYNC surface (code_browser._humanize_async), against a simulated page.
 
-The planning is the shared clearcote._forms (vector-tested in test_forms.py); these tests pin the async
+The planning is the shared code_browser._forms (vector-tested in test_forms.py); these tests pin the async
 WIRING: click options, field-classifying fill, mask-aware typos, select_option by opening the drop-down,
 list boxes, check/uncheck/set_checked, timeout propagation, and the async Locator patch. The live
 equivalents are in test_humanize_forms_live_async.py.
@@ -16,12 +16,12 @@ import random
 
 import pytest
 
-from clearcote import _forms
-from clearcote import _humanize_async as H
-from clearcote._isolated import (
+from code_browser import _forms
+from code_browser import _humanize_async as H
+from code_browser._isolated import (
     ACTIVE_FIELD, ACTIVE_VALUE, CSS_BOX, DESCRIBE, HIT_IN_BOX, LISTBOX_ROW, PLATFORM, SCROLL, SCROLL_BY, VIEWPORT,
 )
-from clearcote import _isolated as _iso
+from code_browser import _isolated as _iso
 
 # the label reads (lane F); optional so this file still collects against an SDK without them
 LABEL_OF = getattr(_iso, "LABEL_OF", "<no LABEL_OF>")
@@ -521,7 +521,7 @@ def fast(monkeypatch):
     async def nosleep(_s=0, *a, **k):
         return None
     monkeypatch.setattr(H.asyncio, "sleep", nosleep)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
 
 
 async def attached(*fields):
@@ -561,14 +561,14 @@ def test_async_module_plans_with_the_shared_forms_module():
                                       ("0.35", 0.35), ("7", 1.0), ("-1", 0.0)])
 def test_typo_rate_is_read_at_call_time_and_nan_is_the_default(monkeypatch, raw, want):
     if raw is None:
-        monkeypatch.delenv("CLEARCOTE_HUMANIZE_TYPO_RATE", raising=False)
+        monkeypatch.delenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", raising=False)
     else:
-        monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", raw)
+        monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", raw)
     assert H.typo_rate() == want
 
 
 def test_the_temporary_css_only_reads_are_gone():
-    from clearcote import _isolated
+    from code_browser import _isolated
     for name in ("IS_FOCUSED", "SELECT_PLAN", "SELECTED_INDEX"):
         assert not hasattr(_isolated, name)
     assert not hasattr(H, "_select_by_keyboard")
@@ -868,7 +868,7 @@ def test_a_pro_engine_without_the_r43_extensions_is_reported_once_through_on_fal
 
 
 def test_engine_ext_off_keeps_the_r42_route_on_an_r43_engine(fast, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_ENGINE_EXT", "off")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_ENGINE_EXT", "off")
 
     async def go():
         p = await attached(_btn())
@@ -915,7 +915,7 @@ async def _attached_opts(options, *fields):
 
 def _sync_page(options=True, *fields):
     """The sync humanizer on the same simulated page (through _hz_sync_sim), engine session attachable."""
-    import clearcote._humanize as HS
+    import code_browser._humanize as HS
     from _hz_sync_sim import sync_page
     sim, page = sync_page(*fields)
     HS.attach_humanize(None, page, humanize=options, seed="forms-unit")
@@ -924,14 +924,14 @@ def _sync_page(options=True, *fields):
 
 @pytest.fixture
 def sync_fast(monkeypatch):
-    import clearcote._humanize as HS
+    import code_browser._humanize as HS
     monkeypatch.setattr(HS.time, "sleep", lambda s: None)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
 
 
 def test_engine_off_keeps_a_typed_run_per_key_on_an_r43_engine(fast):
     """R3a: humanize {engine: "off"} -- the documented way to keep everything SDK-side -- also keeps the typed run
-    off the engine (no probe, no dispatchKeySequence). 949f5b1 only honoured CLEARCOTE_HUMANIZE_ENGINE_EXT=off there."""
+    off the engine (no probe, no dispatchKeySequence). 949f5b1 only honoured CODE_BROWSER_HUMANIZE_ENGINE_EXT=off there."""
     async def go():
         p = await _attached_opts({"engine": "off"}, _btn())
         s = _R43Session()
@@ -974,7 +974,7 @@ def test_a_run_the_persona_rolls_over_stays_per_key_on_an_r43_engine(fast, monke
 
 
 def test_sync_a_run_the_persona_rolls_over_stays_per_key_on_an_r43_engine(sync_fast, monkeypatch):
-    import clearcote._humanize as HS
+    import code_browser._humanize as HS
     sim, page = _sync_page(True, _btn())
     s = _R43Session()
     _with_session(sim, s)
@@ -991,11 +991,11 @@ def test_sync_a_run_the_persona_rolls_over_stays_per_key_on_an_r43_engine(sync_f
 def test_an_engine_typed_run_records_a_typed_trace_line(fast, sync_fast, monkeypatch, tmp_path, mode):
     """R3c: the score hook (lane G) hears an engine typed run as one "typed" line with the PLANNED down/up times,
     as the per-key path records its dispatched ones; 949f5b1 wrote nothing for it (the hook under-reported on r43)."""
-    import clearcote._humanize as HS
+    import code_browser._humanize as HS
     out = tmp_path / "score.jsonl"
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE", "1")
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_SCORE_FILE", str(out))
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_SCORE_FILE", str(out))
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     monkeypatch.setattr(H, "rollover_rate", lambda persona: 0.0)
     monkeypatch.setattr(HS, "rollover_rate", lambda persona: 0.0)
     if mode == "async":
@@ -1119,7 +1119,7 @@ def test_fill_clears_a_prefilled_field_with_held_keys(fast):
 
 
 def test_select_all_leads_and_lags_the_a_with_the_modifier(monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
 
     async def go():
         f = Field(value="old")
@@ -1459,7 +1459,7 @@ def test_unfillable_and_colour_fields_go_native(fast):
 
 # ------------------------------------------------------------------------------------- typos
 def test_typos_in_a_masked_field_backspace_only_what_landed(fast, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "1")
     random.seed(197)
 
     async def go():
@@ -1475,7 +1475,7 @@ def test_typos_in_a_masked_field_backspace_only_what_landed(fast, monkeypatch):
 
 
 def test_typos_respect_maxlength(fast, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "1")
     random.seed(41)
 
     async def go():
@@ -1490,7 +1490,7 @@ def test_typos_respect_maxlength(fast, monkeypatch):
 
 
 def test_forced_typos_are_corrected(fast, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0.4")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0.4")
     random.seed(7)
 
     async def go():
@@ -1507,7 +1507,7 @@ def test_forced_typos_are_corrected(fast, monkeypatch):
                                    dict(type="text", autocomplete="one-time-code"),
                                    dict(type="text", inputmode="numeric")])
 def test_no_typos_where_a_slip_breaks_the_field(fast, monkeypatch, field):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "1")
 
     async def go():
         f = Field(**field)
@@ -1536,7 +1536,7 @@ def test_a_capital_put_back_after_the_word_fix_goes_behind_a_real_shift(fast, mo
     # Control+Backspace had no Shift keydown before it -- _restore typed the word it put back bare (sync twin and the
     # late-notice case: test_humanize_keyboard). The planner is pinned to one substitution at the 'r' and the word fix
     # to every slip; the simulator deletes the word under Control+Backspace as the browser does.
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "1")
     monkeypatch.setattr(H, "WORD_FIX_RATE", 1.0)
     monkeypatch.setattr(H, "plan_typo", lambda text, i, rng, rate: {"kind": "sub", "wrong": "t", "late": 0} if i == 1 else None)
 
@@ -1717,7 +1717,7 @@ class _Impl:
 
 
 class _HPage:
-    _clearcote_humanized = True
+    _code_browser_humanized = True
 
     def __init__(self, raise_=None):
         self.calls, self.raise_ = [], raise_
@@ -1760,8 +1760,8 @@ def test_locator_actions_forward_their_options(Locator):
         return s
     s = run(go())
     # a tap on a touch context is reported as a fallback (lane A's report keeps it as
-    # page._clearcote_last_fallback), then routed as the humanized click
-    assert s.page._clearcote_last_fallback["api"] == "Locator.tap"
+    # page._code_browser_last_fallback), then routed as the humanized click
+    assert s.page._code_browser_last_fallback["api"] == "Locator.tap"
     assert [c for c in s.page.calls if c[0] != "_report_fallback"] == [
         ("click", "#b", {"button": "right", "click_count": 2, "modifiers": ["Shift"], "position": {"x": 1, "y": 2},
                          "timeout": 1500}),
@@ -1814,7 +1814,7 @@ def test_frame_locators_take_the_frame_route_and_go_native_with_a_report_when_it
     s = run(go())
     assert [c[0] for c in s._impl_obj.calls] == ["fill"], "Playwright's own fill, once"
     assert [c[0] for c in s.page.calls] == [], "no page.* method"
-    assert s.page._clearcote_last_fallback["api"] == "Locator.fill", "the fallback reported"
+    assert s.page._code_browser_last_fallback["api"] == "Locator.fill", "the fallback reported"
 
 
 # ------------------------------------------------------------------- press / type / range targets
@@ -1862,7 +1862,7 @@ def test_range_values_playwright_rejects_go_to_playwright_untouched(fast):
 
 
 def test_the_typo_gate_fails_closed_when_the_focus_is_in_a_frame(fast, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "1")
 
     async def go():
         f = Field()
@@ -1946,7 +1946,7 @@ def _arm_on(monkeypatch):
 
 
 def test_a_click_cancelled_mid_press_releases_the_button_and_the_modifier(monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
     _arm_on(monkeypatch)   # the 5 s hold blocks
 
     async def go():
@@ -1970,7 +1970,7 @@ SAME = [("s%d" % i, "Same") for i in range(30)]   # 30 rows type-ahead cannot te
     ("ArrowDown", lambda p: p.select_option("#same", "s20")),  # mid held arrow run
 ])
 def test_typing_cancelled_mid_chord_leaves_no_key_down(monkeypatch, arm_key, act):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
     monkeypatch.setattr(H, "rollover_rate", lambda persona: 1.0)
     state = _arm_on(monkeypatch)
 
@@ -2125,7 +2125,7 @@ def test_a_list_box_at_its_end_goes_native(fast):
 # ----------------------------------------------------- SC 210 fix 2: Playwright's error wording
 def test_errors_are_worded_as_the_api_the_caller_used():
     from playwright._impl._errors import Error as PWError, TimeoutError as PWTimeout
-    from clearcote._humanize import as_api_error
+    from code_browser._humanize import as_api_error
     e = PWTimeout('Locator.wait_for: Timeout 800ms exceeded.\nCall log:\n  - waiting for locator("#x")')
     n = as_api_error(e, "Page.click")
     assert type(n) is PWTimeout and str(n).split("\n")[0] == "Page.click: Timeout 800ms exceeded."
@@ -2213,7 +2213,7 @@ def test_a_value_dict_matches_the_value_only_and_unmatched_dicts_reach_playwrigh
 
 
 def test_select_wants_pins_the_node_shapes():
-    from clearcote._humanize import select_wants
+    from code_browser._humanize import select_wants
     assert select_wants("a") == [("value", "a")]
     assert select_wants({"value": "a"}) == [("valueOnly", "a")]
     assert select_wants([{"label": "L"}, {"index": 2}]) == [("label", "L"), ("index", 2)]
@@ -2329,10 +2329,10 @@ def test_a_wrapping_labels_text_beside_the_input_is_aimed_and_hit_tested_on_the_
 def test_same_seed_same_label_trait_but_unseeded_per_click_choices():
     # The seed fixes the TRAIT (how often this identity clicks the label); each click's choice is an
     # unseeded draw, or every session of an identity would choose the same way in the same order.
-    from clearcote import _humanize
-    from clearcote._motion import make_persona
+    from code_browser import _humanize
+    from code_browser._motion import make_persona
     a, b = make_persona("same-identity"), make_persona("same-identity")
-    from clearcote._motion import aim_traits
+    from code_browser._motion import aim_traits
     # a persona trait now (lane B's aim traits, 0.25-0.55), not one 0.4 for every identity
     assert _humanize.label_share(a) == _humanize.label_share(b) == aim_traits(a).label_share
     assert 0.25 <= _humanize.label_share(a) <= 0.55
@@ -2342,8 +2342,8 @@ def test_same_seed_same_label_trait_but_unseeded_per_click_choices():
 
 
 def test_the_label_draw_leaves_the_global_random_stream_alone():
-    from clearcote import _humanize
-    from clearcote._motion import make_persona
+    from code_browser import _humanize
+    from code_browser._motion import make_persona
     p = make_persona("x")
     random.seed(11)
     want = [random.random() for _ in range(5)]
@@ -2354,8 +2354,8 @@ def test_the_label_draw_leaves_the_global_random_stream_alone():
 
 
 def test_a_tests_own_rng_and_the_personas_share_decide():
-    from clearcote import _humanize
-    from clearcote._motion import make_persona
+    from code_browser import _humanize
+    from code_browser._motion import make_persona
     p = make_persona("x")
     r1, r2 = random.Random(5), random.Random(5)
     assert [_humanize.label_draw(p, r1) for _ in range(20)] == [_humanize.label_draw(p, r2) for _ in range(20)]
@@ -2370,13 +2370,13 @@ class _TouchCtx:
 
 
 class _TapPage:
-    _clearcote_humanized = True
+    _code_browser_humanized = True
 
     def __init__(self, strict=False, touch=True):
         self.calls = []
         self.context = _TouchCtx(touch)
         if strict:
-            self._clearcote_strict = True
+            self._code_browser_strict = True
 
     async def click(self, sel, **kw):
         self.calls.append(("click", sel, kw))
@@ -2407,12 +2407,12 @@ def test_tap_on_a_touch_context_reports_the_fallback_and_clicks(Locator):
         s = _TapSelf(page)
         await Locator.tap(s, position={"x": 1, "y": 2})
         assert page.calls == [("click", "#b", {"position": {"x": 1, "y": 2}})]
-        ev = page._clearcote_last_fallback
+        ev = page._code_browser_last_fallback
         assert ev["api"] == "Locator.tap" and "not humanized for touch" in ev["reason"] and ev["selector"] == "#b"
         seen = []
         page2 = _TapPage()
-        from clearcote._hzoptions import HumanizeOptions
-        page2._clearcote_hz = HumanizeOptions(on_fallback=seen.append)   # lane A's on_fallback hears it
+        from code_browser._hzoptions import HumanizeOptions
+        page2._code_browser_hz = HumanizeOptions(on_fallback=seen.append)   # lane A's on_fallback hears it
         await Locator.tap(_TapSelf(page2))
         assert len(seen) == 1 and seen[0]["api"] == "Locator.tap"
     run(go())
@@ -2444,11 +2444,11 @@ def test_a_persistent_context_without_a_browser_attaches(fast):
         first = Page(_btn())
         ctx = _EvCtx([first])
         await H.install_humanize_on_context(ctx, humanize=True, seed="persist")
-        assert getattr(first, "_clearcote_humanized", False) is True, "context.browser is None: still attached"
+        assert getattr(first, "_code_browser_humanized", False) is True, "context.browser is None: still attached"
         later = Page(_btn())
         await ctx.emit(later)
         await _real_sleep(0)
-        assert getattr(later, "_clearcote_humanized", False) is True, "a page it opens later too"
+        assert getattr(later, "_code_browser_humanized", False) is True, "a page it opens later too"
         await H.install_humanize_on_context(ctx, humanize=True, seed="persist")
         assert len(ctx.handlers) == 1, "hooking a context twice adds no second listener"
     run(go())
@@ -2471,11 +2471,11 @@ def test_a_popup_of_the_implicit_context_of_browser_new_page_is_humanized(fast):
         b = _B()
         await H.install_humanize(b, humanize=True, seed="popup")
         page = await b.new_page()
-        assert page._clearcote_humanized is True
+        assert page._code_browser_humanized is True
         mouse = page.mouse.move
         popup = Page(_btn())
         await ctx.emit(popup)             # window.open / target=_blank in that context
         await _real_sleep(0)
-        assert getattr(popup, "_clearcote_humanized", False) is True
+        assert getattr(popup, "_code_browser_humanized", False) is True
         assert page.mouse.move is mouse, "the opener was not wrapped a second time"
     run(go())

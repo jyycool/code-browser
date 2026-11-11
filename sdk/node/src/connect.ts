@@ -1,4 +1,4 @@
-// `clearcote connect [CODE]`: start the Clearcote Helper, so the web profile manager at
+// `code-browser connect [CODE]`: start the CodeBrowser Helper, so the web profile manager at
 // https://app.clearcotelabs.com can use this computer.
 //
 // The helper is its own open-source, reproducible program (clearcote-profile-manager/helper). This
@@ -69,7 +69,7 @@ export function tarCommand(): string {
 /** The unpacked helper's runtime and program. */
 export function helperFiles(dir: string, plat: string, version: string = HELPER.version): { node: string; script: string } {
   const top = join(dir, `clearcote-helper-${version}-${plat}`);
-  const root = existsSync(top) ? top : dir; // CLEARCOTE_HELPER_DIR may point inside the folder already
+  const root = existsSync(top) ? top : dir; // CODE_BROWSER_HELPER_DIR may point inside the folder already
   return {
     node: join(root, "runtime", plat.startsWith("win") ? "node.exe" : "node"),
     script: join(root, "lib", "clearcote-helper.js"),
@@ -77,34 +77,34 @@ export function helperFiles(dir: string, plat: string, version: string = HELPER.
 }
 
 /**
- * The helper on disk, downloading and checking it the first time. CLEARCOTE_HELPER_DIR uses an
+ * The helper on disk, downloading and checking it the first time. CODE_BROWSER_HELPER_DIR uses an
  * unpacked helper you already have instead (nothing is downloaded or checked).
  */
 export async function ensureHelper(opts: { cacheRoot?: string; quiet?: boolean; helper?: typeof HELPER; plat?: string } = {}): Promise<{ node: string; script: string }> {
   const plat = opts.plat ?? helperPlatform();
-  if (!plat) throw new Error(`There is no Clearcote Helper for ${process.platform}-${process.arch}.`);
-  if (process.env.CLEARCOTE_HELPER_DIR) {
-    const f = helperFiles(process.env.CLEARCOTE_HELPER_DIR, plat);
-    if (!existsSync(f.script)) throw new Error(`CLEARCOTE_HELPER_DIR: no lib/clearcote-helper.js in ${process.env.CLEARCOTE_HELPER_DIR}`);
+  if (!plat) throw new Error(`There is no CodeBrowser Helper for ${process.platform}-${process.arch}.`);
+  if (process.env.CODE_BROWSER_HELPER_DIR) {
+    const f = helperFiles(process.env.CODE_BROWSER_HELPER_DIR, plat);
+    if (!existsSync(f.script)) throw new Error(`CODE_BROWSER_HELPER_DIR: no lib/clearcote-helper.js in ${process.env.CODE_BROWSER_HELPER_DIR}`);
     return f;
   }
   const helper = opts.helper ?? HELPER;
   const a = helper.assets[plat];
-  if (!a?.sha256) throw new Error(`This SDK has no Clearcote Helper pinned for ${plat}.`);
+  if (!a?.sha256) throw new Error(`This SDK has no CodeBrowser Helper pinned for ${plat}.`);
   const dir = join(opts.cacheRoot ?? defaultCacheRoot(), "helper", `${helper.version}-${plat}`);
   if (existsSync(join(dir, ".verified"))) return helperFiles(dir, plat, helper.version);
 
-  const log = (m: string) => { if (!opts.quiet) process.stderr.write(`[clearcote] ${m}\n`); };
+  const log = (m: string) => { if (!opts.quiet) process.stderr.write(`[code-browser] ${m}\n`); };
   mkdirSync(join(dir, ".."), { recursive: true });
   const tmp = `${dir}.tmp-${process.pid}`;
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
   try {
     const file = join(tmp, a.asset);
-    log(`downloading Clearcote Helper ${helper.version} (${a.asset})`);
+    log(`downloading CodeBrowser Helper ${helper.version} (${a.asset})`);
     await downloadTo(helper.baseUrl + a.asset, file, a.size, opts.quiet);
     const got = await sha256File(file);
-    if (got !== a.sha256) throw new Error(`Clearcote Helper download does not match its pinned SHA-256 (got ${got}, want ${a.sha256}). Nothing was run.`);
+    if (got !== a.sha256) throw new Error(`CodeBrowser Helper download does not match its pinned SHA-256 (got ${got}, want ${a.sha256}). Nothing was run.`);
     const out = join(tmp, "x");
     mkdirSync(out);
     if (a.asset.endsWith(".zip")) await extract(file, { dir: out });
@@ -153,14 +153,14 @@ export async function connect(opts: ConnectOptions = {}): Promise<number> {
   if (opts.noOpen) args.push("--no-open");
 
   if (code) {
-    process.stderr.write(`[clearcote] starting the helper with code ${code}. The profile manager tab showing it connects by itself.\n`);
+    process.stderr.write(`[code-browser] starting the helper with code ${code}. The profile manager tab showing it connects by itself.\n`);
   } else {
-    process.stderr.write(`[clearcote] starting the helper. In ${APP_URL} press "Connect this computer", then approve the pairing.\n`);
+    process.stderr.write(`[code-browser] starting the helper. In ${APP_URL} press "Connect this computer", then approve the pairing.\n`);
     if (!opts.noOpen) openUrl(APP_URL);
   }
   const env = { ...process.env };
-  if (code) env.CLEARCOTE_HELPER_PAIR_CODE = code;
-  else delete env.CLEARCOTE_HELPER_PAIR_CODE;
+  if (code) env.CODE_BROWSER_HELPER_PAIR_CODE = code;
+  else delete env.CODE_BROWSER_HELPER_PAIR_CODE;
 
   const child = spawn(files.node, args, { stdio: "inherit", env });
   // Ctrl+C reaches the helper too (same console): it closes its browsers and exits, and so do we.

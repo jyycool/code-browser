@@ -1,14 +1,14 @@
-// Generic profile importer: turn a DIRECTORY of clearcote-profile JSON into a selectable index.
+// Generic profile importer: turn a DIRECTORY of code-browser-profile JSON into a selectable index.
 //
-// WE ARE AN IMPORTER, NOT A HOST. Clearcote ships no third-party fingerprints and redistributes
-// none. A source is just a folder of clearcote-profile JSON on the user's own machine, however
+// WE ARE AN IMPORTER, NOT A HOST. CodeBrowser ships no third-party fingerprints and redistributes
+// none. A source is just a folder of code-browser-profile JSON on the user's own machine, however
 // it got there:
 //
 //   * the open chrome-fingerprints dataset (Vinyzu), converted locally with
 //     tools/fingerprint-collect/convert_dataset.py — the dataset is fetched by the USER from the
 //     original repository, so nothing is re-published here and its terms are unaffected;
 //   * your own captures from tools/fingerprint-collect (collect.html / snippet.js);
-//   * the licensed clearcote profile service (see profilesource.ts);
+//   * the licensed code-browser profile service (see profilesource.ts);
 //   * any other producer that emits the same schema.
 //
 // Keeping the format as the ONLY contract is what makes this generic. There is no adapter per
@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { gpuVendorClass, type ProfileIndexEntry } from "./profilelib.js";
 
-/** Parse a clearcote-profile blob into an index entry. Returns null when the file is not one. */
+/** Parse a code-browser-profile blob into an index entry. Returns null when the file is not one. */
 export function indexEntryFromProfile(
   id: string,
   profile: Record<string, unknown>,
@@ -110,12 +110,12 @@ export function importDirectory(dir: string): ImportResult {
       skipped.push({ file: f, reason: `unreadable JSON: ${String(e).slice(0, 80)}` });
       continue;
     }
-    // A clearcote-profile always has navigator; without it this is some other kind of file.
+    // A code-browser-profile always has navigator; without it this is some other kind of file.
     // NOTE the check is on the SECTION, not on any field inside it — a converted
     // chrome-fingerprints record has `navigator` with null user_agent/platform and is perfectly
     // usable via uadata.
     if (!parsed || typeof parsed !== "object" || !parsed.navigator) {
-      skipped.push({ file: f, reason: "not a clearcote-profile (no navigator)" });
+      skipped.push({ file: f, reason: "not a code-browser-profile (no navigator)" });
       continue;
     }
     const entry = indexEntryFromProfile(f.replace(/\.json$/, ""), parsed);

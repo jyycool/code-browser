@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Clearcote — one-shot reproducible build of the browser, on a Linux host, for either:
+# CodeBrowser — one-shot reproducible build of the browser, on a Linux host, for either:
 #   - Windows x64  (cross-compiled with clang + a Windows SDK sysroot fetched by xwin)  [default]
 #   - Linux x64    (native)
 #
@@ -9,8 +9,8 @@
 #   - git, python3, curl, ninja, zip, xz; and for the Windows target, ciopfs (case-folded SDK headers)
 #
 # Usage:
-#   WORK=~/clearcote-build ./build.sh windows     # -> chrome.exe zip  (default if no arg)
-#   WORK=~/clearcote-build ./build.sh linux       # -> chrome tar.xz
+#   WORK=~/code-browser-build ./build.sh windows     # -> chrome.exe zip  (default if no arg)
+#   WORK=~/code-browser-build ./build.sh linux       # -> chrome tar.xz
 # or run the numbered scripts in scripts/ individually (they read $TARGET).
 #
 # For a fully-pinned, reproducible environment, build inside the container instead — see the
@@ -18,13 +18,13 @@
 set -euo pipefail
 export TARGET="${1:-${TARGET:-windows}}"
 case "$TARGET" in windows|linux) ;; *) echo "usage: $0 [windows|linux]"; exit 2 ;; esac
-export WORK="${WORK:-$HOME/clearcote-build}"
+export WORK="${WORK:-$HOME/code-browser-build}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 export REPO="$HERE"
 
 run() { echo; echo "==== $1 ===="; bash "$HERE/scripts/$2"; }
 
-echo "### Clearcote build — TARGET=$TARGET  WORK=$WORK  (Chromium $(cat "$HERE/UPSTREAM_REVISION"))"
+echo "### CodeBrowser build — TARGET=$TARGET  WORK=$WORK  (Chromium $(cat "$HERE/UPSTREAM_REVISION"))"
 run "00  fetch + prune Chromium 151 source"        00-fetch-source.sh
 run "01  apply patch series ($TARGET)"             01-apply-patches.sh
 run "02  host toolchain (clang/rust/gn/sysroot)"   02-host-toolchain.sh

@@ -97,8 +97,8 @@ describe("dragBy", () => {
     const p = await attached(d);
     const got = await p.dragBy("#thumb", 120, 0);
     expect(Math.abs(got.x - 120)).toBeLessThanOrEqual(2);
-    expect(p._clearcoteDragLegs).toBeGreaterThanOrEqual(1);
-    expect(p._clearcoteDragLegs).toBeLessThanOrEqual(3);
+    expect(p._code_browserDragLegs).toBeGreaterThanOrEqual(1);
+    expect(p._code_browserDragLegs).toBeLessThanOrEqual(3);
     expect(d.els.get("#thumb")!.rect[0]).toBe(320);
   }, SLOW);
 });
@@ -143,7 +143,7 @@ describe("wheel scroll-into-view", () => {
     await p.click("#far");
     expect(ev(d, "prog").length).toBeGreaterThan(0);
     const want = { api: "page.click", reason: "scroll into view: not_scrollable" };
-    expect(p._clearcoteLastFallback).toEqual(want);
+    expect(p._code_browserLastFallback).toEqual(want);
     expect(reported).toEqual([want]);
   }, SLOW);
 });

@@ -1,6 +1,6 @@
 """LIVE: a planned glide lasts what the planner planned, as the PAGE sees it (SC 210 lane P).
 
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is available for a PRO
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is available for a PRO
 build). The page records every pointermove's timeStamp; the planner's plan is captured by wrapping
 plan_move. On 0.48.0 a ~1 s plan took 3.5-5.4 s on PRO r38 because the ~27 ms move round trip was added
 to every 6-8 ms sample (SC 209).
@@ -11,8 +11,8 @@ import time
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}</style></head>
 <body><script>
@@ -35,8 +35,8 @@ def _no_font_cache_left_behind():
 
 @pytest.fixture(scope="module")
 def browser(_no_font_cache_left_behind):
-    import clearcote
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="pace-live-1",
+    import code_browser
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="pace-live-1",
                          viewport={"width": 1180, "height": 760}, quiet=True)
     yield b
     b.close()
@@ -54,7 +54,7 @@ def page(browser, tmp_path):
 
 @pytest.fixture
 def plans(monkeypatch):
-    import clearcote._humanize as hz
+    import code_browser._humanize as hz
     out = []
     real = hz.plan_move
 

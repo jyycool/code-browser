@@ -1,13 +1,13 @@
 {
-  "name": "clearcote",
+  "name": "code-browser",
   "version": "0.69.1",
-  "description": "Playwright drop-in for the Clearcote anti-fingerprint Chromium build. launch() returns a standard Playwright Browser backed by the verified Clearcote binary, which is auto-downloaded and SHA-256 checked.",
+  "description": "Playwright drop-in for the CodeBrowser anti-fingerprint Chromium build. launch() returns a standard Playwright Browser backed by the verified CodeBrowser binary, which is auto-downloaded and SHA-256 checked.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "clearcote": "./dist/clearcote-cli.js",
-    "clearcote-agent": "./dist/cli.js"
+    "code-browser": "./dist/code-browser-cli.js",
+    "code-browser-agent": "./dist/cli.js"
   },
   "exports": {
     ".": {
@@ -42,7 +42,7 @@
     "vitest": "^2.1.9"
   },
   "keywords": [
-    "clearcote",
+    "code-browser",
     "playwright",
     "puppeteer",
     "chromium",
@@ -55,13 +55,13 @@
     "ungoogled"
   ],
   "license": "BSD-3-Clause",
-  "homepage": "https://github.com/clearcotelabs/clearcote-browser",
+  "homepage": "https://github.com/jyycool/code-browser",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/clearcotelabs/clearcote-browser.git",
+    "url": "git+https://github.com/jyycool/code-browser.git",
     "directory": "sdk/node"
   },
   "bugs": {
-    "url": "https://github.com/clearcotelabs/clearcote-browser/issues"
+    "url": "https://github.com/jyycool/code-browser/issues"
   }
 }

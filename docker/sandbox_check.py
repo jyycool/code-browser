@@ -42,10 +42,10 @@ _AUDIT_ARCH = {"x86_64": 0xC000003E, "aarch64": 0xC00000B7}  # seccomp_data.arch
 _CAP_VERSION_3 = 0x20080522
 _PR_SET_SECCOMP, _PR_SET_NO_NEW_PRIVS, _SECCOMP_MODE_FILTER = 22, 38, 2
 
-PROFILE_IN_IMAGE = "/etc/clearcote/seccomp.json"
+PROFILE_IN_IMAGE = "/etc/code-browser/seccomp.json"
 # --tmpfs: without it `docker run` would first copy the engine (~0.5 GB) into a volume, to read one file
 SAVE_PROFILE = ("docker run --rm --tmpfs /opt/xdg-cache --entrypoint cat teamflatearth/clearcote %s "
-                "> clearcote-seccomp.json" % PROFILE_IN_IMAGE)
+                "> code-browser-seccomp.json" % PROFILE_IN_IMAGE)
 HOW_PROFILE = ("start the container with --security-opt seccomp=<profile>; the profile is in this image at %s "
                "(save it with: %s), and the SDKs' launch() passes it for you" % (PROFILE_IN_IMAGE, SAVE_PROFILE))
 _WITH_PROFILE = "run the container with --security-opt seccomp=<profile> (in this image at %s)" % PROFILE_IN_IMAGE
@@ -315,16 +315,16 @@ def decide(chrome_args, euid, run_probe=probe, read=_read):
     names = {str(a).split("=", 1)[0] for a in chrome_args}
     for switch, why in SANDBOX_OFF_SWITCHES.items():
         if switch in names:
-            return False, "[clearcote] sandbox: off (%s)" % why
+            return False, "[code-browser] sandbox: off (%s)" % why
     if euid == 0:
-        return False, ("[clearcote] sandbox: OFF, Chrome runs with --no-sandbox: the container runs as root, and "
+        return False, ("[code-browser] sandbox: OFF, Chrome runs with --no-sandbox: the container runs as root, and "
                        "Chrome's sandbox does not run as root. To turn the sandbox on, run the container as the "
                        "image's own user (leave out --user 0), and " + HOW_PROFILE + ".")
     ok, failure = run_probe()
     if ok:
-        return True, "[clearcote] sandbox: on (Chrome's user, PID and network namespace sandbox)"
+        return True, "[code-browser] sandbox: on (Chrome's user, PID and network namespace sandbox)"
     why, how = explain(*failure, read=read)
-    return False, "[clearcote] sandbox: OFF, Chrome runs with --no-sandbox: %s. To turn the sandbox on, %s." % (why, how)
+    return False, "[code-browser] sandbox: OFF, Chrome runs with --no-sandbox: %s. To turn the sandbox on, %s." % (why, how)
 
 
 if __name__ == "__main__":

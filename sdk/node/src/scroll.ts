@@ -1,6 +1,6 @@
 /**
  * Wheel-driven scrolling for the humanizer: scroll-into-view, the shared wheel anchor, trackpad streams.
- * Port of Python `clearcote/_scroll.py` (same numbers; pinned by sdk/testdata/humanize_scroll_vectors.json).
+ * Port of Python `code-browser/_scroll.py` (same numbers; pinned by sdk/testdata/humanize_scroll_vectors.json).
  *
  * Measured on r42 / SDK 0.51.0 (SC 232 review): before a humanized click, fill or hold on an off-screen
  * target the SDK scrolled PROGRAMMATICALLY -- `scrollIntoViewIfNeeded` in the isolated world or an instant

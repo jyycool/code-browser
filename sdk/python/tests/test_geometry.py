@@ -23,8 +23,8 @@ import sys
 
 import pytest
 
-import clearcote
-from clearcote._geometry import (
+import code_browser
+from code_browser._geometry import (
     ENGINE_FRAME_HEIGHT,
     ENGINE_FRAME_WIDTH,
     HEADLESS_SCREEN_PROFILES,
@@ -116,7 +116,7 @@ PARITY = [
     ("", 1920, 1080, 1912, 949),
     ("seed-1", 1920, 1200, 1912, 1069),
     ("acct-42", 1366, 768, 1358, 637),
-    ("clearcote", 2560, 1440, 2552, 1309),
+    ("code-browser", 2560, 1440, 2552, 1309),
     ("x", 2560, 1440, 2552, 1309),
     ("y", 3440, 1440, 3432, 1309),
     ("z", 1920, 1080, 1912, 949),
@@ -509,9 +509,9 @@ class _Capture:
         class _PW:
             chromium = _Chromium()
 
-        monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-        monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
-        monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+        monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+        monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
+        monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
         return self
 
     @property
@@ -528,7 +528,7 @@ def _screen_info(kw):
 def test_persistent_context_seedless_sets_the_display_and_fits_the_window(monkeypatch, tmp_path):
     """Regime 2: no --fingerprint, so the SDK sets the headless display itself."""
     cap = _Capture(avail=(1920, 1040)).install(monkeypatch)
-    clearcote.launch_persistent_context(
+    code_browser.launch_persistent_context(
         str(tmp_path / "prof"), executable_path=_fake_exe(tmp_path), quiet=True)
     screen = headless_geometry(None)["screen"]
     [switch] = _screen_info(cap.context_kwargs)
@@ -544,7 +544,7 @@ def test_persistent_context_with_a_seed_uses_no_viewport_and_fits_the_window(mon
     """Regime 1: --fingerprint is emitted, so the persona owns screen/avail and the SDK only
     maximizes the window into the persona's work area."""
     cap = _Capture(avail=(2560, 1400)).install(monkeypatch)
-    clearcote.launch_persistent_context(
+    code_browser.launch_persistent_context(
         str(tmp_path / "prof"), executable_path=_fake_exe(tmp_path), fingerprint="geo-1", quiet=True)
     assert cap.context_kwargs["no_viewport"] is True
     assert "screen" not in cap.context_kwargs and "viewport" not in cap.context_kwargs
@@ -554,7 +554,7 @@ def test_persistent_context_with_a_seed_uses_no_viewport_and_fits_the_window(mon
 
 def test_persistent_context_stays_no_viewport_when_headed(monkeypatch, tmp_path):
     cap = _Capture().install(monkeypatch)
-    clearcote.launch_persistent_context(
+    code_browser.launch_persistent_context(
         str(tmp_path / "prof"), executable_path=_fake_exe(tmp_path), headless=False, quiet=True)
     assert cap.context_kwargs["no_viewport"] is True
     assert "screen" not in cap.context_kwargs and "viewport" not in cap.context_kwargs
@@ -568,7 +568,7 @@ def test_launch_default_path_carries_the_geometry_through_the_throwaway_profile(
     """launch() delegates to a throwaway persistent context (0.23.0+), so the geometry has to arrive
     as context options there rather than via a new_page wrap."""
     cap = _Capture().install(monkeypatch)
-    clearcote.launch(executable_path=_fake_exe(tmp_path), quiet=True)
+    code_browser.launch(executable_path=_fake_exe(tmp_path), quiet=True)
     assert cap.context_kwargs["no_viewport"] is True
     assert len(_screen_info(cap.context_kwargs)) == 1
 
@@ -577,7 +577,7 @@ def test_incognito_launch_defaults_new_page_geometry(monkeypatch, tmp_path):
     """ephemeral_profile=False takes the pre-0.23 chromium.launch() path, which accepts no context
     options at all — the default has to ride on new_page/new_context instead."""
     cap = _Capture().install(monkeypatch)
-    browser = clearcote.launch(
+    browser = code_browser.launch(
         executable_path=_fake_exe(tmp_path), ephemeral_profile=False, quiet=True)
     assert "no_viewport" not in cap.launch_kwargs, "no_viewport is not a chromium.launch option"
     assert len(_screen_info(cap.launch_kwargs)) == 1   # the display is browser-wide
@@ -591,7 +591,7 @@ def test_incognito_launch_defaults_new_page_geometry(monkeypatch, tmp_path):
 
 def test_incognito_launch_with_a_seed_fits_each_new_window(monkeypatch, tmp_path):
     cap = _Capture(avail=(1600, 860)).install(monkeypatch)
-    browser = clearcote.launch(
+    browser = code_browser.launch(
         executable_path=_fake_exe(tmp_path), ephemeral_profile=False, fingerprint="geo-3", quiet=True)
     page = browser.new_page()
     assert page.kw == {"no_viewport": True}
@@ -600,7 +600,7 @@ def test_incognito_launch_with_a_seed_fits_each_new_window(monkeypatch, tmp_path
 
 def test_incognito_headed_launch_still_uses_no_viewport(monkeypatch, tmp_path):
     cap = _Capture().install(monkeypatch)
-    browser = clearcote.launch(
+    browser = code_browser.launch(
         executable_path=_fake_exe(tmp_path), ephemeral_profile=False, headless=False, quiet=True)
     assert browser.new_page().kw == {"no_viewport": True}
     if sys.platform.startswith("linux"):
@@ -613,7 +613,7 @@ def test_headed_linux_fit_predicate(monkeypatch):
     """Measured (SC 180): under Xvfb --start-maximized is a no-op and Chrome keeps its 945x1060 default
     window at (10,10); a CDP fit before the first navigation gives outer == avail with zero resize events.
     Only Linux hosts, and only when the caller passed no window switch of their own."""
-    from clearcote import _headed_linux_fit
+    from code_browser import _headed_linux_fit
     monkeypatch.setattr(sys, "platform", "linux")
     assert _headed_linux_fit(None) and _headed_linux_fit(["--no-sandbox", "--fingerprint=x"])
     for flag in ("--window-size=1024,768", "--window-position=5,5", "--start-maximized"):
@@ -625,11 +625,11 @@ def test_headed_linux_fit_predicate(monkeypatch):
 
 # --------------------------------------------------------------- live engine
 # These are the only tests that can catch the engine silently un-fixing this. Point
-# CLEARCOTE_LIVE_ENGINE at a chrome binary (plus CLEARCOTE_LICENSE_KEY for a PRO build) to run them;
+# CODE_BROWSER_LIVE_ENGINE at a chrome binary (plus CLEARCOTE_LICENSE_KEY for a PRO build) to run them;
 # they belong in the release gate.
-LIVE_EXE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
+LIVE_EXE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
 live_only = pytest.mark.skipif(
-    not LIVE_EXE, reason="set CLEARCOTE_LIVE_ENGINE=<path to chrome> to run")
+    not LIVE_EXE, reason="set CODE_BROWSER_LIVE_ENGINE=<path to chrome> to run")
 
 _MEASURE_JS = """() => ({
     screen: [screen.width, screen.height],
@@ -649,7 +649,7 @@ _RECORDER_JS = ("window.__resizes = 0; "
 
 def _measure_live(tmp_dir, tabs=1, **kwargs):
     """Launch for real and read the geometry each tab sees. Returns one dict per tab."""
-    ctx = clearcote.launch_persistent_context(
+    ctx = code_browser.launch_persistent_context(
         str(tmp_dir), executable_path=LIVE_EXE, args=["--no-sandbox"], quiet=True, **kwargs)
     try:
         ctx.add_init_script(_RECORDER_JS)
@@ -667,8 +667,8 @@ def _measure_live(tmp_dir, tabs=1, **kwargs):
 # Headed launches need a display (Xvfb on Linux, the desktop on Windows). Opt in explicitly so the
 # default `pytest` run never pops windows on a developer machine.
 headed_live_only = pytest.mark.skipif(
-    not LIVE_EXE or not os.environ.get("CLEARCOTE_LIVE_HEADED"),
-    reason="set CLEARCOTE_LIVE_ENGINE and CLEARCOTE_LIVE_HEADED=1 to run headed geometry tests")
+    not LIVE_EXE or not os.environ.get("CODE_BROWSER_LIVE_HEADED"),
+    reason="set CODE_BROWSER_LIVE_ENGINE and CODE_BROWSER_LIVE_HEADED=1 to run headed geometry tests")
 
 # The seed that reproduced the window-box contradiction on r17/r18, headed with no_viewport, on
 # Windows AND Linux (2026-09-02): persona screen 1536x864, avail 1536x824, while the OS window kept
@@ -745,7 +745,7 @@ def test_live_regime_2_seedless_display_is_the_cross_sdk_row_and_the_window_is_m
 @live_only
 def test_live_regime_2_incognito_launch_gives_every_context_its_own_maximized_window():
     """The chromium.launch() path: each new context is a new window on the same display."""
-    browser = clearcote.launch(executable_path=LIVE_EXE, args=["--no-sandbox"], quiet=True,
+    browser = code_browser.launch(executable_path=LIVE_EXE, args=["--no-sandbox"], quiet=True,
                                ephemeral_profile=False)
     try:
         for page in (browser.new_page(), browser.new_context().new_page()):
@@ -782,5 +782,5 @@ def test_window_fixup_tolerates_a_container_without_pages_or_new_page():
     class Bare:
         pass
     bare = Bare()
-    assert clearcote._install_window_fixup(bare, []) is None
+    assert code_browser._install_window_fixup(bare, []) is None
     assert not hasattr(bare, "new_page")

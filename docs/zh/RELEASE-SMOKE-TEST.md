@@ -35,7 +35,7 @@ CCKEY=cc_lic_...  sdk/scripts/smoke-release.sh 0.32.0 --docker
 
 - 传入你刚发布的版本号。不传密钥则只测 FREE 档（PRO 会被报告为 `SKIPPED`）。
   也可以用 `CLEARCOTE_LICENSE_KEY=` 代替 `CCKEY=`。
-- **FREE 测试真的不带密钥。** SDK 会自动从 `CLEARCOTE_LICENSE_KEY` 和 `~/.clearcote/license.key` 读取密钥，
+- **FREE 测试真的不带密钥。** SDK 会自动从 `CLEARCOTE_LICENSE_KEY` 和 `~/.code-browser/license.key` 读取密钥，
   所以维护者自己的密钥曾在无人察觉的情况下把"免费"启动变成了授权启动。现在脚本在每轮 FREE 测试开始时
   两者都不提供，启动器还加了一道保护：如果 FREE 测试运行的 Chrome 主版本不是 SDK 固定的开源构建版本，
   则判为失败（`… a licence key reached the free run?`）。只有 PRO 测试会拿到密钥。

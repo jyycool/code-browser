@@ -21,12 +21,12 @@ import time
 
 import pytest
 
-import clearcote._humanize as hz
-import clearcote._humanize_async as H
-from clearcote._isolated import ACTIVE_FIELD, ACTIVE_VALUE, PLATFORM, VIEWPORT
-from clearcote._keys import BLANK_POINT, SELECTION_STATE, TAB_DISTANCE, typing_traits
-from clearcote._motion import make_persona
-from clearcote._humanize import typo_rate
+import code_browser._humanize as hz
+import code_browser._humanize_async as H
+from code_browser._isolated import ACTIVE_FIELD, ACTIVE_VALUE, PLATFORM, VIEWPORT
+from code_browser._keys import BLANK_POINT, SELECTION_STATE, TAB_DISTANCE, typing_traits
+from code_browser._motion import make_persona
+from code_browser._humanize import typo_rate
 
 from test_humanize_forms_async import Field, Mouse, Page, World
 
@@ -161,7 +161,7 @@ def clock(monkeypatch):
 @pytest.fixture
 def no_roll(monkeypatch):
     monkeypatch.setattr(hz, "rollover_rate", lambda persona: 0.0)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
 
 
 def spage(seed, clock, **kw):
@@ -304,7 +304,7 @@ TYPO_TEXT = ("we keep a quiet mind and type plain words into the form until the 
 
 
 def test_typo_rate_is_the_personas(clock, monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_TYPO_RATE", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", raising=False)
     monkeypatch.setattr(hz, "rollover_rate", lambda persona: 0.0)
     eligible = sum(1 for c in TYPO_TEXT if c.isalnum())
     rates = {}
@@ -327,7 +327,7 @@ def test_typo_rate_is_the_personas(clock, monkeypatch):
 
 
 def test_word_slips_are_sometimes_fixed_with_ctrl_backspace_and_the_value_stays_exact(clock, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0.25")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0.25")
     monkeypatch.setattr(hz, "rollover_rate", lambda persona: 0.0)
     random.seed(7)
     p = spage("ha-3", clock)
@@ -358,7 +358,7 @@ def _shift_held_around(ev, idx):
 
 
 def test_a_capital_put_back_after_the_word_fix_goes_behind_a_real_shift(clock, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "1")
     monkeypatch.setattr(hz, "rollover_rate", lambda persona: 0.0)
     monkeypatch.setattr(hz, "WORD_FIX_RATE", 1.0)
     monkeypatch.setattr(hz, "plan_typo", _forced_sub(1))
@@ -374,7 +374,7 @@ def test_a_capital_put_back_after_the_word_fix_goes_behind_a_real_shift(clock, m
 
 def test_a_late_notice_capital_goes_behind_a_real_shift(clock, monkeypatch):
     # plan_typo keeps late notice over plain keys today; the helper's contract holds when a shifted one is asked for
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "1")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "1")
     monkeypatch.setattr(hz, "rollover_rate", lambda persona: 0.0)
     monkeypatch.setattr(hz, "WORD_FIX_RATE", 0.0)
     monkeypatch.setattr(hz, "plan_typo", _forced_sub(0, late=1))
@@ -389,7 +389,7 @@ def test_a_late_notice_capital_goes_behind_a_real_shift(clock, monkeypatch):
 
 
 def test_a_search_field_sometimes_keeps_a_slip_and_a_text_field_never(clock, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0.3")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0.3")
     monkeypatch.setattr(hz, "rollover_rate", lambda persona: 0.0)
     random.seed(11)
     text = "query words for the search box"
@@ -421,7 +421,7 @@ def test_lane_a_tempo_scales_the_gaps(clock, no_roll):
     for tempo in (1.0, 2.0):
         random.seed(3)
         p = spage("ha-2", clock)
-        p._clearcote_persona.tempo = tempo
+        p._code_browser_persona.tempo = tempo
         p.keyboard.type(VEC["ks_text"][:200])
         med[tempo] = statistics.median(char_gaps(p))
     assert 1.7 <= med[2.0] / med[1.0] <= 2.3, med
@@ -429,7 +429,7 @@ def test_lane_a_tempo_scales_the_gaps(clock, no_roll):
 
 def test_a_strict_error_from_the_insert_text_fallback_reaches_the_caller(clock, no_roll):
     # The typing loop's best-effort catch must not swallow lane A's strict-mode error (real strict options).
-    from clearcote._hzoptions import ClearcoteStrictError
+    from code_browser._hzoptions import CodeBrowserStrictError
     p = SPage(clock)
     orig = p.keyboard.press
 
@@ -439,7 +439,7 @@ def test_a_strict_error_from_the_insert_text_fallback_reaches_the_caller(clock, 
         return orig(key, delay=delay, **kw)
     p.keyboard.press = press
     hz.attach_humanize(None, p, humanize="strict", seed="ha-1")
-    with pytest.raises(ClearcoteStrictError) as ei:
+    with pytest.raises(CodeBrowserStrictError) as ei:
         p.keyboard.type("aöb")
     assert "insertText" in ei.value.reason
 
@@ -517,7 +517,7 @@ def fast(monkeypatch):
     async def nosleep(_s=0, *a, **k):
         return None
     monkeypatch.setattr(H.asyncio, "sleep", nosleep)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
 
 
 def _three(y0=100.0):
@@ -670,7 +670,7 @@ def test_blur_leaves_the_field_the_persona_way(fast, seed):
         p = await kattached(seed, *_three())
         await p.fill("#b", "x")
         n = len(p.log)
-        await p._clearcote_blur("#b")
+        await p._code_browser_blur("#b")
         assert p.focused is not p.by_sel["#b"] and not p.native
         new = p.log[n:]
         style = typing_traits(make_persona(seed).seed).blur_style
@@ -683,7 +683,7 @@ def test_blur_leaves_the_field_the_persona_way(fast, seed):
 def test_select_text_selects_the_whole_value(fast, seed):
     async def go():
         p = await kattached(seed, ("#a", Field(value="some text")))
-        await p._clearcote_select_text("#a")
+        await p._code_browser_select_text("#a")
         assert p.by_sel["#a"].all and not p.native
         style = typing_traits(make_persona(seed).seed).select_style
         if style == "triple":
@@ -700,4 +700,4 @@ def test_locator_focus_blur_and_select_text_are_wrapped():
     hz.attach_humanize(None, SPage(Clock()), humanize=True, seed="x")
     for L in (ALocator, SLocator):
         for name in ("focus", "blur", "select_text"):
-            assert getattr(L, name).__module__.startswith("clearcote."), (L, name)
+            assert getattr(L, name).__module__.startswith("code_browser."), (L, name)

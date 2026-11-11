@@ -1,6 +1,6 @@
 # Bundled fonts — attribution & licenses
 
-clearcote ships these **metric-compatible** open-source font clones with the Linux
+code-browser ships these **metric-compatible** open-source font clones with the Linux
 release so that pages requesting common Windows font families render with the correct
 metrics on servers/containers that don't have those families installed. Each clone is
 redistributed under its own permissive license.

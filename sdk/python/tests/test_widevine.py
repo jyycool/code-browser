@@ -2,8 +2,8 @@ import struct
 
 import pytest
 
-from clearcote import _widevine
-from clearcote._widevine import (
+from code_browser import _widevine
+from code_browser._widevine import (
     HINT_FILE,
     OMAHA_URL,
     WIDEVINE_APP_ID,

@@ -1,5 +1,5 @@
 """LIVE: a humanized select_option whose change handler stalls the page keeps to its timeout, as stock
-select_option does. Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary.
+select_option does. Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary.
 
 Strict humanize: a fallback to stock Playwright would pass the timing checks too, so it fails the test.
 
@@ -17,8 +17,8 @@ import time
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 PAGES = {
     "/xhr": ('<select id="s" onchange="var x=new XMLHttpRequest();x.open(\'GET\',\'/hang\',false);'
@@ -83,8 +83,8 @@ def base():
 @pytest.fixture
 def browser():
     # one browser per test: a page left blocked by a sync XHR must not hold up the next test
-    import clearcote
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize={"strict": True}, fingerprint="select-commit-1",
+    import code_browser
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize={"strict": True}, fingerprint="select-commit-1",
                          quiet=True)
     yield b
     b.close()
@@ -143,7 +143,7 @@ def test_async_sync_xhr_and_navigating_change_handlers(base):
     """The async twin (_humanize_async), on its own thread: its event loop must not meet the sync
     API's in this one."""
     from playwright.async_api import TimeoutError as PWTimeout
-    from clearcote import async_api
+    from code_browser import async_api
 
     async def run():
         b = await async_api.launch(executable_path=LIVE, headless=True, humanize={"strict": True},

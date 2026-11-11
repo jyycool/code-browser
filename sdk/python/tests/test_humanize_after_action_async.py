@@ -1,4 +1,4 @@
-"""After-action behaviour on the ASYNC surface (clearcote._humanize_async): hover dwell, move-off after a
+"""After-action behaviour on the ASYNC surface (code_browser._humanize_async): hover dwell, move-off after a
 click, the attention model, page.settle(), never on trial. Same bands as test_humanize_after_action.py
 (SC 232 lane C); a virtual clock drives time.monotonic, the pacer's perf_counter and asyncio.sleep."""
 import asyncio
@@ -6,16 +6,16 @@ import math
 
 import pytest
 
-import clearcote._humanize_async as H
-import clearcote._pacing as PACING
-from clearcote._isolated import CSS_BOX, FRAMES, PLATFORM, VIEWPORT
+import code_browser._humanize_async as H
+import code_browser._pacing as PACING
+from code_browser._isolated import CSS_BOX, FRAMES, PLATFORM, VIEWPORT
 try:
-    from clearcote._isolated import MOVE_OFF_SAFE
+    from code_browser._isolated import MOVE_OFF_SAFE
 except ImportError:   # 0.67.1: no eager move-off
     MOVE_OFF_SAFE = None
 
 try:
-    from clearcote._attention import TEXT_LENGTH
+    from code_browser._attention import TEXT_LENGTH
 except ImportError:   # 0.51.0 (the run that must fail): no attention model
     TEXT_LENGTH = None
 
@@ -47,7 +47,7 @@ def clock(monkeypatch):
         c.now += max(0.0, s or 0)
         await _real_sleep(0)
     monkeypatch.setattr(asyncio, "sleep", vsleep)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", "off")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", "off")
     return c
 
 
@@ -191,7 +191,7 @@ def moves(p, since=0.0):
 
 
 def trace(p):
-    return list(p.__dict__.get("_clearcote_after_trace") or [])
+    return list(p.__dict__.get("_code_browser_after_trace") or [])
 
 
 async def settle(p):
@@ -244,7 +244,7 @@ def test_async_move_off_ratio_and_band(clock, seed):
 def test_async_attention_read_pause_scales_with_text(clock, seed):
     async def first_press(n):
         p = await attach(clock, seed)
-        p._clearcote_attention = True
+        p._code_browser_attention = True
         p.text_len = n
         p.fire("load")
         t = clock.now
@@ -258,7 +258,7 @@ def test_async_attention_read_pause_scales_with_text(clock, seed):
 def test_async_nothing_on_trial_and_idle_drift_after_gap(clock):
     async def go():
         p = await attach(clock, "ha-4")
-        p._clearcote_attention = True
+        p._code_browser_attention = True
         n = len(p.log)
         await p.click("#t", trial=True)
         assert p.log[n:] == []
@@ -275,7 +275,7 @@ def test_async_ambient_option_load(clock):
         # through the real options object; the flag the options also set is cleared
         p = Page(clock)
         await H.attach_humanize(None, p, humanize={"ambient": "load"}, seed="ha-1")
-        p._clearcote_auto_ambient = False
+        p._code_browser_auto_ambient = False
         p.fire("load")
         for _ in range(50):
             await _real_sleep(0)

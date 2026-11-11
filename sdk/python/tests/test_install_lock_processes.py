@@ -20,13 +20,13 @@ pytestmark = pytest.mark.skipif(sys.platform == "darwin", reason="the PRO route 
 
 CHILD = """
 import json, sys
-from clearcote.download import pro_ensure_binary
+from code_browser.download import pro_ensure_binary
 print(json.dumps({"path": pro_ensure_binary("test-key", api_base=sys.argv[1], cache_dir=sys.argv[2], quiet=True)}))
 """
 
 
 def _start(api, cache):
-    home = os.path.join(os.path.dirname(cache), "home")  # pro_ensure_binary keeps the download answer in ~/.clearcote
+    home = os.path.join(os.path.dirname(cache), "home")  # pro_ensure_binary keeps the download answer in ~/.code-browser
     return subprocess.Popen([sys.executable, "-c", CHILD, api, cache],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             env={**os.environ, "HOME": home, "USERPROFILE": home})
@@ -61,7 +61,7 @@ def test_waits_for_another_sdks_install_and_uses_it(tmp_path):
     with open(lock, "w", encoding="utf-8") as f:  # what the Node / .NET SDK writes; this process plays it
         json.dump({"pid": os.getpid(), "host": __import__("socket").gethostname(), "boot": _boot_id(),
                    "pidns": _pid_namespace(), "nonce": "a" * 32, "sdk": "node", "created": int(time.time() * 1000),
-                   "start": importlib.import_module("clearcote.download")._process_start(os.getpid())}, f)
+                   "start": importlib.import_module("code_browser.download")._process_start(os.getpid())}, f)
     with FakeBuildServer(archive_delay=0.5) as srv:
         child = _start(srv.url, cache)
         assert srv.meta_seen.wait(30)

@@ -36,7 +36,7 @@ function startMarker(): string | null {
 const lockPath = (base: string) => path.join(base, INSTALL_LOCK);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// proEnsureBinary keeps the download route's answer in ~/.clearcote: a temp HOME keeps this machine's out of
+// proEnsureBinary keeps the download route's answer in ~/.code-browser: a temp HOME keeps this machine's out of
 // it (the install children inherit it).
 const savedHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 beforeAll(() => {
@@ -95,7 +95,7 @@ describe("install lock", () => {
       const err = await acquireInstallLock(base, { timeoutMs: 600 }).then(() => null, (e: Error) => e);
       expect(Date.now() - started).toBeGreaterThanOrEqual(500); // it waited
       expect(err?.message).toMatch(/^Gave up after 1 second waiting for another program to finish installing/);
-      expect(err?.message).toContain(`process ${process.pid} on ${os.hostname()} (Clearcote Node SDK)`);
+      expect(err?.message).toContain(`process ${process.pid} on ${os.hostname()} (CodeBrowser Node SDK)`);
       expect(err?.message).toContain(lockPath(base)); // what to delete if nothing else is installing
     } finally {
       await lock.release();
@@ -154,7 +154,7 @@ describe("install lock", () => {
     const base = path.join(tempDir("cc-lock-"), TAG);
     writeLock(base, {}, 600_000); // this very process: alive
     const err = await acquireInstallLock(base, { timeoutMs: 2000 }).then(() => null, (e: Error) => e);
-    expect(err?.message).toContain(`process ${process.pid} on ${os.hostname()} (Clearcote Python SDK), which is still running`);
+    expect(err?.message).toContain(`process ${process.pid} on ${os.hostname()} (CodeBrowser Python SDK), which is still running`);
     expect(JSON.parse(readFileSync(lockPath(base), "utf8")).nonce).toBe("f".repeat(32)); // not broken
   });
 
@@ -183,14 +183,14 @@ describe("install lock", () => {
   it("respects a live lock from another machine", async () => {
     const base = path.join(tempDir("cc-lock-"), TAG);
     writeLock(base, { host: "another-machine", pid: 1, sdk: "dotnet" }, 5000);
-    await expect(acquireInstallLock(base, { timeoutMs: 600 })).rejects.toThrow("process 1 on another-machine (Clearcote .NET SDK)");
+    await expect(acquireInstallLock(base, { timeoutMs: 600 })).rejects.toThrow("process 1 on another-machine (CodeBrowser .NET SDK)");
     expect(JSON.parse(readFileSync(lockPath(base), "utf8")).host).toBe("another-machine"); // not broken
   });
 
   it("respects the lock of a live process here", async () => {
     const base = path.join(tempDir("cc-lock-"), TAG);
     writeLock(base); // this very process: alive
-    await expect(acquireInstallLock(base, { timeoutMs: 600 })).rejects.toThrow("Clearcote Python SDK");
+    await expect(acquireInstallLock(base, { timeoutMs: 600 })).rejects.toThrow("CodeBrowser Python SDK");
   });
 
   it("takes over a half-written lock only after its grace period", async () => {
@@ -242,8 +242,8 @@ describe("install lock: process numbers, restarts, breakers and the heartbeat", 
     const base = path.join(tempDir("cc-lock-"), TAG);
     writeLock(base, { start: null }); // our pid, alive
     const err = await acquireInstallLock(base, { timeoutMs: 600 }).then(() => null, (e: Error) => e);
-    expect(err?.message).toContain(`process ${process.pid} on ${os.hostname()} (Clearcote Python SDK); that process number may now belong to another program`);
-    expect(err?.message).toContain("If no Clearcote program is installing this build, delete this file");
+    expect(err?.message).toContain(`process ${process.pid} on ${os.hostname()} (CodeBrowser Python SDK); that process number may now belong to another program`);
+    expect(err?.message).toContain("If no CodeBrowser program is installing this build, delete this file");
     const started = Date.now();
     await (await acquireInstallLock(base, { timeoutMs: 10_000 })).release();
     expect(Date.now() - started).toBeGreaterThanOrEqual(900);

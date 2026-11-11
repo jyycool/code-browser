@@ -1,6 +1,6 @@
 // src/autofillpref.ts — Chrome's autofill defaults go into a profile's Preferences only where missing.
 // Mirrors the Profile Manager's tests/autofillpref.test.ts, sdk/python/tests/test_autofillpref.py and
-// sdk/dotnet/tests/Clearcote.Tests/AutofillPrefsTests.cs.
+// sdk/dotnet/tests/CodeBrowser.Tests/AutofillPrefsTests.cs.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";

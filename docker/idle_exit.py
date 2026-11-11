@@ -1,4 +1,4 @@
-"""Idle exit for the clearcote container (serve.py's CC_IDLE_EXIT_SECONDS). Standard library only.
+"""Idle exit for the code-browser container (serve.py's CC_IDLE_EXIT_SECONDS). Standard library only.
 
 A connected CDP client keeps one WebSocket open for as long as it is connected, so "a client is connected"
 is an ESTABLISHED TCP connection to the published port, read from /proc/net/tcp{,6} (the container's own
@@ -51,7 +51,7 @@ def watch(limit, alive, ready, clients, stop, clock=time.monotonic, sleep=time.s
         if clients() > 0:
             last = clock()
         elif clock() - last >= limit:
-            log("[clearcote] no CDP client for %d s (CC_IDLE_EXIT_SECONDS): stopping" % limit)
+            log("[code-browser] no CDP client for %d s (CC_IDLE_EXIT_SECONDS): stopping" % limit)
             stop()
             return True
     return False

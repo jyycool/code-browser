@@ -3,7 +3,7 @@ import random
 
 import pytest
 
-from clearcote import _hold
+from code_browser import _hold
 
 
 def test_duration_is_taken_exactly():
@@ -57,7 +57,7 @@ def test_hold_point():
     box = {"x": 100, "y": 50, "width": 200, "height": 40}
     assert _hold.hold_point(box) == (200.0, 70.0)
     assert _hold.hold_point(box, position={"x": 10, "y": 5}) == (110.0, 55.0)
-    from clearcote._motion import make_persona
+    from code_browser._motion import make_persona
     x, y = _hold.hold_point(box, (0, 0), make_persona("hold-1"))
     assert 102 <= x <= 298 and 52 <= y <= 88
 

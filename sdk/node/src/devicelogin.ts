@@ -1,5 +1,5 @@
-// `clearcote login --device`: sign in from a browser instead of pasting a key (OAuth 2.0 device
-// authorization grant, RFC 8628, shaped to the Clearcote site's endpoints).
+// `code-browser login --device`: sign in from a browser instead of pasting a key (OAuth 2.0 device
+// authorization grant, RFC 8628, shaped to the CodeBrowser site's endpoints).
 //
 //   POST {base}/api/v1/device/code   {"client_name", "client_version"}
 //     -> {"device_code", "user_code", "verification_uri", "verification_uri_complete", "expires_in", "interval"}
@@ -8,15 +8,15 @@
 //      | 400 {"error": "authorization_pending" | "slow_down" | "expired_token" | "access_denied" | "invalid_request"}
 //      | 429 (rate limited)
 //
-// `base` is the licence server the rest of the SDK uses (CLEARCOTE_LICENSE_API, else
+// `base` is the licence server the rest of the SDK uses (CODE_BROWSER_LICENSE_API, else
 // https://www.clearcotelabs.com). The key that comes back is saved exactly where and how
-// `clearcote login <key>` saves one, and is never printed. Mirrors _devicelogin.py in the Python SDK.
+// `code-browser login <key>` saves one, and is never printed. Mirrors _devicelogin.py in the Python SDK.
 
 import { readFileSync } from "node:fs";
 import { licenseApiBase, licenseUserAgent } from "./license.js";
 import { proxiedRequest } from "./net.js";
 
-export const DEVICE_CLIENT_NAME = "clearcote-node";
+export const DEVICE_CLIENT_NAME = "code-browser-node";
 /** RFC 8628 section 3.5: on slow_down the client adds 5 seconds to its polling interval, for good. */
 export const SLOW_DOWN_STEP = 5;
 const DEFAULT_INTERVAL = 5;
@@ -106,7 +106,7 @@ export async function requestDeviceCode(opts: { licenseApiBase?: string; clientV
   }
   if (r.status === 404 || r.status === 405) {
     throw new DeviceLoginError(
-      `the licence server at ${base} does not support device login (HTTP ${r.status}). Paste a key instead: clearcote login <key>`,
+      `the licence server at ${base} does not support device login (HTTP ${r.status}). Paste a key instead: code-browser login <key>`,
       "unsupported");
   }
   if (r.status !== 200) {

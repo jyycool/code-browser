@@ -6,11 +6,11 @@
 //   node smoke_launch.mjs        # both, in this order (the old behaviour)
 //
 // Launches headless and reads a real navigator.userAgent (proves the process started AND runs JS).
-// Exits non-zero on ANY failure so a release pipeline can gate on it. Imports whatever `clearcote` is
-// installed in the current directory's node_modules, so run it after `npm i clearcote@X`.
+// Exits non-zero on ANY failure so a release pipeline can gate on it. Imports whatever `code-browser` is
+// installed in the current directory's node_modules, so run it after `npm i code-browser@X`.
 // See docs/en/RELEASE-SMOKE-TEST.md.
 //
-// A FREE run must really be keyless: the SDK reads CLEARCOTE_LICENSE_KEY and ~/.clearcote/license.key
+// A FREE run must really be keyless: the SDK reads CLEARCOTE_LICENSE_KEY and ~/.code-browser/license.key
 // on its own, so smoke-release.sh starts it with neither. As a guard, a FREE run whose Chrome major is
 // not the SDK's pinned open build fails — that is what a key leaking into it looks like.
 
@@ -20,16 +20,16 @@ import { join } from "node:path";
 
 let launch, RELEASE;
 try {
-  ({ launch, RELEASE } = await import("clearcote"));
+  ({ launch, RELEASE } = await import("code-browser"));
 } catch (e) {
-  console.log(`[NODE] import clearcote FAILED: ${e?.message ?? e}`);
+  console.log(`[NODE] import code_browser FAILED: ${e?.message ?? e}`);
   process.exit(2);
 }
 
 // The package's exports map does not expose package.json, so read the installed copy directly.
 let sdkVersion = "?";
 try {
-  sdkVersion = JSON.parse(readFileSync(join(process.cwd(), "node_modules", "clearcote", "package.json"), "utf8")).version;
+  sdkVersion = JSON.parse(readFileSync(join(process.cwd(), "node_modules", "code-browser", "package.json"), "utf8")).version;
 } catch {}
 const PIN = String(RELEASE?.version ?? "?");
 const PIN_MAJOR = PIN.split(".")[0];
@@ -62,7 +62,7 @@ if (!["free", "pro", "both"].includes(tier)) {
   process.exit(2);
 }
 const key = process.env.CCKEY || process.env.CLEARCOTE_LICENSE_KEY;
-console.log(`[NODE] clearcote ${sdkVersion} (pins open build ${PIN}) on ${os.platform()} node ${process.version}`);
+console.log(`[NODE] code-browser ${sdkVersion} (pins open build ${PIN}) on ${os.platform()} node ${process.version}`);
 
 const results = [];
 if (tier === "free" || tier === "both") results.push(await run("FREE", undefined));

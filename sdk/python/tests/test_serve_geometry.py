@@ -10,9 +10,9 @@ import os
 
 import pytest
 
-import clearcote
-from clearcote._fingerprint import _light_stealth_screen, _light_stealth_values
-from clearcote._geometry import (
+import code_browser
+from code_browser._fingerprint import _light_stealth_screen, _light_stealth_values
+from code_browser._geometry import (
     WINDOWS_TASKBAR_HEIGHT,
     _fit_plan,
     fit_served_window,
@@ -65,7 +65,7 @@ def test_sets_the_display_and_window_origin_without_a_persona():
 def test_passes_the_seeds_display_as_a_fallback_under_a_persona():
     """The engine's persona display wins over --screen-info (measured on r32 Linux and r33 Windows), so
     the row is a fallback: a persona that does not engage must never leave the 800x600 surface."""
-    from clearcote._geometry import headless_display
+    from code_browser._geometry import headless_display
     g = served_geometry(["--fingerprint=seed"], "seed")
     assert g["persona"] is True and g["fit"] is True
     assert g["display"] == headless_display("seed", ["--fingerprint=seed"])
@@ -269,12 +269,12 @@ def test_never_raises_no_page_a_dead_connection_no_endpoint():
 
 def test_serve_rejects_a_bad_window_size_before_launching_anything():
     with pytest.raises(TypeError):
-        clearcote.serve(window_size=(50, 50))
+        code_browser.serve(window_size=(50, 50))
 
 
 # --------------------------------------------------------------- live engine
-LIVE_EXE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-live_only = pytest.mark.skipif(not LIVE_EXE, reason="set CLEARCOTE_LIVE_ENGINE=<path to chrome> to run")
+LIVE_EXE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+live_only = pytest.mark.skipif(not LIVE_EXE, reason="set CODE_BROWSER_LIVE_ENGINE=<path to chrome> to run")
 
 _READ_JS = """() => ({
     screen: [screen.width, screen.height],
@@ -303,7 +303,7 @@ def _served_on_this_thread(**kwargs):
 
     # --no-sandbox as in the launch live tests: containers usually cannot run the Chrome sandbox. It is
     # also the flag serve() adds itself as root on Linux, whose warning bar it keeps off the first tab.
-    srv = clearcote.serve(executable_path=LIVE_EXE, quiet=True, args=["--no-sandbox"], **kwargs)
+    srv = code_browser.serve(executable_path=LIVE_EXE, quiet=True, args=["--no-sandbox"], **kwargs)
     try:
         with sync_playwright() as p:
             browser = p.chromium.connect_over_cdp(srv.cdp_url)
@@ -385,8 +385,8 @@ def test_live_served_window_size_is_honoured_inside_the_work_area():
 
 
 # Headed opens real windows, so it is opt-in, as for the headed launch() test in test_geometry:
-# CLEARCOTE_LIVE_HEADED=1 (and a display: on Linux run under xvfb-run).
-@pytest.mark.skipif(not LIVE_EXE or not os.environ.get("CLEARCOTE_LIVE_HEADED"),
-                    reason="set CLEARCOTE_LIVE_ENGINE and CLEARCOTE_LIVE_HEADED=1 to run headed serve tests")
+# CODE_BROWSER_LIVE_HEADED=1 (and a display: on Linux run under xvfb-run).
+@pytest.mark.skipif(not LIVE_EXE or not os.environ.get("CODE_BROWSER_LIVE_HEADED"),
+                    reason="set CODE_BROWSER_LIVE_ENGINE and CODE_BROWSER_LIVE_HEADED=1 to run headed serve tests")
 def test_live_headed_served_first_tab_keeps_the_frame_a_second_tab_has():
     _assert_no_warning_bar(_served(headless=False))

@@ -13,7 +13,7 @@
 // Because the template is self-contained, fonts installed on the host are invisible to the
 // browser. Two settings add directories to it (the same as the Python SDK's _fonts.py):
 //
-// * `fontDirs` / CLEARCOTE_FONT_DIRS — your own fonts, typically a copy of a Windows machine's
+// * `fontDirs` / CODE_BROWSER_FONT_DIRS — your own fonts, typically a copy of a Windows machine's
 //   Fonts folder. Listed ahead of the bundle. On an engine that lets a genuine face win over its
 //   substitute (it carries GENUINE_FACES_SWITCH; PRO r32+), every family they provide is also used as
 //   itself: its lookalike rule (Arial->Arimo, Segoe UI->Selawik, …) is dropped, and the names and CSS
@@ -34,14 +34,14 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { engineSupportsSwitch } from "./launchopts.js";
 
-export const FONT_DIRS_ENV = "CLEARCOTE_FONT_DIRS";
+export const FONT_DIRS_ENV = "CODE_BROWSER_FONT_DIRS";
 export const FALLBACK_FONT_DIRS_ENV = "CLEARCOTE_FALLBACK_FONT_DIRS";
 
 const FONT_EXTS = [".ttf", ".otf", ".ttc", ".otc"];
 
 /** Carried by an engine that lets a genuine Windows face installed here win over its substitute (PRO
  * r32+). The SDK never passes it: its presence in the binary is the marker. Measured on an engine without
- * it: with a genuine Arial in CLEARCOTE_FONT_DIRS and the rules changed, "Helvetica" reached the genuine
+ * it: with a genuine Arial in CODE_BROWSER_FONT_DIRS and the rules changed, "Helvetica" reached the genuine
  * file while "Arial" stayed on the engine's Arimo -- two widths no Windows machine has. */
 export const GENUINE_FACES_SWITCH = "disable-genuine-font-faces";
 
@@ -59,7 +59,7 @@ const GENERIC_WINDOWS: Record<string, string> = {
   "sans-serif": "Arial", serif: "Times New Roman", monospace: "Consolas", "system-ui": "Segoe UI",
 };
 
-/** The Windows families the bundle stands in for with a lookalike; `clearcote info` reports which of
+/** The Windows families the bundle stands in for with a lookalike; `code-browser info` reports which of
  * them your own fonts provide for real. */
 export const KEY_WINDOWS_FAMILIES = ["Arial", "Segoe UI", "Calibri", "Cambria", "Consolas", "Courier New", "Georgia",
   "Times New Roman", "Verdana", "Tahoma", "Trebuchet MS", "Comic Sans MS", "Impact"] as const;
@@ -317,7 +317,7 @@ export function checkFontDirs(fontDirs: unknown, platform: string = process.plat
 
 export interface FontDirs { user: string[]; fallback: string[]; ignored: string[] }
 
-/** The option's directories then CLEARCOTE_FONT_DIRS (`user`), and CLEARCOTE_FALLBACK_FONT_DIRS
+/** The option's directories then CODE_BROWSER_FONT_DIRS (`user`), and CLEARCOTE_FALLBACK_FONT_DIRS
  * (`fallback`), each without duplicates; `ignored` lists entries from the environment that are not
  * directories (the option throws for those instead). */
 export function resolveFontDirs(fontDirs?: unknown, env: Record<string, string | undefined> = process.env): FontDirs {
@@ -396,10 +396,10 @@ function writeAtomic(path: string, text: string): void {
 }
 
 /** Where the generated font config goes when the binary's own directory is not writable:
- * CLEARCOTE_CACHE/fontconfig, else $XDG_CACHE_HOME (or ~/.cache)/clearcote/fontconfig. */
+ * CODE_BROWSER_CACHE/fontconfig, else $XDG_CACHE_HOME (or ~/.cache)/code-browser/fontconfig. */
 export function userConfDir(env: Record<string, string | undefined> = process.env): string {
-  if (env.CLEARCOTE_CACHE) return join(env.CLEARCOTE_CACHE, "fontconfig");
-  return join(env.XDG_CACHE_HOME || join(homedir(), ".cache"), "clearcote", "fontconfig");
+  if (env.CODE_BROWSER_CACHE) return join(env.CODE_BROWSER_CACHE, "fontconfig");
+  return join(env.XDG_CACHE_HOME || join(homedir(), ".cache"), "code-browser", "fontconfig");
 }
 
 let privateTmp: string | undefined;
@@ -423,11 +423,11 @@ export function resetFontConfWarnings(): void { warnedNoConf.clear(); }
 /** Say once per bundle that the font config could not be written. The launch goes on, but with the host's
  * fonts: text widths change and host fonts can be told apart from the persona's. */
 function warnNoFontConf(fontsDir: string, tried: readonly string[]): void {
-  if (process.env.CLEARCOTE_NO_WARN || warnedNoConf.has(fontsDir)) return;
+  if (process.env.CODE_BROWSER_NO_WARN || warnedNoConf.has(fontsDir)) return;
   warnedNoConf.add(fontsDir);
-  process.stderr.write("clearcote: warning: could not write the font configuration for the bundled fonts (tried: " +
+  process.stderr.write("code-browser: warning: could not write the font configuration for the bundled fonts (tried: " +
     `${tried.join("; ")}). The browser falls back to this machine's own fonts instead of the bundle: text widths ` +
-    "change and host fonts can show through. Make one of those directories writable, or set CLEARCOTE_CACHE to a " +
+    "change and host fonts can show through. Make one of those directories writable, or set CODE_BROWSER_CACHE to a " +
     "writable directory.\n");
 }
 
@@ -436,7 +436,7 @@ const errText = (e: unknown): string => (e as NodeJS.ErrnoException)?.code || (e
 /**
  * Returns `{ FONTCONFIG_FILE }` on Linux when the font bundle is present, else `{}`.
  *
- * `fontDirs` (and CLEARCOTE_FONT_DIRS / CLEARCOTE_FALLBACK_FONT_DIRS) add directories: see the top of
+ * `fontDirs` (and CODE_BROWSER_FONT_DIRS / CLEARCOTE_FALLBACK_FONT_DIRS) add directories: see the top of
  * this file. Without any, the file is `fonts.generated.conf` exactly as before; with some, each
  * distinct result gets its own `fonts.generated-<hash>.conf`, so launches with different directories
  * never rewrite each other's file. When the binary's directory is not writable the file goes to the user's
@@ -507,7 +507,7 @@ export interface FontReport {
   genuineFacesSupported?: boolean;
 }
 
-/** What `clearcote info` says about fonts on Linux (the `fonts` key of its JSON): whether the build
+/** What `code-browser info` says about fonts on Linux (the `fonts` key of its JSON): whether the build
  * bundles fonts, which scripts the fonts a launch would see can draw, and which of the key Windows
  * families your own fonts provide for real. `undefined` when the build ships no bundle. */
 export function linuxFontReport(exePath: string, fontDirs?: unknown,
@@ -543,7 +543,7 @@ export function linuxFontReport(exePath: string, fontDirs?: unknown,
   return report;
 }
 
-/** The Linux font lines of `clearcote info` (same text as the Python CLI). */
+/** The Linux font lines of `code-browser info` (same text as the Python CLI). */
 export function fontLines(f: FontReport): string[] {
   const lines = [`Fonts           ${f.note}`];
   if (f.scripts) {

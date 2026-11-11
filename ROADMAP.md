@@ -1,6 +1,6 @@
-# Clearcote Roadmap
+# CodeBrowser Roadmap
 
-Clearcote is being built in the open. This roadmap is intentionally public so you can see where we're headed, hold us to it, and jump in. Dates are deliberately omitted — we ship milestones when they're verifiable, not before.
+CodeBrowser is being built in the open. This roadmap is intentionally public so you can see where we're headed, hold us to it, and jump in. Dates are deliberately omitted — we ship milestones when they're verifiable, not before.
 
 > **TL;DR:** a fully open, reproducible Chromium build with engine-level privacy/identity controls and a Playwright-compatible SDK — released with checksums and build attestation so anyone can confirm exactly what they're running.
 
@@ -41,10 +41,10 @@ Engine-level control over the signals a browser exposes — designed to be *cons
 
 Make it a true drop-in for the tools developers already use.
 
-- [x] **Python + Node SDKs**, Playwright-first, Puppeteer supported *(Node on [npm](https://www.npmjs.com/package/clearcote) + Python on [PyPI](https://pypi.org/project/clearcote/), both `clearcote` — Playwright drop-in; Puppeteer can point at the same binary)*
+- [x] **Python + Node SDKs**, Playwright-first, Puppeteer supported *(Node on [npm](https://www.npmjs.com/package/code-browser) + Python on [PyPI](https://pypi.org/project/code-browser/), both `code-browser` — Playwright drop-in; Puppeteer can point at the same binary)*
 - [x] `launch()` returns a standard Playwright object — one-line migration
 - [x] Auto-download + local cache of the verified binary
-- [x] **In-browser AI agent** *(v0.1.0-pre.10)*: `launch_agent` / `run_agent_task` + the `clearcote-agent` CLI (one-shot `--goal` or `-i` REPL) — drive a page with natural-language goals via your own OpenAI-compatible / OpenRouter key. Opt-in (off by default); perceives the page, asks the LLM, and acts through Chrome's Actor framework with real trusted input.
+- [x] **In-browser AI agent** *(v0.1.0-pre.10)*: `launch_agent` / `run_agent_task` + the `code-browser-agent` CLI (one-shot `--goal` or `-i` REPL) — drive a page with natural-language goals via your own OpenAI-compatible / OpenRouter key. Opt-in (off by default); perceives the page, asks the LLM, and acts through Chrome's Actor framework with real trusted input.
 - [ ] Recipes: persistent profiles, proxy configuration, headless on servers
 
 ## Phase 4 — Trust & supply-chain

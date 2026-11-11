@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from clearcote import ClockSkewError, LicenseError
-from clearcote._clockcheck import assert_clock_for, clock_skew_problem, format_duration
-from clearcote._persona import apply
+from code_browser import ClockSkewError, LicenseError
+from code_browser._clockcheck import assert_clock_for, clock_skew_problem, format_duration
+from code_browser._persona import apply
 
 T = 1_800_000_000  # server time when the token was minted
 

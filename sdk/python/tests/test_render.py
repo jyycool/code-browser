@@ -1,4 +1,4 @@
-from clearcote._render import evaluate_render_info
+from code_browser._render import evaluate_render_info
 
 
 def test_coherent_nvidia_persona():
@@ -61,7 +61,7 @@ def test_unmasked_pair_preferred_over_masked():
 
 
 # -- capability floor: the string check is defeated once the persona renames the backend ---------
-# Values below are measured on a GPU-less Linux VPS with clearcote 153 r25 and genuine Chrome 153.
+# Values below are measured on a GPU-less Linux VPS with code-browser 153 r25 and genuine Chrome 153.
 
 def test_spoofed_renderer_over_swiftshader_is_caught_by_the_capability_floor():
     """Headless Linux: the persona renames SwiftShader to an Intel UHD 770, so _SOFTWARE_MARKERS
@@ -118,7 +118,7 @@ def test_angle_d3d11_vertex_fragment_split_is_not_a_tell():
 
 
 def test_half_applied_persona_splits_uniform_vectors_under_a_gl_renderer():
-    """clearcote headless Linux: MAX_FRAGMENT_UNIFORM_VECTORS takes the persona's 1024 while
+    """code-browser headless Linux: MAX_FRAGMENT_UNIFORM_VECTORS takes the persona's 1024 while
     MAX_VERTEX_UNIFORM_VECTORS passes SwiftShader's 4096 through. No real GL driver does that."""
     v = evaluate_render_info({
         "webgl": True, "webgl2": True,

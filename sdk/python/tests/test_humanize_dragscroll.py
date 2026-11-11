@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from clearcote._motion import make_persona, mulberry32
+from code_browser._motion import make_persona, mulberry32
 from tests._fake_scrollpage import Doc, make
 
 HESITATION_MAX_PX = 8.0   # the creep stays inside this circle (_motion.HESITATION_MAX_PX)
@@ -108,7 +108,7 @@ def test_drag_by_converges_in_at_most_three_legs(monkeypatch, seed):
     page = make(monkeypatch, d, seed=seed)
     got = page.drag_by("#thumb", 120, 0)
     assert got is not None and abs(got[0] - 120) <= 2 and abs(got[1]) <= 2, got
-    assert 1 <= page._clearcote_drag_legs <= 3
+    assert 1 <= page._code_browser_drag_legs <= 3
     assert d.els["#thumb"]["rect"][0] == 320.0
     assert len(_ev(page, "down")) == 1 and len(_ev(page, "up")) == 1
 
@@ -161,13 +161,13 @@ def test_non_scrollable_page_falls_back_and_reports(monkeypatch):
     d = _far_doc(scrollable=False)
     page = make(monkeypatch, d)
     reported = []
-    from clearcote._hzoptions import HumanizeOptions
-    page._clearcote_hz = HumanizeOptions(on_fallback=reported.append)   # lane A's hook (the real options object)
+    from code_browser._hzoptions import HumanizeOptions
+    page._code_browser_hz = HumanizeOptions(on_fallback=reported.append)   # lane A's hook (the real options object)
     page.click("#far")
     assert _ev(page, "prog"), "the programmatic scroll is the fallback"
     # lane A's report: the api is the outermost public call, the reason names the scroll step
     want = {"api": "Page.click", "reason": "scroll into view: not_scrollable", "selector": None}
-    assert page._clearcote_last_fallback == want
+    assert page._code_browser_last_fallback == want
     assert reported == [want]
 
 
@@ -213,8 +213,8 @@ def test_mouse_persona_keeps_notches_and_trackpad_option_overrides(monkeypatch):
 
 # --------------------------------------------------------------------------- shared vectors
 def test_scroll_vectors_match_the_python_planner():
-    from clearcote import _scroll as S
-    from clearcote._motion import drag_hesitation
+    from code_browser import _scroll as S
+    from code_browser._motion import drag_hesitation
     with open(VECTORS, encoding="utf-8") as f:
         doc = json.load(f)
     for v in doc["anchor"]:
@@ -238,7 +238,7 @@ def test_scroll_vectors_match_the_python_planner():
         assert len(steps) == v["n"]
         for i, x, y, sl in v["samples"]:
             assert abs(steps[i][0] - x) < 1e-6 and abs(steps[i][1] - y) < 1e-6 and abs(steps[i][2] - sl) < 1e-6
-    from clearcote._motion import hesitate_then_drag
+    from code_browser._motion import hesitate_then_drag
     for v in doc["held"]:
         steps, nc = hesitate_then_drag(tuple(v["from"]), tuple(v["to"]), make_persona(v["persona"]), v["window_ms"],
                                        v["settle"], mulberry32(v["rng"]))
@@ -256,8 +256,8 @@ def test_scroll_vectors_match_the_python_planner():
 def test_same_seed_same_traits_but_fresh_per_action_draws():
     """The seed fixes persona TRAITS; every per-action draw is unseeded, or every session of an identity
     would replay identical drags and scrolls (a cross-session fingerprint)."""
-    from clearcote import _scroll as S
-    from clearcote._motion import drag_hesitation, hesitation_traits
+    from code_browser import _scroll as S
+    from code_browser._motion import drag_hesitation, hesitation_traits
     a, b = make_persona("ident-1"), make_persona("ident-1")
     assert hesitation_traits(a) == hesitation_traits(b)
     assert hesitation_traits(a) != hesitation_traits(make_persona("ident-2"))
@@ -275,7 +275,7 @@ def test_trackpad_rate_and_inertia_decay_are_persona_traits_with_fresh_swipes():
     HARDWARE constants -- one per identity -- not per-scroll draws (one "trackpad" reported at 61 then
     118 events/s within a session on 949f5b1). Same seed => equal traits; every swipe still draws its
     own shares, lift points, pauses and timing jitter."""
-    from clearcote import _scroll as S
+    from code_browser import _scroll as S
     a, b, c = (S.trackpad_traits(make_persona(s).seed) for s in ("ident-1", "ident-1", "ident-2"))
     assert a == b and a != c
     assert 60 <= a.hz <= 120 and 140 <= a.decay_ms <= 220

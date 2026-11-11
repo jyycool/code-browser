@@ -13,11 +13,11 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from clearcote._keys import (  # noqa: E402
+from code_browser._keys import (  # noqa: E402
     bigram_class, finger_of, flight_ms, modifier_lag_ms, modifier_lead_ms, plan_gap, plan_repeat, split_chord,
     submit_pause_ms, tab_pause_ms, typing_traits,
 )
-from clearcote._motion import make_persona, mulberry32  # noqa: E402
+from code_browser._motion import make_persona, mulberry32  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "..", "testdata", "humanize_typing_vectors.json")
 
@@ -87,8 +87,8 @@ def main():
     rng = mulberry32(KS_RNG)
     ks = [plan_gap(tr, kt[i], kt[i + 1], rng) for i in range(len(kt) - 1)]
     doc = {
-        "_about": ("Shared vectors for the humanize keyboard planner: sdk/python/clearcote/_keys.py, "
-                   "sdk/node/src/keys.ts and sdk/dotnet/src/Clearcote/Keys.cs must give these exact answers "
+        "_about": ("Shared vectors for the humanize keyboard planner: sdk/python/code_browser/_keys.py, "
+                   "sdk/node/src/keys.ts and sdk/dotnet/src/CodeBrowser/Keys.cs must give these exact answers "
                    "(abs tolerance 1e-9 ms) from makePersona(persona).seed and mulberry32(rng). persona_pin pins "
                    "make_persona's EXISTING fields (unchanged by the typing identity, a salted side stream). "
                    "ks_reference: 500 planned gaps (persona ks_persona, mulberry32(ks_rng), ks_text) that the "

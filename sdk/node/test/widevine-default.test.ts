@@ -14,7 +14,7 @@ import { basename, join } from "node:path";
 import { storedZip } from "./helpers/fake-build.js";
 
 const stub = vi.hoisted(() => ({
-  savedProfileDir: ((prev) => { process.env.CLEARCOTE_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CLEARCOTE_PROFILE_DIR),
+  savedProfileDir: ((prev) => { process.env.CODE_BROWSER_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CODE_BROWSER_PROFILE_DIR),
   launches: [] as Array<{ kind: "persistent" | "incognito"; userDataDir?: string; opts: Record<string, unknown> }>,
   spawns: [] as Array<{ args: string[] }>,
   cloudCalls: [] as Array<Record<string, unknown>>,
@@ -104,13 +104,13 @@ const CDM_FILE = LINUX ? "libwidevinecdm.so" : "widevinecdm.dll";
 const DOWNLOAD_URL = "https://example.invalid/cdm.crx3";
 
 afterAll(() => {
-  if (stub.savedProfileDir === undefined) delete process.env.CLEARCOTE_PROFILE_DIR;
-  else process.env.CLEARCOTE_PROFILE_DIR = stub.savedProfileDir;
+  if (stub.savedProfileDir === undefined) delete process.env.CODE_BROWSER_PROFILE_DIR;
+  else process.env.CODE_BROWSER_PROFILE_DIR = stub.savedProfileDir;
 });
 
-const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_API_KEY",
-  "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_WIDEVINE_DIR",
-  "CLEARCOTE_WIDEVINE", "CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS", "CLEARCOTE_PERSONA_ENV"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_API_KEY",
+  "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CLEARCOTE_WIDEVINE_DIR",
+  "CODE_BROWSER_WIDEVINE", "CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS", "CLEARCOTE_PERSONA_ENV"] as const;
 let savedEnv: Record<string, string | undefined>;
 let root: string;
 let wv: string;
@@ -126,8 +126,8 @@ beforeEach(() => {
   process.env.TEMP = process.env.TMP = process.env.TMPDIR = join(root, "temp");
   wv = join(root, "wv");
   process.env.CLEARCOTE_WIDEVINE_DIR = wv;
-  for (const k of ["CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD",
-    "CLEARCOTE_DOCKER", "CLEARCOTE_WIDEVINE", "CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS", "CLEARCOTE_PERSONA_ENV"]) delete process.env[k];
+  for (const k of ["CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD",
+    "CODE_BROWSER_DOCKER", "CODE_BROWSER_WIDEVINE", "CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS", "CLEARCOTE_PERSONA_ENV"]) delete process.env[k];
   stub.launches.length = 0;
   stub.spawns.length = 0;
   stub.cloudCalls.length = 0;
@@ -241,27 +241,27 @@ describe("widevineMode", () => {
     [undefined, true, "maybe", "default"], // an unknown value is ignored
     [undefined, false, "maybe", "off"],
     [undefined, true, "", "default"],
-  ] as const)("option %s, licensed %s, CLEARCOTE_WIDEVINE=%s -> %s", (option, isLicensed, env, expected) => {
-    expect(W.widevineMode(option, isLicensed, env === undefined ? {} : { CLEARCOTE_WIDEVINE: env })).toBe(expected);
+  ] as const)("option %s, licensed %s, CODE_BROWSER_WIDEVINE=%s -> %s", (option, isLicensed, env, expected) => {
+    expect(W.widevineMode(option, isLicensed, env === undefined ? {} : { CODE_BROWSER_WIDEVINE: env })).toBe(expected);
   });
 
   it("reads the process environment", () => {
-    process.env.CLEARCOTE_WIDEVINE = "0";
+    process.env.CODE_BROWSER_WIDEVINE = "0";
     expect(W.widevineMode(undefined, true)).toBe("off");
-    process.env.CLEARCOTE_WIDEVINE = "1";
+    process.env.CODE_BROWSER_WIDEVINE = "1";
     expect(W.widevineMode(undefined, false)).toBe("explicit");
   });
 
   // clamped to 1-600 s: a huge value used to overflow setTimeout (to 1 ms) in Node and break the launch elsewhere
   it.each([[undefined, 15], ["3", 3], ["0.5", 1], ["0", 15], ["-2", 15], ["soon", 15], ["", 15], ["600", 600], ["601", 600],
     ["1e10", 600], ["Infinity", 600], ["NaN", 15], ["-Infinity", 15]] as const)(
-    "timeout CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS=%s -> %s", (value, expected) => {
-      expect(W.timeoutSeconds(value === undefined ? {} : { CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS: value })).toBe(expected);
+    "timeout CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS=%s -> %s", (value, expected) => {
+      expect(W.timeoutSeconds(value === undefined ? {} : { CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS: value })).toBe(expected);
     });
 
   it("uses the same names as the other SDKs", () => {
-    expect(W.WIDEVINE_ENV).toBe("CLEARCOTE_WIDEVINE");
-    expect(W.TIMEOUT_ENV).toBe("CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS");
+    expect(W.WIDEVINE_ENV).toBe("CODE_BROWSER_WIDEVINE");
+    expect(W.TIMEOUT_ENV).toBe("CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS");
     expect(W.DEFAULT_TIMEOUT_SECONDS).toBe(15);
   });
 });
@@ -375,7 +375,7 @@ describe("defaultCdm", () => {
     expect(warnings()).toHaveLength(1);
     expect(warnings()[0]).toContain("Google said 403");
     // the advice leads with the variable, which works for every launch (cloud and Docker included)
-    expect(warnings()[0].indexOf("CLEARCOTE_WIDEVINE=0")).toBeLessThan(warnings()[0].indexOf("widevine: false"));
+    expect(warnings()[0].indexOf("CODE_BROWSER_WIDEVINE=0")).toBeLessThan(warnings()[0].indexOf("widevine: false"));
     expect(g.checks).toBe(1);
   });
 
@@ -388,8 +388,8 @@ describe("defaultCdm", () => {
     expect(warnings()).toHaveLength(1);
   });
 
-  it("CLEARCOTE_NO_WARN says nothing", async () => {
-    process.env.CLEARCOTE_NO_WARN = "1";
+  it("CODE_BROWSER_NO_WARN says nothing", async () => {
+    process.env.CODE_BROWSER_NO_WARN = "1";
     fakeGoogle({ fail: true });
     expect(await W.defaultCdm()).toBeUndefined();
     expect(stderr).toEqual([]);
@@ -408,8 +408,8 @@ describe("defaultCdm", () => {
     expect(Date.now() - t1).toBeLessThan(1000);
   });
 
-  it("takes its timeout from CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS", async () => {
-    process.env.CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS = "0.2";
+  it("takes its timeout from CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS", async () => {
+    process.env.CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS = "0.2";
     fakeGoogle({ hang: true });
     const t0 = Date.now();
     expect(await W.defaultCdm({ quiet: true })).toBeUndefined();
@@ -469,7 +469,7 @@ describe("defaultCdm", () => {
   it("prints nothing but the warning (S17)", async () => {
     fakeGoogle();
     expect(await W.defaultCdm({ quiet: false })).toBe(join(wv, VERSION));
-    expect(stderr).toEqual([]); // no "[clearcote] [widevine] fetching/installed" lines on the default path
+    expect(stderr).toEqual([]); // no "[code-browser] [widevine] fetching/installed" lines on the default path
   });
 });
 
@@ -520,17 +520,17 @@ describe("hardening", () => {
 
 describe("the opt-out elsewhere", () => {
   it.each([false, undefined, null])("a cloud launch accepts and drops widevine: %s", async (value) => {
-    delete process.env.CLEARCOTE_API_KEY;
+    delete process.env.CODE_BROWSER_API_KEY;
     const actual = await vi.importActual<typeof import("../src/cloud.js")>("../src/cloud.js");
     // stops at the client (no API key): past the option check, which used to refuse it
-    await expect(actual.launchCloud({ cloud: true, widevine: value })).rejects.toThrow("no Clearcote API key");
+    await expect(actual.launchCloud({ cloud: true, widevine: value })).rejects.toThrow("no CodeBrowser API key");
     await expect(actual.launchCloud({ cloud: true, widevine: true })).rejects.toThrow("widevine is not available for cloud browsers");
   });
 
   it("a Docker launch accepts and drops widevine: false", async () => {
     const { containerEnv } = await import("../src/docker.js");
     expect(containerEnv({ fingerprint: "17", widevine: false })).toEqual(containerEnv({ fingerprint: "17" }));
-    expect(() => containerEnv({ fingerprint: "17", widevine: true })).toThrow("widevine is not available when launch() runs Clearcote in Docker");
+    expect(() => containerEnv({ fingerprint: "17", widevine: true })).toThrow("widevine is not available when launch() runs CodeBrowser in Docker");
   });
 });
 
@@ -598,7 +598,7 @@ describe("launches", () => {
 
   it.each(["option", "env"])("a licensed launch opts out (%s)", async (how) => {
     cachedCdm();
-    if (how === "env") process.env.CLEARCOTE_WIDEVINE = "0";
+    if (how === "env") process.env.CODE_BROWSER_WIDEVINE = "0";
     const ctx = await launchPersistentContext(join(root, "udd"), licensed(fakeEngine([ENGINE_1022]), how === "option" ? { widevine: false } : {}));
     expect(cdmArgs(lastArgs())).toEqual([]);
     await ctx.close();
@@ -615,7 +615,7 @@ describe("launches", () => {
 
   it.each(["option", "env"])("a free launch opts in (%s): seeded and enabled as before", async (how) => {
     const cdm = cachedCdm();
-    if (how === "env") process.env.CLEARCOTE_WIDEVINE = "1";
+    if (how === "env") process.env.CODE_BROWSER_WIDEVINE = "1";
     const udd = join(root, "udd");
     const ctx = await launchPersistentContext(udd, base(fakeEngine([ENGINE_1022]), how === "option" ? { widevine: true } : {}));
     const opts = stub.launches.at(-1)!.opts;
@@ -656,7 +656,7 @@ describe("launches", () => {
   });
 
   it("a licensed launch does not wait past the timeout", async () => {
-    process.env.CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS = "0.3";
+    process.env.CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS = "0.3";
     fakeGoogle({ hang: true });
     const t0 = Date.now();
     const ctx = await launchPersistentContext(join(root, "udd"), licensed(fakeEngine([ENGINE_1022])));

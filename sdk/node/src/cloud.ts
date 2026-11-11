@@ -1,16 +1,16 @@
-// Clearcote Cloud: hosted browsers, agent runs, profiles, recordings, events, hand-off and webhooks.
+// CodeBrowser Cloud: hosted browsers, agent runs, profiles, recordings, events, hand-off and webhooks.
 //
-// The same SDK runs a browser on this machine or on Clearcote's servers, and one flag picks which:
+// The same SDK runs a browser on this machine or on CodeBrowser's servers, and one flag picks which:
 //
-//   import { launch } from "clearcote";
-//   const browser = await launch({ cloud: true, country: "us" }); // or CLEARCOTE_CLOUD=1; humanized by default
+//   import { launch } from "code-browser";
+//   const browser = await launch({ cloud: true, country: "us" }); // or CODE_BROWSER_CLOUD=1; humanized by default
 //   const page = await browser.newPage();                         // the same Playwright Browser
 //   await browser.close();                                        // disconnects, ends the session
 //
 // Everything else the hosted API does is on `Cloud`:
 //
-//   import { Cloud } from "clearcote";
-//   const cloud = new Cloud();   // CLEARCOTE_API_KEY; CLEARCOTE_API_URL points it at another server
+//   import { Cloud } from "code-browser";
+//   const cloud = new Cloud();   // CODE_BROWSER_API_KEY; CODE_BROWSER_API_URL points it at another server
 //   const run = await cloud.runs.create("Find the price of the cheapest plan", { url: "https://example.com" });
 //   console.log(run.status, run.result?.output);
 //
@@ -21,7 +21,7 @@
 //   * Options use the API's own names (proxySession, timeoutSec), passed through unchanged; the API
 //     validates the values. Durations of the SDK's own waits (timeout, poll) are in SECONDS, as in Python.
 //
-// Mirrors the Python SDK's clearcote/cloud.py: same resources, same defaults, same errors, same CLI output.
+// Mirrors the Python SDK's code-browser/cloud.py: same resources, same defaults, same errors, same CLI output.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
@@ -51,7 +51,7 @@ const TRANSIENT = [0, 429, 502, 503, 504];
 const MAX_TRANSIENT = 4;
 
 export const NO_API_KEY =
-  "no Clearcote API key: pass apiKey or set CLEARCOTE_API_KEY (create a key in the Clearcote dashboard)";
+  "no CodeBrowser API key: pass apiKey or set CODE_BROWSER_API_KEY (create a key in the CodeBrowser dashboard)";
 
 // Plain http:// is accepted only for these hosts (a local dev control plane): anywhere else the API key
 // would cross the network unencrypted.
@@ -124,12 +124,12 @@ export type Json = any;
 
 /**
  * Whether a launch should go to the cloud. `cloud` unset defers to the environment:
- * `CLEARCOTE_CLOUD` set to 1, true or yes means cloud, anything else local. An explicit true/false
+ * `CODE_BROWSER_CLOUD` set to 1, true or yes means cloud, anything else local. An explicit true/false
  * (or a {@link Cloud} client, which means cloud) always wins over the environment.
  */
 export function cloudRequested(cloud?: boolean | Cloud | null): boolean {
   if (cloud === undefined || cloud === null) {
-    return TRUTHY.includes((process.env.CLEARCOTE_CLOUD ?? "").trim().toLowerCase());
+    return TRUTHY.includes((process.env.CODE_BROWSER_CLOUD ?? "").trim().toLowerCase());
   }
   // "0"/"false" from a config file must not mean cloud
   if (typeof cloud === "string") return TRUTHY.includes((cloud as string).trim().toLowerCase());
@@ -371,11 +371,11 @@ export interface CloudSessionOptions {
 
 /** Options of a cloud `launch()`: the session options plus what the SDK handles itself. */
 export interface CloudLaunchOptions extends Omit<CloudSessionOptions, "humanize"> {
-  /** true (or a Cloud client) for a cloud browser; unset follows CLEARCOTE_CLOUD. */
+  /** true (or a Cloud client) for a cloud browser; unset follows CODE_BROWSER_CLOUD. */
   cloud?: boolean | Cloud;
-  /** API key; defaults to CLEARCOTE_API_KEY. */
+  /** API key; defaults to CODE_BROWSER_API_KEY. */
   apiKey?: string;
-  /** API base URL; defaults to CLEARCOTE_API_URL, then https://www.clearcotelabs.com. */
+  /** API base URL; defaults to CODE_BROWSER_API_URL, then https://www.clearcotelabs.com. */
   apiUrl?: string;
   /** Default true on a cloud launch: humanize all input in the SDK exactly as for a local browser (typing at
    *  the persona's cadence with key rollover, clicks, the wheel in whole notches; a coordinate mouse.click goes
@@ -510,8 +510,8 @@ class Http {
 export function announceHandoff(view: Json): void {
   const h = view?.handoff ?? {};
   process.stderr.write(
-    `[clearcote] run ${view?.id} is waiting for a human${h.reason ? ` (${h.reason})` : ""}: ` +
-      `${h.liveUrl || "open it in the Clearcote dashboard"}\n`,
+    `[code-browser] run ${view?.id} is waiting for a human${h.reason ? ` (${h.reason})` : ""}: ` +
+      `${h.liveUrl || "open it in the CodeBrowser dashboard"}\n`,
   );
 }
 
@@ -747,13 +747,13 @@ export class CloudRuns {
 
 /** Where profiles.sync reads the cookies from: exactly one source. */
 export interface SyncOptions {
-  /** A local Chrome/Clearcote profile directory, read by a headless Clearcote started on it. */
+  /** A local Chrome/CodeBrowser profile directory, read by a headless CodeBrowser started on it. */
   fromProfile?: string;
   /** A browser you already run with remote debugging, e.g. http://127.0.0.1:9222. */
   fromCdp?: string;
   /** A Playwright storage-state file, or a JSON array of cookies. */
   fromFile?: string;
-  /** A visible Clearcote on a throwaway profile opens this page; you sign in, then `confirm` resolves
+  /** A visible CodeBrowser on a throwaway profile opens this page; you sign in, then `confirm` resolves
    * (default: press Enter in this terminal). */
   loginUrl?: string;
   /** Only the cookies a browser would use on these domains are uploaded: those of each domain, of its
@@ -839,9 +839,9 @@ export class CloudWebhooks {
 
 /** Options of {@link Cloud}. */
 export interface CloudOptions {
-  /** Defaults to CLEARCOTE_API_KEY. */
+  /** Defaults to CODE_BROWSER_API_KEY. */
   apiKey?: string;
-  /** Defaults to CLEARCOTE_API_URL, then https://www.clearcotelabs.com. */
+  /** Defaults to CODE_BROWSER_API_URL, then https://www.clearcotelabs.com. */
   baseUrl?: string;
   /** Per HTTP request, in seconds (default 30). */
   timeout?: number;
@@ -856,9 +856,9 @@ export class Cloud {
   readonly webhooks: CloudWebhooks;
 
   constructor(opts: CloudOptions = {}) {
-    const key = String(opts.apiKey || process.env.CLEARCOTE_API_KEY || "").trim();
+    const key = String(opts.apiKey || process.env.CODE_BROWSER_API_KEY || "").trim();
     if (!key) throw new Error(NO_API_KEY);
-    const base = String(opts.baseUrl || process.env.CLEARCOTE_API_URL || DEFAULT_API_URL).trim().replace(/\/+$/, "");
+    const base = String(opts.baseUrl || process.env.CODE_BROWSER_API_URL || DEFAULT_API_URL).trim().replace(/\/+$/, "");
     this.baseUrl = checkBaseUrl(base);
     const http = new Http(key, base, (opts.timeout ?? 30) * 1000);
     this.browsers = new CloudBrowsers(http);
@@ -885,7 +885,7 @@ export class Cloud {
  * more than `toleranceSec` away from now is refused, so a captured delivery cannot be replayed later
  * (`toleranceSec: null` turns that off). Throws on any failure.
  */
-// A real header is ~80 bytes (one t, one or two v1). Anything near this is not a Clearcote signature.
+// A real header is ~80 bytes (one t, one or two v1). Anything near this is not a CodeBrowser signature.
 const MAX_SIGNATURE_HEADER = 4096;
 
 export function verifyWebhook(
@@ -1007,13 +1007,13 @@ export async function readCookiesFromCdp(endpoint: string): Promise<Json[]> {
   }
 }
 
-/** What profile sync needs of serve(): a CDP endpoint on a local Clearcote, and a way to stop it. */
+/** What profile sync needs of serve(): a CDP endpoint on a local CodeBrowser, and a way to stop it. */
 export type ServeFn = (opts: { userDataDir?: string; headless: boolean; quiet: boolean }) =>
   Promise<{ cdpUrl: string; close(): Promise<void>; isAlive(): boolean }>;
 
 const defaultServe: ServeFn = async (opts) => (await import("./index.js")).serve(opts);
 
-/** Start a headless Clearcote on `userDataDir` (a raw CDP endpoint via serve(): no Playwright launch,
+/** Start a headless CodeBrowser on `userDataDir` (a raw CDP endpoint via serve(): no Playwright launch,
  * nothing written but what Chrome itself writes), read its cookies, stop it. */
 export async function readCookiesFromProfile(userDataDir: string, opts: { serve?: ServeFn } = {}): Promise<Json[]> {
   if (!existsSync(userDataDir) || !statSync(userDataDir).isDirectory()) throw new Error(`${userDataDir} is not a directory`);
@@ -1036,7 +1036,7 @@ async function waitForEnter(): Promise<void> {
   rl.close();
 }
 
-/** Open `url` in a VISIBLE Clearcote on a throwaway profile, wait for `confirm()` (default: Enter in
+/** Open `url` in a VISIBLE CodeBrowser on a throwaway profile, wait for `confirm()` (default: Enter in
  * this terminal), then read the cookies. The profile directory is deleted afterwards. */
 export async function readCookiesByLogin(url: string, opts: { confirm?: () => unknown; serve?: ServeFn } = {}): Promise<Json[]> {
   const srv = await (opts.serve ?? defaultServe)({ headless: false, quiet: true });

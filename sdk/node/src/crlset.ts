@@ -2,7 +2,7 @@
 //
 // Real Chrome downloads a CRLSet through its component updater: Google's list of revoked and blocked
 // certificate keys, which is how a CA distrust reaches the browser within hours (the eMudhra key compromise of
-// 2026-10-17 shipped as CRLSet 10849). A Clearcote engine never gets it: the updater URL is
+// 2026-10-17 shipped as CRLSet 10849). A CodeBrowser engine never gets it: the updater URL is
 // domain-substituted to a dead host, and Playwright launches with --disable-component-update anyway. So every
 // engine since 149 kept trusting those intermediates (tested on 12 builds, 149-155, free and PRO).
 //
@@ -27,12 +27,12 @@
 // launch drops it too (seen on Linux) and must not count. Measured live on Windows and Linux: an eMudhra
 // host navigated right after is ERR_CERT_REVOKED. It adds a few seconds to a launch.
 //
-// OPT-IN: `crlset: true` (or CLEARCOTE_CRLSET=1). Where the CRLSet comes from, first match wins:
-// `crlset: "<path>"` (a crl-set file or a component directory), CLEARCOTE_CRLSET_FILE, then the newest
-// copy in the cache (CLEARCOTE_CRLSET_DIR, else ~/.clearcote/crlset). An empty cache is filled at launch
+// OPT-IN: `crlset: true` (or CODE_BROWSER_CRLSET=1). Where the CRLSet comes from, first match wins:
+// `crlset: "<path>"` (a crl-set file or a component directory), CODE_BROWSER_CRLSET_FILE, then the newest
+// copy in the cache (CODE_BROWSER_CRLSET_DIR, else ~/.code-browser/crlset). An empty cache is filled at launch
 // from Google's component updater, the same Omaha service the Widevine fetch uses (sha256 from the HTTPS
 // update response); a cache older than 6 h is refreshed in the background while the launch uses it.
-// CLEARCOTE_CRLSET_URL points the fetch at a mirror instead. The cache layout (`<sequence>/crl-set`) is
+// CODE_BROWSER_CRLSET_URL points the fetch at a mirror instead. The cache layout (`<sequence>/crl-set`) is
 // shared by the Python, Node and .NET SDKs. Same rules, names and warnings as the Python SDK (_crlset.py).
 
 import { createHash, randomBytes } from "node:crypto";
@@ -49,8 +49,8 @@ import { OMAHA_URL, crx3ToZip, omahaRequestBody, omahaUserAgent, parseUpdate, po
 export const COMPONENT_DIR = "CertificateRevocation";
 export const CRLSET_FILE = "crl-set";
 export const CRLSET_APP_ID = "hfnkpimlhhgieaddgfemjhofmfblmnib"; // Chrome's CRLSet component
-export const DEFAULT_TIMEOUT_SECONDS = 15; // the readiness wait (CLEARCOTE_CRLSET_TIMEOUT, crlsetTimeout)
-export const FETCH_TIMEOUT_SECONDS = 15; // how long a launch waits for a first download (CLEARCOTE_CRLSET_FETCH_TIMEOUT)
+export const DEFAULT_TIMEOUT_SECONDS = 15; // the readiness wait (CODE_BROWSER_CRLSET_TIMEOUT, crlsetTimeout)
+export const FETCH_TIMEOUT_SECONDS = 15; // how long a launch waits for a first download (CODE_BROWSER_CRLSET_FETCH_TIMEOUT)
 export const REFRESH_SECONDS = 6 * 3600; // a cache older than this is refreshed in the background
 export const STAMP_FILE = ".last-check"; // in the cache root: mtime = the last fetch attempt
 
@@ -62,9 +62,9 @@ const WARNED = new Set<string>();
 let refreshJob: Promise<void> | undefined;
 
 function warnOnce(key: string, message: string, quiet?: boolean): void {
-  if (quiet || process.env.CLEARCOTE_NO_WARN || WARNED.has(key)) return;
+  if (quiet || process.env.CODE_BROWSER_NO_WARN || WARNED.has(key)) return;
   WARNED.add(key);
-  process.stderr.write(`clearcote: crlset: ${message}\n`);
+  process.stderr.write(`code-browser: crlset: ${message}\n`);
 }
 
 /** Tests: forget the warnings already said (each warns once per process). */
@@ -86,7 +86,7 @@ function errText(e: unknown): string {
 }
 
 export function cacheRoot(): string {
-  return process.env.CLEARCOTE_CRLSET_DIR ?? path.join(os.homedir(), ".clearcote", "crlset");
+  return process.env.CODE_BROWSER_CRLSET_DIR ?? path.join(os.homedir(), ".code-browser", "crlset");
 }
 
 /** The JSON header of a CRLSet file (little-endian uint16 length, then JSON). Throws on anything else. */
@@ -195,10 +195,10 @@ function stampFresh(): boolean {
 
 /**
  * Download the current CRLSet into the cache and return its path: from Google's component updater, or
- * from `url` / CLEARCOTE_CRLSET_URL (a mirror serving the raw crl-set file).
+ * from `url` / CODE_BROWSER_CRLSET_URL (a mirror serving the raw crl-set file).
  */
 export async function fetchCrlset(url?: string, signal?: AbortSignal): Promise<string> {
-  url = url || process.env.CLEARCOTE_CRLSET_URL;
+  url = url || process.env.CODE_BROWSER_CRLSET_URL;
   const limit = withTimeout(60_000, signal);
   touchStamp(); // a failed attempt counts too: no retry storm against Google
   const tmpDir = path.join(cacheRoot(), `.download-${process.pid}-${randomBytes(6).toString("hex")}`);
@@ -238,9 +238,9 @@ function secondsFromEnv(name: string, fallback: number): number {
   return value;
 }
 
-/** An empty cache: fetch now, waiting at most CLEARCOTE_CRLSET_FETCH_TIMEOUT. The path, or undefined (warned). */
+/** An empty cache: fetch now, waiting at most CODE_BROWSER_CRLSET_FETCH_TIMEOUT. The path, or undefined (warned). */
 async function fetchFirst(quiet?: boolean): Promise<string | undefined> {
-  const wait = secondsFromEnv("CLEARCOTE_CRLSET_FETCH_TIMEOUT", FETCH_TIMEOUT_SECONDS);
+  const wait = secondsFromEnv("CODE_BROWSER_CRLSET_FETCH_TIMEOUT", FETCH_TIMEOUT_SECONDS);
   // Aborted at the deadline (Python lets its daemon thread finish): a pending fetch would keep the Node
   // process alive after the caller's script ends. The next launch, still with an empty cache, retries.
   const abort = new AbortController();
@@ -265,9 +265,9 @@ async function fetchFirst(quiet?: boolean): Promise<string | undefined> {
   }
 }
 
-/** The crl-set file to seed, or undefined. `explicit` (a path) > CLEARCOTE_CRLSET_FILE > newest cached. */
+/** The crl-set file to seed, or undefined. `explicit` (a path) > CODE_BROWSER_CRLSET_FILE > newest cached. */
 export function findCrlset(explicit?: string): string | undefined {
-  for (const p of [explicit, process.env.CLEARCOTE_CRLSET_FILE]) {
+  for (const p of [explicit, process.env.CODE_BROWSER_CRLSET_FILE]) {
     if (p) return asCrlsetFile(p);
   }
   const root = cacheRoot();
@@ -283,16 +283,16 @@ export function findCrlset(explicit?: string): string | undefined {
  * background. undefined when there is none to be had (warned once). */
 export async function resolveCrlset(explicit?: string, quiet?: boolean): Promise<string | undefined> {
   const found = findCrlset(explicit);
-  if (explicit || process.env.CLEARCOTE_CRLSET_FILE) return found;
+  if (explicit || process.env.CODE_BROWSER_CRLSET_FILE) return found;
   if (found === undefined) return fetchFirst(quiet);
   if (!stampFresh()) refreshInBackground();
   return found;
 }
 
-/** `crlset` (undefined/null reads CLEARCOTE_CRLSET) -> [mode, path]: mode is "off" (the default), "wait" or "nowait". */
+/** `crlset` (undefined/null reads CODE_BROWSER_CRLSET) -> [mode, path]: mode is "off" (the default), "wait" or "nowait". */
 export function crlsetMode(value: unknown): [CrlsetMode, string | undefined] {
   if (value === undefined || value === null) {
-    const env = String(process.env.CLEARCOTE_CRLSET ?? "").trim().toLowerCase();
+    const env = String(process.env.CODE_BROWSER_CRLSET ?? "").trim().toLowerCase();
     if (env === "nowait") return ["nowait", undefined];
     return [["1", "true", "on", "yes"].includes(env) ? "wait" : "off", undefined];
   }
@@ -320,7 +320,7 @@ export function seedCrlset(userDataDir: string, crlsetFile: string): number {
   mkdirSync(versionDir, { recursive: true });
   writeFileSync(path.join(versionDir, CRLSET_FILE), data);
   writeFileSync(path.join(versionDir, "manifest.json"),
-    JSON.stringify({ manifest_version: 2, name: "crl-set-clearcote.data", version: String(sequence) }));
+    JSON.stringify({ manifest_version: 2, name: "crl-set-code_browser.data", version: String(sequence) }));
   return sequence;
 }
 
@@ -362,7 +362,7 @@ export async function applyCrlsetLaunch(userDataDir: string, options: CrlsetLaun
     const sequence = seedCrlset(userDataDir, crlsetFile);
     unsuppressComponentUpdater(options);
     if (mode === "nowait") return undefined;
-    if (timeout === undefined || timeout === null) timeout = secondsFromEnv("CLEARCOTE_CRLSET_TIMEOUT", DEFAULT_TIMEOUT_SECONDS);
+    if (timeout === undefined || timeout === null) timeout = secondsFromEnv("CODE_BROWSER_CRLSET_TIMEOUT", DEFAULT_TIMEOUT_SECONDS);
     return new CrlsetReadiness(Number(timeout), sequence, quiet);
   } catch (e) {
     warnOnce("seed", `seeding failed (${errName(e)}: ${errText(e)}); launching without one`, quiet);

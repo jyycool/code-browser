@@ -1,7 +1,7 @@
-"""Humanize's DOM reads run in an isolated world, never the page's (clearcote._isolated)."""
+"""Humanize's DOM reads run in an isolated world, never the page's (code_browser._isolated)."""
 import json
 
-from clearcote._isolated import (
+from code_browser._isolated import (
     ACTIVE_VALUE, AsyncIsolatedWorld, DESCRIBE, IsolatedWorld, VIEWPORT, world_for,
 )
 

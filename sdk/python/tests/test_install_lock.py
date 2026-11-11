@@ -23,7 +23,7 @@ import pytest
 
 from _fake_build import FakeBuildServer, TAG, verified_tree
 
-download = importlib.import_module("clearcote.download")  # the module: `clearcote.download` is also a function
+download = importlib.import_module("code_browser.download")  # the module: `code_browser.download` is also a function
 
 BINARY = "chrome.exe" if sys.platform == "win32" else "chrome"
 needs_pro_platform = pytest.mark.skipif(sys.platform == "darwin", reason="the PRO route serves Windows and Linux")
@@ -31,7 +31,7 @@ needs_pro_platform = pytest.mark.skipif(sys.platform == "darwin", reason="the PR
 
 @pytest.fixture(autouse=True)
 def _own_home(monkeypatch, tmp_path):
-    """pro_ensure_binary keeps the download answer in ~/.clearcote: a temp home, and a clean in-process copy."""
+    """pro_ensure_binary keeps the download answer in ~/.code-browser: a temp home, and a clean in-process copy."""
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setattr(download, "_pro_meta_memo", {})
@@ -124,7 +124,7 @@ def test_a_held_lock_makes_the_next_installer_wait_then_give_up_plainly(tmp_path
         assert time.monotonic() - started >= 0.5  # it waited
         msg = str(err.value)
         assert msg.startswith("Gave up after 1 second waiting for another program to finish installing")
-        assert f"process {os.getpid()} on {socket.gethostname()} (Clearcote Python SDK)" in msg
+        assert f"process {os.getpid()} on {socket.gethostname()} (CodeBrowser Python SDK)" in msg
         assert _lock_path(base) in msg  # what to delete if nothing else is installing
     finally:
         lock.release()
@@ -197,7 +197,7 @@ def test_a_live_holder_on_this_machine_is_never_taken_over_by_age(tmp_path, monk
     _write_lock(base, age=600)  # this very process: alive
     with pytest.raises(RuntimeError) as err:
         download._acquire_install_lock(base, timeout=2)
-    holder = f"process {os.getpid()} on {socket.gethostname()} (Clearcote Node SDK), which is still running"
+    holder = f"process {os.getpid()} on {socket.gethostname()} (CodeBrowser Node SDK), which is still running"
     assert holder in str(err.value)
     with open(_lock_path(base), encoding="utf-8") as f:
         assert json.load(f)["nonce"] == "f" * 32  # not broken
@@ -215,7 +215,7 @@ def test_a_reused_pid_on_this_machine_is_taken_over_at_once(tmp_path):
 def test_a_live_lock_from_another_machine_is_respected(tmp_path):
     base = str(tmp_path / TAG)
     _write_lock(base, age=5, host="another-machine", pid=1)
-    with pytest.raises(RuntimeError, match="process 1 on another-machine \\(Clearcote Node SDK\\)"):
+    with pytest.raises(RuntimeError, match="process 1 on another-machine \\(CodeBrowser Node SDK\\)"):
         download._acquire_install_lock(base, timeout=0.6)
     with open(_lock_path(base), encoding="utf-8") as f:
         assert json.load(f)["host"] == "another-machine"  # not broken
@@ -224,7 +224,7 @@ def test_a_live_lock_from_another_machine_is_respected(tmp_path):
 def test_a_lock_of_a_live_process_here_is_respected(tmp_path):
     base = str(tmp_path / TAG)
     _write_lock(base, sdk="dotnet")  # this very process: alive
-    with pytest.raises(RuntimeError, match="Clearcote .NET SDK"):
+    with pytest.raises(RuntimeError, match="CodeBrowser .NET SDK"):
         download._acquire_install_lock(base, timeout=0.6)
 
 
@@ -484,9 +484,9 @@ def test_a_live_pid_that_cannot_be_checked_is_named_with_care(tmp_path):
     with pytest.raises(RuntimeError) as err:
         download._acquire_install_lock(base, timeout=1)
     msg = str(err.value)
-    assert f"process {os.getpid()} on {socket.gethostname()} (Clearcote Node SDK)" in msg
+    assert f"process {os.getpid()} on {socket.gethostname()} (CodeBrowser Node SDK)" in msg
     assert "that process number may now belong to another program" in msg
-    assert "If no Clearcote program is installing this build, delete this file" in msg
+    assert "If no CodeBrowser program is installing this build, delete this file" in msg
 
 
 

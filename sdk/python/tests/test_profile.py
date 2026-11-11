@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-import clearcote._profile as profile_mod
-from clearcote._fingerprint import fingerprint_args
-from clearcote._profile import Profile, list_profiles, resolve_profile_options
+import code_browser._profile as profile_mod
+from code_browser._fingerprint import fingerprint_args
+from code_browser._profile import Profile, list_profiles, resolve_profile_options
 
 
 def test_save_load_roundtrip(tmp_path):

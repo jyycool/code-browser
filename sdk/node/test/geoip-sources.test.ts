@@ -6,7 +6,7 @@ import { startOrigin, type Started } from "./helpers/proxies.js";
 
 const savedEcho = [...IPECHO_URLS];
 const savedApi = geoUrls.ipApi;
-const savedEnv = { CLEARCOTE_GEOIP_ECHO_URL: process.env.CLEARCOTE_GEOIP_ECHO_URL, CLEARCOTE_GEOIP_IPAPI: process.env.CLEARCOTE_GEOIP_IPAPI };
+const savedEnv = { CLEARCOTE_GEOIP_ECHO_URL: process.env.CLEARCOTE_GEOIP_ECHO_URL, CODE_BROWSER_GEOIP_IPAPI: process.env.CODE_BROWSER_GEOIP_IPAPI };
 const started: Started<unknown>[] = [];
 afterEach(async () => {
   IPECHO_URLS.splice(0, IPECHO_URLS.length, ...savedEcho);
@@ -30,14 +30,14 @@ async function geoOrigin() {
 }
 
 describe("geoip sources", () => {
-  it("never asks ip-api.com unless CLEARCOTE_GEOIP_IPAPI opts in", async () => {
+  it("never asks ip-api.com unless CODE_BROWSER_GEOIP_IPAPI opts in", async () => {
     // ip-api.com's free endpoint is for non-commercial use only (45 requests/min per IP): it is not in the
     // default chain any more. Without the database there is no answer, and the reason says how to get one.
     const origin = await geoOrigin();
     IPECHO_URLS.splice(0, IPECHO_URLS.length, `http://localhost:${origin.port}/echo`);
     geoUrls.ipApi = `http://localhost:${origin.port}/ipapi`;
     delete process.env.CLEARCOTE_GEOIP_ECHO_URL;
-    delete process.env.CLEARCOTE_GEOIP_IPAPI;
+    delete process.env.CODE_BROWSER_GEOIP_IPAPI;
     vi.spyOn(geoDb, "lookup").mockImplementation(async (_ip: string, _d: number, _q?: boolean, info: DbInfo = {}) => {
       info.db = "downloading";
       return null;
@@ -45,9 +45,9 @@ describe("geoip sources", () => {
     let r = await resolveGeoDetailed(undefined, { quiet: true, timeoutMs: 5000 });
     expect(r.geo).toBeNull();
     expect(r.reason).toContain("still downloading");
-    expect(r.reason).toContain("CLEARCOTE_GEOIP_IPAPI=1");
+    expect(r.reason).toContain("CODE_BROWSER_GEOIP_IPAPI=1");
     expect(origin.log.map((e) => e.url)).toEqual(["/echo"]);
-    process.env.CLEARCOTE_GEOIP_IPAPI = "1";
+    process.env.CODE_BROWSER_GEOIP_IPAPI = "1";
     r = await resolveGeoDetailed(undefined, { quiet: true, timeoutMs: 5000 });
     expect(r.reason).toBeUndefined();
     expect(r.geo?.timezone).toBe("Asia/Tokyo");
@@ -76,8 +76,8 @@ describe("geoip sources", () => {
     expect(echoUrls({ CLEARCOTE_GEOIP_ECHO_URL: "http://a/ip, http://b/ip" })).toEqual(["http://a/ip", "http://b/ip"]);
     expect(echoUrls({ CLEARCOTE_GEOIP_ECHO_URL: " , " })).toEqual(IPECHO_URLS);
     expect(ipapiEnabled({})).toBe(false);
-    for (const v of ["1", "true", "YES", "on"]) expect(ipapiEnabled({ CLEARCOTE_GEOIP_IPAPI: v })).toBe(true);
-    expect(ipapiEnabled({ CLEARCOTE_GEOIP_IPAPI: "0" })).toBe(false);
+    for (const v of ["1", "true", "YES", "on"]) expect(ipapiEnabled({ CODE_BROWSER_GEOIP_IPAPI: v })).toBe(true);
+    expect(ipapiEnabled({ CODE_BROWSER_GEOIP_IPAPI: "0" })).toBe(false);
     expect(ipFromEcho("203.0.113.7\n")).toBe("203.0.113.7");
     expect(ipFromEcho('{"ip": "2001:db8::1"}')).toBe("2001:db8::1");
     expect(ipFromEcho('{"query": "203.0.113.8", "status": "success"}')).toBe("203.0.113.8");

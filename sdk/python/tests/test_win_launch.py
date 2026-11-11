@@ -4,10 +4,10 @@ chrome.exe can fail to start with "spawn UNKNOWN" / "side-by-side configuration 
 an MSIX-packaged app a build downloaded into %LOCALAPPDATA% is invisible to the activation-context
 check, and real-time antivirus scanning a freshly extracted chrome_elf.dll causes the same error for a
 while. _win_av_retry() probes the cached exe (suspended CreateProcess), re-scans + backs off, and then
-launches from one recovered copy per build in ~/.clearcote/recovered, which later launches reuse.
+launches from one recovered copy per build in ~/.code-browser/recovered, which later launches reuse.
 
 The launch must leave the temp directory as it found it: the old fallback copied the whole browser to
-a fresh %TEMP%\\clearcote-recover-* on every launch and never deleted it, and every failed Playwright
+a fresh %TEMP%\\code-browser-recover-* on every launch and never deleted it, and every failed Playwright
 attempt leaked a playwright_chromiumdev_profile-* and a playwright-artifacts-* directory."""
 
 import asyncio
@@ -19,10 +19,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import clearcote
-from clearcote import _commands, _is_win_launch_race, _launch_attempt, _win_av_retry, _winlaunch
-from clearcote import async_api
-from clearcote.download import warm_files
+import code_browser
+from code_browser import _commands, _is_win_launch_race, _launch_attempt, _win_av_retry, _winlaunch
+from code_browser import async_api
+from code_browser.download import warm_files
 
 SXS = OSError(22, "[WinError 14001] The application has failed to start because its side-by-side "
                   "configuration is incorrect")
@@ -46,7 +46,7 @@ def test_is_win_launch_race_classifies():
 
 
 def test_retry_is_passthrough_off_windows(monkeypatch):
-    monkeypatch.setattr(clearcote.sys, "platform", "linux")
+    monkeypatch.setattr(code_browser.sys, "platform", "linux")
     calls = []
 
     def do(exe):
@@ -61,9 +61,9 @@ def test_retry_is_passthrough_off_windows(monkeypatch):
 def win(monkeypatch, tmp_path):
     """A fake Windows host: HOME and the temp directory under tmp_path, no sleeping or warming, a
     cached build, and a spawn probe whose answer the test sets (state["probe"])."""
-    monkeypatch.setattr(clearcote.sys, "platform", "win32")
-    monkeypatch.setattr(clearcote.time, "sleep", lambda *_a: None)
-    monkeypatch.setattr(clearcote, "warm_files", lambda *_a: None)
+    monkeypatch.setattr(code_browser.sys, "platform", "win32")
+    monkeypatch.setattr(code_browser.time, "sleep", lambda *_a: None)
+    monkeypatch.setattr(code_browser, "warm_files", lambda *_a: None)
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
@@ -91,7 +91,7 @@ def win(monkeypatch, tmp_path):
 
     monkeypatch.setattr(_winlaunch.shutil, "copytree", counting_copytree)
     return SimpleNamespace(exe=str(bdir / "chrome.exe"), home=home, tmp=tmp, state=state,
-                           root=home / ".clearcote" / "recovered")
+                           root=home / ".code-browser" / "recovered")
 
 
 def test_launches_in_place_when_the_probe_passes(win):
@@ -117,7 +117,7 @@ def test_retry_succeeds_on_a_later_attempt(win):
 
 def test_unlaunchable_build_is_recovered_once_then_reused(win):
     """The probe fails, so Playwright is never pointed at the cached exe (each failed Playwright
-    attempt used to leak two temp directories); the copy goes to ~/.clearcote/recovered, never to
+    attempt used to leak two temp directories); the copy goes to ~/.code-browser/recovered, never to
     the temp directory, and the next launch uses it straight away."""
     win.state["probe"] = SXS
     calls = []
@@ -200,16 +200,16 @@ def test_a_copy_a_process_runs_from_is_kept_on_real_windows(tmp_path):
 
 
 def test_old_sdks_temp_copies_are_swept(win):
-    old = win.tmp / "clearcote-recover-old" / "browser"
+    old = win.tmp / "code-browser-recover-old" / "browser"
     old.mkdir(parents=True)
     (old / "chrome.exe").write_bytes(b"x")
     two_min_ago = time.time() - 120
     os.utime(old.parent, (two_min_ago, two_min_ago))
-    fresh = win.tmp / "clearcote-recover-new"  # possibly a concurrent old-SDK launch mid-copy
+    fresh = win.tmp / "code-browser-recover-new"  # possibly a concurrent old-SDK launch mid-copy
     fresh.mkdir()
     win.state["probe"] = SXS
     _win_av_retry(lambda e: e, win.exe)
-    assert sorted(os.listdir(win.tmp)) == ["clearcote-recover-new"]
+    assert sorted(os.listdir(win.tmp)) == ["code-browser-recover-new"]
 
 
 def test_recovery_key_contract(tmp_path):
@@ -225,7 +225,7 @@ def test_recovery_key_contract(tmp_path):
 
 
 def _launch_error(profile=None):
-    udd = profile or r"C:\Users\me\AppData\Local\Temp\clearcote-run-abc"
+    udd = profile or r"C:\Users\me\AppData\Local\Temp\code-browser-run-abc"
     return Exception("BrowserType.launch: spawn UNKNOWN\nCall log:\n  - <launching> C:\\c\\chrome.exe "
                      "--disable-field-trial-config --user-data-dir=%s --remote-debugging-pipe about:blank" % udd)
 
@@ -323,7 +323,7 @@ def test_async_retry_recovers_once_then_reuses(win, monkeypatch):
 
 
 def test_clear_cache_removes_recovered_copies(win, monkeypatch, capsys):
-    monkeypatch.setenv("CLEARCOTE_CACHE", str(win.home / "no-cache"))
+    monkeypatch.setenv("CODE_BROWSER_CACHE", str(win.home / "no-cache"))
     win.state["probe"] = SXS
     _win_av_retry(lambda e: e, win.exe)
     assert _commands.main(["clear-cache"]) == 0

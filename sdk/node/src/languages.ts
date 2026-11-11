@@ -8,7 +8,7 @@
  * below are the 153 tree's `components/strings/components_locale_settings_<ui>.xtb` values and match
  * every measurement.
  *
- * Mirrors sdk/python/clearcote/_languages.py and sdk/dotnet/src/Clearcote/Languages.cs.
+ * Mirrors sdk/python/code_browser/_languages.py and sdk/dotnet/src/CodeBrowser/Languages.cs.
  */
 
 /** Desktop Chrome's UI locales (the .pak set Google Chrome ships on Windows/Linux/macOS). */

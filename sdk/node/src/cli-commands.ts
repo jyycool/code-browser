@@ -1,16 +1,16 @@
-// clearcote — manage the browser binary, diagnose a setup, save a licence key, run a CDP endpoint.
+// code-browser — manage the browser binary, diagnose a setup, save a licence key, run a CDP endpoint.
 //
-//   clearcote install [--version 152] [--channel preview]   download + verify the binary
-//   clearcote info    [--quick] [--json] [--proxy URL]      diagnostics (alias: doctor)
-//   clearcote bench   [--concurrency 3] [--proxy URL] …     what N browsers cost on this machine
-//   clearcote update  [--channel preview]                   fetch a newer build if one exists
-//   clearcote clear-cache                                   delete every cached binary
-//   clearcote login   [key] | --device                      save a licence key (validated first), or sign in
+//   code-browser install [--version 152] [--channel preview]   download + verify the binary
+//   code-browser info    [--quick] [--json] [--proxy URL]      diagnostics (alias: doctor)
+//   code-browser bench   [--concurrency 3] [--proxy URL] …     what N browsers cost on this machine
+//   code-browser update  [--channel preview]                   fetch a newer build if one exists
+//   code-browser clear-cache                                   delete every cached binary
+//   code-browser login   [key] | --device                      save a licence key (validated first), or sign in
 //                                                           from a browser and save the key it issues
-//   clearcote logout                                        remove the saved key
-//   clearcote serve   [--port 9222] [--idle-timeout 300] …  multi-identity CDP endpoint
-//   clearcote connect [CODE]                                start the helper for the web profile manager
-//   clearcote cloud   run|sessions|stop|events|recording|profile sync|webhooks …  the hosted API
+//   code-browser logout                                        remove the saved key
+//   code-browser serve   [--port 9222] [--idle-timeout 300] …  multi-identity CDP endpoint
+//   code-browser connect [CODE]                                start the helper for the web profile manager
+//   code-browser cloud   run|sessions|stop|events|recording|profile sync|webhooks …  the hosted API
 //
 // `info` never downloads: it reports what is already cached and what a launch would resolve to.
 
@@ -56,26 +56,26 @@ const SDK_VERSION: string = (() => {
   }
 })();
 
-export const USAGE = `clearcote ${SDK_VERSION} — manage and diagnose the Clearcote browser.
+export const USAGE = `code-browser ${SDK_VERSION} — manage and diagnose the CodeBrowser browser.
 
 USAGE
-  clearcote install [--version <v>] [--channel stable|preview]
-  clearcote info [--quick] [--json] [--proxy <url>]      (alias: doctor)
-  clearcote bench [--concurrency 3] [--url <url>] [--proxy <url>] [--duration 30] [--headed] [--force] [--json]
-  clearcote update [--channel stable|preview]
-  clearcote clear-cache
-  clearcote login [key]
-  clearcote login --device                               (sign in from a browser; no key to paste)
-  clearcote logout
-  clearcote serve [--port 9222] [--host 127.0.0.1] [--idle-timeout <s>] [--data-dir <dir>]
+  code-browser install [--version <v>] [--channel stable|preview]
+  code-browser info [--quick] [--json] [--proxy <url>]      (alias: doctor)
+  code-browser bench [--concurrency 3] [--url <url>] [--proxy <url>] [--duration 30] [--headed] [--force] [--json]
+  code-browser update [--channel stable|preview]
+  code-browser clear-cache
+  code-browser login [key]
+  code-browser login --device                               (sign in from a browser; no key to paste)
+  code-browser logout
+  code-browser serve [--port 9222] [--host 127.0.0.1] [--idle-timeout <s>] [--data-dir <dir>]
                   [--max-browsers 16] [--allow-origin <origin>]... [--allow-host <name>]... [--headed]
                   [--fingerprint <seed>] [--platform <os>] [--proxy <url>] [--timezone <tz>]
                   [--accept-language <l>] [--geoip]
-  clearcote connect [<code>] [--port <n>] [--allow-origin <origin>]... [--no-open]
-  clearcote cloud run <task> [--url <url>] [--schema <file.json>] [--secret <name>=<value>]... [--json]
-  clearcote cloud sessions | stop <id> | events <id> | recording <id> [-o <file.mp4>]
-  clearcote cloud profile sync <name> (--from-profile <dir> | --from-cdp <url> | --from-file <file> | --login <url>)
-  clearcote cloud webhooks add <url> | list | rm <id> | test <id>      (all flags: clearcote cloud --help)
+  code-browser connect [<code>] [--port <n>] [--allow-origin <origin>]... [--no-open]
+  code-browser cloud run <task> [--url <url>] [--schema <file.json>] [--secret <name>=<value>]... [--json]
+  code-browser cloud sessions | stop <id> | events <id> | recording <id> [-o <file.mp4>]
+  code-browser cloud profile sync <name> (--from-profile <dir> | --from-cdp <url> | --from-file <file> | --login <url>)
+  code-browser cloud webhooks add <url> | list | rm <id> | test <id>      (all flags: code-browser cloud --help)
 
 INFO FLAGS
   --quick          skip everything that needs the network or a launch (seat count, launch test)
@@ -91,44 +91,44 @@ BENCH FLAGS
   --json             machine-readable output
 
 ENVIRONMENT
-  CLEARCOTE_LICENSE_KEY, CLEARCOTE_RELEASE_CHANNEL, CLEARCOTE_GEOIP_TIMEOUT_SECONDS,
-  CLEARCOTE_LICENSE_THROUGH_PROXY, CLEARCOTE_BINARY, CLEARCOTE_CACHE, CLEARCOTE_SERVE_IDLE_TIMEOUT,
-  CLEARCOTE_API_KEY, CLEARCOTE_API_URL, CLEARCOTE_CLOUD,
-  CLEARCOTE_FONT_DIRS (Linux: your own fonts, e.g. a copy of Windows' Fonts folder, used instead of the lookalikes),
+  CLEARCOTE_LICENSE_KEY, CODE_BROWSER_RELEASE_CHANNEL, CLEARCOTE_GEOIP_TIMEOUT_SECONDS,
+  CODE_BROWSER_LICENSE_THROUGH_PROXY, CODE_BROWSER_BINARY, CODE_BROWSER_CACHE, CODE_BROWSER_SERVE_IDLE_TIMEOUT,
+  CODE_BROWSER_API_KEY, CODE_BROWSER_API_URL, CODE_BROWSER_CLOUD,
+  CODE_BROWSER_FONT_DIRS (Linux: your own fonts, e.g. a copy of Windows' Fonts folder, used instead of the lookalikes),
   CLEARCOTE_FALLBACK_FONT_DIRS (Linux: fonts only for characters nothing else covers)`;
 
-/** `clearcote cloud --help`. Kept byte-identical to CLOUD_USAGE in the Python SDK's _commands.py. */
-export const CLOUD_USAGE = `clearcote cloud -- the hosted Clearcote API from the command line.
+/** `code-browser cloud --help`. Kept byte-identical to CLOUD_USAGE in the Python SDK's _commands.py. */
+export const CLOUD_USAGE = `code-browser cloud -- the hosted CodeBrowser API from the command line.
 
 USAGE
-  clearcote cloud run <task> [--url <url>] [--schema <file.json>] [--secret <name>=<value>]...
+  code-browser cloud run <task> [--url <url>] [--schema <file.json>] [--secret <name>=<value>]...
                       [--secret-domain <name>=<host>]... [--handoff] [--record] [--json]
                       [--country <cc>] [--state <s>] [--city <c>] [--proxy managed|<url>]
                       [--profile <name> [--persist-profile]] [--fingerprint <seed>]
                       [--timeout-sec <n>] [--max-steps <n>] [--note <text>]
-  clearcote cloud sessions [--json]
-  clearcote cloud stop <id> [--json]
-  clearcote cloud events <id> [--json]
-  clearcote cloud recording <id> [-o <file.mp4>] [--json]
-  clearcote cloud profile sync <name> (--from-profile <dir> | --from-cdp <url> | --from-file <state.json>
+  code-browser cloud sessions [--json]
+  code-browser cloud stop <id> [--json]
+  code-browser cloud events <id> [--json]
+  code-browser cloud recording <id> [-o <file.mp4>] [--json]
+  code-browser cloud profile sync <name> (--from-profile <dir> | --from-cdp <url> | --from-file <state.json>
                       | --login <url>) (--domain <domain>... | --all-domains) [--replace] [--json]
-  clearcote cloud webhooks add <url> [--event <type>]... [--json]
-  clearcote cloud webhooks list [--json]
-  clearcote cloud webhooks rm <id> [--json]
-  clearcote cloud webhooks test <id> [--json]
+  code-browser cloud webhooks add <url> [--event <type>]... [--json]
+  code-browser cloud webhooks list [--json]
+  code-browser cloud webhooks rm <id> [--json]
+  code-browser cloud webhooks test <id> [--json]
 
   run waits for the result and exits 0 only when the run succeeded. profile sync uploads only the
   cookies of the --domain names you list (subdomains included); --all-domains uploads every cookie.
 
 ENVIRONMENT
-  CLEARCOTE_API_KEY (required), CLEARCOTE_API_URL (default https://www.clearcotelabs.com)`;
+  CODE_BROWSER_API_KEY (required), CODE_BROWSER_API_URL (default https://www.clearcotelabs.com)`;
 
 function out(line = ""): void {
   process.stdout.write(line + "\n");
 }
 
 function fail(msg: string, code = 1): never {
-  process.stderr.write(`clearcote: ${msg}\n`);
+  process.stderr.write(`code-browser: ${msg}\n`);
   process.exit(code);
 }
 
@@ -138,7 +138,7 @@ export interface InfoReport {
   host: HostReport;
   license: { source: string; key?: string; expiry?: LicenseExpiry; seats?: SessionSeats };
   binary: {
-    source: "CLEARCOTE_BINARY" | "cache" | "none";
+    source: "CODE_BROWSER_BINARY" | "cache" | "none";
     path?: string;
     tag?: string;
     cached: Array<{ tag: string; path: string }>;
@@ -177,22 +177,22 @@ export function proTagMatches(tag: string, version: string): boolean {
 
 /**
  * The build launch() would run for the current licence state, from what is already cached (`info` never
- * downloads). CLEARCOTE_BINARY wins. A version selector (CLEARCOTE_BROWSER_VERSION) is resolved the way
+ * downloads). CODE_BROWSER_BINARY wins. A version selector (CODE_BROWSER_BROWSER_VERSION) is resolved the way
  * launch() resolves it -- through the version catalog (the bundled copy when `offline`), a licensed revision
  * straight to the licensed builds -- and picks the cached build it names. Otherwise, with a licence key,
  * launch() runs a licensed build: the newest one cached (launch() itself asks the licence server, which may
  * name a newer one). Without a key it runs the open build this SDK pins (the newest cached open build with
- * CLEARCOTE_AUTO_UPDATE). A cached licensed build is never picked for a keyless setup: it cannot run without
+ * CODE_BROWSER_AUTO_UPDATE). A cached licensed build is never picked for a keyless setup: it cannot run without
  * a key, which is what made the old "newest cached build" launch test fail for open-build users.
  */
 export async function launchBuild(
   cached: Array<{ tag: string; path: string }>, envBinary?: string, licenseKey?: string, autoUpdate = false,
   version?: string, offline = false,
 ): Promise<{ pick?: { path: string; tag?: string }; selectedBy: string }> {
-  if (envBinary) return { pick: { path: envBinary }, selectedBy: "CLEARCOTE_BINARY" };
+  if (envBinary) return { pick: { path: envBinary }, selectedBy: "CODE_BROWSER_BINARY" };
   const sel = String(version ?? "").trim();
   if (sel) {
-    const named = `CLEARCOTE_BROWSER_VERSION=${sel}`;
+    const named = `CODE_BROWSER_BROWSER_VERSION=${sel}`;
     let plan;
     try {
       plan = licenseKey && isProRevisionSelector(sel)
@@ -204,26 +204,26 @@ export async function launchBuild(
     if (plan.kind === "pro") {
       const m = cached.find((c) => proTagMatches(c.tag, plan.version));
       return m ? { pick: m, selectedBy: `licensed: the newest cached build ${named} selects` }
-        : { selectedBy: `no licensed build for ${named} is cached — run: clearcote install --version ${sel}` };
+        : { selectedBy: `no licensed build for ${named} is cached — run: code-browser install --version ${sel}` };
     }
     const hit = cached.find((c) => c.tag === plan.rel.tag);
     return hit ? { pick: hit, selectedBy: `open build ${plan.rel.tag} (${named})` }
-      : { selectedBy: `the open build ${plan.rel.tag} (${named}) is not installed — run: clearcote install --version ${sel}` };
+      : { selectedBy: `the open build ${plan.rel.tag} (${named}) is not installed — run: code-browser install --version ${sel}` };
   }
   if (licenseKey) {
     const licensed = cached.filter((c) => c.tag.startsWith("pro-"));
     return licensed.length
       ? { pick: licensed[0], selectedBy: "licensed: the newest cached licensed build (launch() asks the licence server, which may name a newer one)" }
-      : { selectedBy: "no licensed build is cached — run: clearcote install" };
+      : { selectedBy: "no licensed build is cached — run: code-browser install" };
   }
   if (autoUpdate) {
     const open = cached.filter((c) => !c.tag.startsWith("pro-"));
-    if (open.length) return { pick: open[0], selectedBy: "open build: the newest cached (CLEARCOTE_AUTO_UPDATE)" };
+    if (open.length) return { pick: open[0], selectedBy: "open build: the newest cached (CODE_BROWSER_AUTO_UPDATE)" };
   }
   const pinned = cached.find((c) => c.tag === RELEASE.tag);
   return pinned
     ? { pick: pinned, selectedBy: `open build pinned by this SDK (${RELEASE.tag})` }
-    : { selectedBy: `the open build this SDK pins (${RELEASE.tag}) is not installed — run: clearcote install` };
+    : { selectedBy: `the open build this SDK pins (${RELEASE.tag}) is not installed — run: code-browser install` };
 }
 
 export async function buildInfo(
@@ -238,15 +238,15 @@ export async function buildInfo(
     channel = `invalid (${(e as Error).message})`;
   }
   const cached = listCachedBuilds();
-  const envBinary = process.env.CLEARCOTE_BINARY;
+  const envBinary = process.env.CODE_BROWSER_BINARY;
   const { pick, selectedBy } = await launchBuild(cached, envBinary, resolveLicenseKey(), autoUpdateRequested(undefined),
-    process.env.CLEARCOTE_BROWSER_VERSION, !!flags.quick);
+    process.env.CODE_BROWSER_BROWSER_VERSION, !!flags.quick);
   const report: InfoReport = {
     sdk: { version: SDK_VERSION, node: process.version, platform: `${process.platform}-${process.arch}` },
     host: hostInfo(),
     license: { source: src.source, ...(src.masked ? { key: src.masked } : {}) },
     binary: {
-      source: envBinary ? "CLEARCOTE_BINARY" : pick ? "cache" : "none",
+      source: envBinary ? "CODE_BROWSER_BINARY" : pick ? "cache" : "none",
       ...(pick ? { path: pick.path } : {}),
       ...(!envBinary && pick?.tag ? { tag: pick.tag } : {}),
       cached,
@@ -269,7 +269,7 @@ export async function buildInfo(
   }
 
   if (process.platform === "linux" && pick) {
-    // The fonts a launch would see (bundle + CLEARCOTE_FONT_DIRS + CLEARCOTE_FALLBACK_FONT_DIRS): which
+    // The fonts a launch would see (bundle + CODE_BROWSER_FONT_DIRS + CLEARCOTE_FALLBACK_FONT_DIRS): which
     // scripts they draw, and which Windows families are genuine rather than lookalikes.
     report.fonts = linuxFontReport(pick.path)
       ?? { bundled: false, note: "this build ships no font bundle; a Windows persona on this host may render with Linux fonts" };
@@ -282,10 +282,10 @@ export async function buildInfo(
   if (flags.quick) {
     report.launch = { tested: false, reason: "skipped (--quick)" };
   } else if (!pick) {
-    report.launch = { tested: false, reason: cached.length ? selectedBy : "no binary installed — run: clearcote install" };
+    report.launch = { tested: false, reason: cached.length ? selectedBy : "no binary installed — run: code-browser install" };
   } else {
     try {
-      // cloud: false — this tests the LOCAL install, whatever CLEARCOTE_CLOUD says.
+      // cloud: false — this tests the LOCAL install, whatever CODE_BROWSER_CLOUD says.
       const b = await launchFn({ executablePath: pick.path, headless: true, quiet: true, ephemeralProfile: false, cloud: false });
       const version = b.version();
       await b.close();
@@ -307,7 +307,7 @@ export async function buildInfo(
 
 function printInfo(r: InfoReport): void {
   const ok = (b: boolean | undefined) => (b ? "yes" : "no");
-  out(`clearcote SDK   ${r.sdk.version}  (node ${r.sdk.node}, ${r.sdk.platform})`);
+  out(`code-browser SDK   ${r.sdk.version}  (node ${r.sdk.node}, ${r.sdk.platform})`);
   for (const line of hostLines(r.host)) out(line);
   out(`Licence         ${r.license.source === "none" ? "none (free build)" : `${r.license.key} from ${r.license.source}`}`);
   const exp = r.license.expiry;
@@ -323,7 +323,7 @@ function printInfo(r: InfoReport): void {
   } else if (r.binary.cached.length) {
     out(`Binary          none for this setup: ${r.binary.selectedBy}`);
   } else {
-    out("Binary          not installed — run: clearcote install");
+    out("Binary          not installed — run: code-browser install");
   }
   out(`Release channel ${r.binary.releaseChannel}`);
   out(`Free pin        ${r.binary.pinnedFree}`);
@@ -352,8 +352,8 @@ function err(line = ""): void {
 }
 
 /**
- * `clearcote login --device`: show a link and a short code, wait for the approval in the browser, then
- * save the key it issues exactly as `clearcote login <key>` does. The key is never printed.
+ * `code-browser login --device`: show a link and a short code, wait for the approval in the browser, then
+ * save the key it issues exactly as `code-browser login <key>` does. The key is never printed.
  * Instructions go to stderr and the result to stdout, like the paste login's prompt. Output and exit
  * codes match the Python CLI (test/device-login.test.ts).
  *
@@ -400,7 +400,7 @@ export async function deviceLogin(opts: { sleep?: (s: number, signal?: AbortSign
     if (e instanceof DeviceLoginError) {
       if (e.code === "cancelled") fail("cancelled. Nothing was saved.", 130);
       if (e.code === "aborted") fail("stopped at once (second Ctrl-C). Nothing was saved.", 130);
-      const again = e.code === "expired_token" || e.code === "outcome_unknown" ? " Run `clearcote login --device` again." : "";
+      const again = e.code === "expired_token" || e.code === "outcome_unknown" ? " Run `code-browser login --device` again." : "";
       fail(`${e.message}. Nothing was saved.${again}`);
     }
     throw e;
@@ -461,7 +461,7 @@ export function readHidden(input: HiddenInput, output: { write(s: string): unkno
 
 async function promptKey(): Promise<string> {
   if (!process.stdin.isTTY) {
-    fail("no key given. Run `clearcote login <key>`, or copy a key from https://www.clearcotelabs.com/dashboard/licenses");
+    fail("no key given. Run `code-browser login <key>`, or copy a key from https://www.clearcotelabs.com/dashboard/licenses");
   }
   try {
     return await readHidden(process.stdin, process.stderr, "Paste your licence key (https://www.clearcotelabs.com/dashboard/licenses; it is not shown): ");
@@ -470,9 +470,9 @@ async function promptKey(): Promise<string> {
   }
 }
 
-/** What `clearcote <command> --help` adds to that command's USAGE lines. */
+/** What `code-browser <command> --help` adds to that command's USAGE lines. */
 const COMMAND_NOTES: Record<string, string> = {
-  login: "Saves a licence key to ~/.clearcote/license.key, where every launch finds it.\n"
+  login: "Saves a licence key to ~/.code-browser/license.key, where every launch finds it.\n"
     + "  <key>      the key, checked with the licence server first\n"
     + "  (no key)   asks for it on the terminal; what you paste is not shown\n"
     + "  --device   sign in from a browser instead: shows a link and a code, and saves the key the\n"
@@ -486,9 +486,9 @@ const COMMAND_NOTES: Record<string, string> = {
   install: "Downloads and verifies the build a launch would use.",
   update: "Fetches a newer build if one exists.",
   "clear-cache": "Deletes every cached browser build (nothing else in the cache directory), and on Windows the " +
-                 "recovered copies in ~/.clearcote/recovered.",
+                 "recovered copies in ~/.code-browser/recovered.",
   serve: "A CDP endpoint that gives every connection its own browser and identity.",
-  connect: "Starts the Clearcote Helper in this terminal, so the web profile manager at\n"
+  connect: "Starts the CodeBrowser Helper in this terminal, so the web profile manager at\n"
     + "  https://app.clearcotelabs.com can launch your profiles on this computer. The first time it downloads\n"
     + "  the helper release this SDK pins and checks its SHA-256. Keep the terminal open; Ctrl+C closes the\n"
     + "  helper and its browsers.\n"
@@ -499,7 +499,7 @@ const COMMAND_NOTES: Record<string, string> = {
     + "  --no-open       open nothing in the browser",
 };
 
-/** `clearcote <cmd> --help`: that command's lines from USAGE (with their flag sections) and a note. */
+/** `code-browser <cmd> --help`: that command's lines from USAGE (with their flag sections) and a note. */
 export function commandUsage(cmd: string): string {
   const name = cmd === "doctor" ? "info" : cmd;
   const lines = USAGE.split("\n");
@@ -507,7 +507,7 @@ export function commandUsage(cmd: string): string {
   let keep = false;
   for (const line of lines.slice(lines.indexOf("USAGE") + 1)) {
     if (!line.trim()) break;
-    if (line.startsWith("  clearcote ")) keep = line.trim().split(/\s+/)[1] === name;
+    if (line.startsWith("  code-browser ")) keep = line.trim().split(/\s+/)[1] === name;
     if (keep) picked.push(line);
   }
   let text = `USAGE\n${picked.join("\n")}`;
@@ -517,7 +517,7 @@ export function commandUsage(cmd: string): string {
     text += `\n\n${flags.slice(0, end < 0 ? flags.length : end).join("\n")}`;
   }
   const note = COMMAND_NOTES[name];
-  return note ? `clearcote ${name} -- ${note}\n\n${text}` : text;
+  return note ? `code-browser ${name} -- ${note}\n\n${text}` : text;
 }
 
 function dirSize(p: string): number {
@@ -575,8 +575,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       if (!/^[1-9][0-9]*$/.test(v)) fail(`--${name} must be a whole number of at least 1`, 2);
       return Number(v);
     };
-    const binary = (await launchBuild(listCachedBuilds(), process.env.CLEARCOTE_BINARY, resolveLicenseKey(),
-      autoUpdateRequested(undefined), process.env.CLEARCOTE_BROWSER_VERSION)).pick?.path;
+    const binary = (await launchBuild(listCachedBuilds(), process.env.CODE_BROWSER_BINARY, resolveLicenseKey(),
+      autoUpdateRequested(undefined), process.env.CODE_BROWSER_BROWSER_VERSION)).pick?.path;
     const raw = await runBench({
       concurrency: whole("concurrency", values.concurrency, 3),
       url: values.url ?? "https://en.wikipedia.org/wiki/Web_browser",
@@ -584,9 +584,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       headless: !values.headed,
       force: !!values.force,
       ...(values.proxy ? { proxy: proxyOption(values.proxy) } : {}),
-      // cloud: false -- this measures THIS machine, whatever CLEARCOTE_CLOUD says.
+      // cloud: false -- this measures THIS machine, whatever CODE_BROWSER_CLOUD says.
     }, (dir, opts) => launchPersistentContext(dir, { ...opts, cloud: false } as never),
-    binary ? basename(binary) : "chrome.exe", (line) => process.stderr.write(`[clearcote] ${line}\n`));
+    binary ? basename(binary) : "chrome.exe", (line) => process.stderr.write(`[code-browser] ${line}\n`));
     const report = summarizeBench(raw);
     if (values.json) out(JSON.stringify(report, null, 2));
     else for (const line of benchLines(report)) out(line);
@@ -613,7 +613,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     if (!existsSync(root)) {
       out(`nothing to clear (${root} does not exist)`);
     } else {
-      // Only build directories: a CLEARCOTE_CACHE pointing at $HOME or a shared directory must not
+      // Only build directories: a CODE_BROWSER_CACHE pointing at $HOME or a shared directory must not
       // become `rm -rf` of that directory. A build dir carries a .verified marker once complete; a
       // half-finished download has the build-tag name but no marker yet.
       let bytes = 0;
@@ -674,7 +674,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       allowPositionals: true,
       options: { port: { type: "string" }, "allow-origin": { type: "string", multiple: true }, "no-open": { type: "boolean" } },
     });
-    if (positionals.length > 1) fail("give one code, like `clearcote connect 4F7-K2Q`", 2);
+    if (positionals.length > 1) fail("give one code, like `code-browser connect 4F7-K2Q`", 2);
     if (values.port !== undefined && !/^[1-9][0-9]{0,4}$/.test(values.port)) fail("--port must be a port number", 2);
     let code: number;
     try {
@@ -732,15 +732,15 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     return; // keep running
   }
 
-  fail(`unknown command '${cmd}'. Run \`clearcote --help\`.`, 2);
+  fail(`unknown command '${cmd}'. Run \`code-browser --help\`.`, 2);
 }
 
-// ── clearcote cloud ────────────────────────────────────────────────────────────────────────────────
+// ── code-browser cloud ────────────────────────────────────────────────────────────────────────────────
 // Output is part of the contract: the Python SDK's tests/test_parity_cloud_cli.py runs this CLI and
 // the Python one against the same fake API and compares stdout byte for byte. Change a line here,
 // change it in _commands.py too.
 
-/** A usage error inside `clearcote cloud`: message already on stderr, exit with `code`. */
+/** A usage error inside `code-browser cloud`: message already on stderr, exit with `code`. */
 class CloudCliExit extends Error {
   constructor(readonly code: number) {
     super(`exit ${code}`);
@@ -748,7 +748,7 @@ class CloudCliExit extends Error {
 }
 
 function cloudFail(msg: string, code = 1): never {
-  process.stderr.write(`clearcote: ${msg}\n`);
+  process.stderr.write(`code-browser: ${msg}\n`);
   throw new CloudCliExit(code);
 }
 
@@ -756,7 +756,7 @@ const dump = (obj: unknown) => out(JSON.stringify(obj, null, 2));
 const str = (v: unknown) => (v === null || v === undefined ? "-" : String(v));
 const eur = (v: unknown, places: number) => (typeof v === "number" ? `€${v.toFixed(places)}` : "-");
 
-/** The human summary `clearcote cloud run` prints. */
+/** The human summary `code-browser cloud run` prints. */
 export function formatRun(run: Json): string[] {
   const lines = [`run ${str(run?.id)} ${str(run?.status)}`];
   const r = run?.result ?? {};
@@ -800,7 +800,7 @@ export function cloudSecrets(secretArgs?: string[], domainArgs?: string[]): Reco
   return Object.fromEntries([...secrets].map(([n, v]) => [n, domains.has(n) ? { value: v, domains: domains.get(n) } : v]));
 }
 
-// `clearcote cloud run` browser/run options that take a value, mapped to the Runs.create option of the
+// `code-browser cloud run` browser/run options that take a value, mapped to the Runs.create option of the
 // same meaning (the Python launch kwargs): --timeout-sec -> timeoutSec, --max-steps -> maxSteps, ...
 const RUN_OPTION_FLAGS = ["country", "state", "city", "proxy", "profile", "fingerprint", "timeout-sec", "max-steps", "note"];
 
@@ -810,7 +810,7 @@ function whole(value: string | undefined, flag: string): number | undefined {
   return Number(value);
 }
 
-/** The browser and run options of `clearcote cloud run` (unset ones left out). --profile NAME loads a
+/** The browser and run options of `code-browser cloud run` (unset ones left out). --profile NAME loads a
  * cloud profile; with --persist-profile the run also saves it back. */
 export function cloudRunOptions(v: Record<string, Json>): Record<string, unknown> {
   if (v["persist-profile"] && !v.profile) cloudFail("--persist-profile needs --profile <name>", 2);
@@ -826,7 +826,7 @@ export function cloudRunOptions(v: Record<string, Json>): Record<string, unknown
 
 function runProgress(view: Json): void {
   if (view?.status === "waiting_for_human") announceHandoff(view);
-  else process.stderr.write(`[clearcote] run ${view?.id}: ${view?.status}\n`);
+  else process.stderr.write(`[code-browser] run ${view?.id}: ${view?.status}\n`);
 }
 
 type ParseOpts = Record<string, { type: "string" | "boolean"; multiple?: boolean; short?: string }>;
@@ -839,22 +839,22 @@ function parse(args: string[], options: ParseOpts, positionals: number, what: st
     cloudFail((e as Error).message, 2);
   }
   if (positionals >= 0 ? r.positionals.length !== positionals : r.positionals.length < 1) {
-    cloudFail(`\`clearcote cloud ${what}\`: wrong arguments. Run \`clearcote cloud --help\`.`, 2);
+    cloudFail(`\`code-browser cloud ${what}\`: wrong arguments. Run \`code-browser cloud --help\`.`, 2);
   }
   return { values: r.values as Record<string, Json>, pos: r.positionals };
 }
 
-/** `clearcote cloud …`: resolves to the exit code (0 ok, 1 failed, 2 usage). Never exits itself. */
+/** `code-browser cloud …`: resolves to the exit code (0 ok, 1 failed, 2 usage). Never exits itself. */
 export async function cloudMain(argv: string[]): Promise<number> {
   try {
     return await cloudCommand(argv);
   } catch (e) {
     if (e instanceof CloudCliExit) return e.code;
     if (e instanceof CloudError) {
-      process.stderr.write(`clearcote: ${e.message}${e.status ? ` (HTTP ${e.status}${e.code ? `, ${e.code}` : ""})` : ""}\n`);
+      process.stderr.write(`code-browser: ${e.message}${e.status ? ` (HTTP ${e.status}${e.code ? `, ${e.code}` : ""})` : ""}\n`);
       return 1;
     }
-    process.stderr.write(`clearcote: ${(e as Error)?.message ?? String(e)}\n`);
+    process.stderr.write(`code-browser: ${(e as Error)?.message ?? String(e)}\n`);
     return 1;
   }
 }
@@ -866,10 +866,10 @@ async function cloudCommand(argv: string[]): Promise<number> {
     return 0;
   }
   if (!["run", "sessions", "stop", "events", "recording", "profile", "webhooks"].includes(cmd)) {
-    cloudFail(`unknown cloud command '${cmd}'. Run \`clearcote cloud --help\`.`, 2);
+    cloudFail(`unknown cloud command '${cmd}'. Run \`code-browser cloud --help\`.`, 2);
   }
   if ((cmd === "profile" || cmd === "webhooks") && !rest[0]) {
-    cloudFail(`\`clearcote cloud ${cmd}\` needs a subcommand. Run \`clearcote cloud --help\`.`, 2);
+    cloudFail(`\`code-browser cloud ${cmd}\` needs a subcommand. Run \`code-browser cloud --help\`.`, 2);
   }
 
   if (cmd === "run") {
@@ -958,7 +958,7 @@ async function cloudCommand(argv: string[]): Promise<number> {
   }
 
   if (cmd === "profile") {
-    if (rest[0] !== "sync") cloudFail(`unknown profile command '${rest[0]}'. Run \`clearcote cloud --help\`.`, 2);
+    if (rest[0] !== "sync") cloudFail(`unknown profile command '${rest[0]}'. Run \`code-browser cloud --help\`.`, 2);
     const { values: v, pos } = parse(rest.slice(1), {
       "from-profile": { type: "string" }, "from-cdp": { type: "string" }, "from-file": { type: "string" },
       login: { type: "string" }, domain: { type: "string", multiple: true }, "all-domains": { type: "boolean" },
@@ -1022,7 +1022,7 @@ async function cloudCommand(argv: string[]): Promise<number> {
     else out(action === "rm" ? `removed ${pos[0]}` : `sent a ping to ${pos[0]}`);
     return 0;
   }
-  return cloudFail(`unknown webhooks command '${action}'. Run \`clearcote cloud --help\`.`, 2);
+  return cloudFail(`unknown webhooks command '${action}'. Run \`code-browser cloud --help\`.`, 2);
 }
 
 /** `--proxy scheme://user:pass@host:port` as a launch proxy option with the credentials split out. */

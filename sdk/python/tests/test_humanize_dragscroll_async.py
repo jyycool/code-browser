@@ -4,12 +4,12 @@ import math
 
 import pytest
 
-import clearcote._humanize_async as HA
-import clearcote._pacing as P
+import code_browser._humanize_async as HA
+import code_browser._pacing as P
 from tests._fake_scrollpage import Clock, Doc, Page, World
 
 try:
-    import clearcote._scroll as S
+    import code_browser._scroll as S
 except ImportError:  # pragma: no cover - before 0.52
     S = None
 
@@ -139,9 +139,9 @@ def amake(monkeypatch, doc, seed="lane-e", device=None):
             monkeypatch.setattr(mod, "time", clock)
     world = AWorld(doc)
     monkeypatch.setattr(HA, "async_world_for", lambda page: world)
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", raising=False)
     page = APage(doc)
-    page._clearcote_input_device = device or "auto"   # a str: not the fake's catch-all attribute
+    page._code_browser_input_device = device or "auto"   # a str: not the fake's catch-all attribute
     return page, clock
 
 
@@ -198,7 +198,7 @@ def test_async_drag_by_converges(monkeypatch):
         return await page.drag_by("#thumb", 120, 0)
     got = _run(go())
     assert got is not None and abs(got[0] - 120) <= 2
-    assert 1 <= page._clearcote_drag_legs <= 3
+    assert 1 <= page._code_browser_drag_legs <= 3
 
 
 def test_async_click_offscreen_uses_the_wheel(monkeypatch):
@@ -225,7 +225,7 @@ def test_async_non_scrollable_falls_back_and_reports(monkeypatch):
         await page.click("#far")
     _run(go())
     assert _ev(page, "prog")
-    assert page._clearcote_last_fallback == {"api": "Page.click", "reason": "scroll into view: not_scrollable",
+    assert page._code_browser_last_fallback == {"api": "Page.click", "reason": "scroll into view: not_scrollable",
                                              "selector": None}
 
 

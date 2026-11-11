@@ -1,6 +1,6 @@
 """Where the lease calls go (SDK 0.55): checkout, heartbeat, checkin and seats go to the licence lease server
-first and to the site when it cannot be reached; a base set explicitly (api_base, CLEARCOTE_LICENSE_API,
-CLEARCOTE_LEASE_API) is used alone. Served by real local HTTP servers and a closed port, so the urllib path in
+first and to the site when it cannot be reached; a base set explicitly (api_base, CODE_BROWSER_LICENSE_API,
+CODE_BROWSER_LEASE_API) is used alone. Served by real local HTTP servers and a closed port, so the urllib path in
 _post is what is tested; the default bases are pointed at them, never at a real licence server."""
 import base64
 import http.server
@@ -14,10 +14,10 @@ import urllib.error
 
 import pytest
 
-import clearcote._license as L
-from clearcote._net import SimpleResponse
+import code_browser._license as L
+from code_browser._net import SimpleResponse
 
-dl = importlib.import_module("clearcote.download")
+dl = importlib.import_module("code_browser.download")
 
 CHECKPOINT = b"<!DOCTYPE html><html><head><title>Vercel Security Checkpoint</title></head><body></body></html>"
 
@@ -87,8 +87,8 @@ def lic(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    for var in ("CLEARCOTE_LICENSE_API", "CLEARCOTE_LEASE_API", "CLEARCOTE_LICENSE_THROUGH_PROXY",
-                "CLEARCOTE_INSTANCE_ID"):
+    for var in ("CODE_BROWSER_LICENSE_API", "CODE_BROWSER_LEASE_API", "CODE_BROWSER_LICENSE_THROUGH_PROXY",
+                "CODE_BROWSER_INSTANCE_ID"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("CLEARCOTE_LICENSE_KEY", f"cc_lic_base_{time.time_ns()}")
     monkeypatch.setattr(L, "_primary_down_until", {})
@@ -128,16 +128,16 @@ def lic(monkeypatch, tmp_path):
 # ── which base ───────────────────────────────────────────────────────────────────────────────────────────
 
 def test_default_bases_are_the_lease_server_then_the_site(monkeypatch):
-    for var in ("CLEARCOTE_LICENSE_API", "CLEARCOTE_LEASE_API"):
+    for var in ("CODE_BROWSER_LICENSE_API", "CODE_BROWSER_LEASE_API"):
         monkeypatch.delenv(var, raising=False)
     assert L._lease_bases(None) == ("https://lease.clearcotelabs.com", "https://www.clearcotelabs.com")
 
 
 def test_anything_set_explicitly_is_used_alone(monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_LEASE_API", "https://lease-env.test/")
+    monkeypatch.setenv("CODE_BROWSER_LEASE_API", "https://lease-env.test/")
     assert L._lease_bases(None) == ("https://lease-env.test", None)
-    monkeypatch.setenv("CLEARCOTE_LICENSE_API", "https://license-env.test")
-    assert L._lease_bases(None) == ("https://license-env.test", None)   # CLEARCOTE_LICENSE_API first
+    monkeypatch.setenv("CODE_BROWSER_LICENSE_API", "https://license-env.test")
+    assert L._lease_bases(None) == ("https://license-env.test", None)   # CODE_BROWSER_LICENSE_API first
     assert L._lease_bases("https://arg.test/") == ("https://arg.test", None)  # the argument before both
 
 
@@ -231,7 +231,7 @@ def test_license_through_proxy_falls_back_the_same_way(lic, monkeypatch):
 
 # ── 4. a base set explicitly: no fallback, never the lease server ────────────────────────────────────────
 
-@pytest.mark.parametrize("how", ["argument", "CLEARCOTE_LICENSE_API", "CLEARCOTE_LEASE_API"])
+@pytest.mark.parametrize("how", ["argument", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_LEASE_API"])
 def test_an_explicit_base_is_used_alone(lic, monkeypatch, how):
     explicit = closed_port_url()
     lic["defaults"]("http://lease.test.invalid", "http://www.test.invalid")  # must not be touched
@@ -247,8 +247,8 @@ def test_an_explicit_base_is_used_alone(lic, monkeypatch, how):
 
 
 def test_the_lease_base_does_not_move_the_pro_download(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_LICENSE_API", raising=False)
-    monkeypatch.setenv("CLEARCOTE_LEASE_API", "https://lease-env.test")
+    monkeypatch.delenv("CODE_BROWSER_LICENSE_API", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_LEASE_API", "https://lease-env.test")
     monkeypatch.setattr(dl, "_kept_pro_meta", lambda key: None)
     seen = {}
 

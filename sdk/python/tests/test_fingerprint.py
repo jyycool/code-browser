@@ -2,8 +2,8 @@ import base64
 import gzip
 import json
 
-from clearcote import _fingerprint
-from clearcote._fingerprint import (
+from code_browser import _fingerprint
+from code_browser._fingerprint import (
     FINGERPRINT_KEYS,
     clean_accept_language,
     encode_profile,
@@ -48,7 +48,7 @@ def test_lang_derived_from_primary_accept_language():
 def test_default_timezone_is_locale_coherent():
     # A server/container run shouldn't leak the host's UTC while navigator.language says en-US:
     # the default timezone is derived from the persona locale, and geoip / explicit timezone win.
-    from clearcote._fingerprint import _default_timezone
+    from code_browser._fingerprint import _default_timezone
 
     assert _default_timezone("en-US") == "America/New_York"
     assert _default_timezone("de-DE") == "Europe/Berlin"
@@ -120,7 +120,7 @@ def test_tls_profile_explicit_and_off():
 
 
 def test_resolve_tls_profile_unit():
-    from clearcote._fingerprint import resolve_tls_profile
+    from code_browser._fingerprint import resolve_tls_profile
 
     assert resolve_tls_profile("match-persona", {"brand_version": "131.0.1"}) == "chrome-131"
     assert resolve_tls_profile("auto", {}) is None

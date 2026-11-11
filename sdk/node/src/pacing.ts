@@ -1,4 +1,4 @@
-// Wall-clock pacing for planned pointer paths (mirrors sdk/python/clearcote/_pacing.py).
+// Wall-clock pacing for planned pointer paths (mirrors sdk/python/code_browser/_pacing.py).
 //
 // The motion planner (motion.ts planMove / planAmbient) returns samples {x, y, sleepMs} at the
 // persona's device rate (~6-8 ms apart). Walking them as "dispatch, then sleep the planned gap" adds
@@ -53,7 +53,7 @@ export interface WalkOpts<S extends PacedStep> {
   /** The persona's hop cap (motion.ts hopCapPx); MAX_JUMP_PX when omitted. */
   maxJump?: number;
   pinned?: (s: S, i: number) => boolean;    // a step that changes button state: never skipped
-  /** The action kind for the score hook (trace.ts: glide | drag | ambient | hover). With CLEARCOTE_HUMANIZE_SCORE
+  /** The action kind for the score hook (trace.ts: glide | drag | ambient | hover). With CODE_BROWSER_HUMANIZE_SCORE
    *  set, the dispatched samples and their actual dispatch times are scored after the walk. Read-only. */
   kind?: string;
   /** The button bitmask held through the walk (a drag leg: 1), carried on every recorded sample. */

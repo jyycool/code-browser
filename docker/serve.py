@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""clearcote CDP-server entrypoint.
+"""code-browser CDP-server entrypoint.
 
-Launches the clearcote stealth Chromium — HEADFUL on a virtual X display (Xvfb) by default, so
+Launches the code-browser stealth Chromium — HEADFUL on a virtual X display (Xvfb) by default, so
 a real headed browser avoids the headless-mode tells some detectors probe; set CC_HEADLESS=1 to
 force the old pure-headless mode — with a DevTools/CDP endpoint reachable on 0.0.0.0:$CC_PORT
 (default 9222), so any Playwright / Puppeteer / browser-use / Crawl4AI / Stagehand client
@@ -15,7 +15,7 @@ Modern Chrome binds the DevTools endpoint to 127.0.0.1 only (a security restrict
 --remote-debugging-address is ignored), so we run a tiny socat TCP proxy to publish it.
 
 Chrome runs WITH its sandbox whenever the container allows it (sandbox_check.py): run the container with
---security-opt seccomp=<the profile at /etc/clearcote/seccomp.json>. Without it, --no-sandbox, and a log
+--security-opt seccomp=<the profile at /etc/code-browser/seccomp.json>. Without it, --no-sandbox, and a log
 line saying why.
 """
 import base64  # r51+: the persona token's payload carries the display (see _persona_token_display)
@@ -28,17 +28,17 @@ import sys
 import tempfile
 import threading
 import time
-from clearcote import executable_path
-from clearcote._fingerprint import fingerprint_args
-from clearcote._fonts import linux_font_env
-from clearcote._fingerprint import persona_platform
-from clearcote._launchopts import merge_feature_flags, serve_infobar_args, web_bluetooth_args
+from code_browser import executable_path
+from code_browser._fingerprint import fingerprint_args
+from code_browser._fonts import linux_font_env
+from code_browser._fingerprint import persona_platform
+from code_browser._launchopts import merge_feature_flags, serve_infobar_args, web_bluetooth_args
 try:  # r51+: server-side personas (the signed persona token); an older SDK in the image has no module
-    from clearcote import _persona as _persona_mod
+    from code_browser import _persona as _persona_mod
 except ImportError:
     _persona_mod = None
 try:
-    from clearcote._launchopts import mesa_egl_available
+    from code_browser._launchopts import mesa_egl_available
 except ImportError:  # an image built with an SDK older than this entrypoint: same check, inline
     def mesa_egl_available():
         import glob
@@ -48,7 +48,7 @@ except ImportError:  # an image built with an SDK older than this entrypoint: sa
                 and (has("dri/swrast_dri.so") or has("dri/kms_swrast_dri.so")
                      or any(glob.glob(os.path.join(d, "libgallium-*.so")) for d in dirs)))
 try:
-    from clearcote._containerseed import container_seed
+    from code_browser._containerseed import container_seed
 except ImportError:  # an image built with an SDK older than this entrypoint: same behaviour, inline
     def container_seed(env_value, profile_dir):
         import secrets
@@ -89,7 +89,7 @@ if _secrets_file:
             if isinstance(_secrets.get(_name), str) and _secrets[_name]:
                 os.environ[_name] = _secrets[_name]
     except Exception as exc:  # noqa: BLE001 -- a licensed caller must not silently get the free engine
-        print("[clearcote] ERROR: CC_SECRETS_FILE=%s could not be read (%s: %s). Refusing to start."
+        print("[code-browser] ERROR: CC_SECRETS_FILE=%s could not be read (%s: %s). Refusing to start."
               % (_secrets_file, type(exc).__name__, exc), flush=True)
         raise SystemExit(1)
     finally:
@@ -106,7 +106,7 @@ if _secrets_file:
 #
 # The download lands in XDG_CACHE_HOME (/opt/xdg-cache), which is declared a VOLUME so it survives
 # container replacement. Mount a named volume in production or every new container re-fetches
-# ~180 MB:   -v clearcote-cache:/opt/xdg-cache
+# ~180 MB:   -v code-browser-cache:/opt/xdg-cache
 _license = os.environ.get("CLEARCOTE_LICENSE_KEY") or None
 _version = os.environ.get("CC_VERSION") or None
 _kwargs = {}
@@ -120,12 +120,12 @@ try:
 except TypeError:
     # An SDK older than 0.16 has no version/license_key parameters. Fall back, but say so loudly:
     # silently serving the free engine to a licensed caller is the exact bug this code fixes.
-    print("[clearcote] WARNING: this image's SDK predates licensed build selection, so the "
+    print("[code-browser] WARNING: this image's SDK predates licensed build selection, so the "
           "bundled FREE engine is being used. Rebuild the image to honour CLEARCOTE_LICENSE_KEY.",
           flush=True)
     exe = executable_path()
 
-print("[clearcote] engine: %s (%s)" % (exe, "licensed" if _license else "free"), flush=True)
+print("[code-browser] engine: %s (%s)" % (exe, "licensed" if _license else "free"), flush=True)
 
 # A PRO engine refuses to run without a run token (the licence gate reads CLEARCOTE_RUN_TOKEN once at
 # startup), and this entrypoint starts chrome itself, so the lease is checked out here, as early as
@@ -140,22 +140,22 @@ _token_file = None
 _release_token_file = None
 if _license:
     try:
-        from clearcote._license import acquire_lease
+        from code_browser._license import acquire_lease
 
         _lease = acquire_lease(_license, quiet=False)
         if _lease and _lease.token:
             try:
                 _token_file, _release_token_file = _lease.bind_launch()
             except Exception as exc:  # noqa: BLE001 -- an older SDK has no bind_launch; PRO still runs
-                print("[clearcote] WARNING: this SDK cannot keep the run-token fresh (%s: %s); a "
-                      "FREE licence needs a newer clearcote package." % (type(exc).__name__, exc),
+                print("[code-browser] WARNING: this SDK cannot keep the run-token fresh (%s: %s); a "
+                      "FREE licence needs a newer code-browser package." % (type(exc).__name__, exc),
                       flush=True)
-            print("[clearcote] licence lease acquired", flush=True)
+            print("[code-browser] licence lease acquired", flush=True)
         else:
-            print("[clearcote] WARNING: no lease returned for this key; the PRO engine will "
+            print("[code-browser] WARNING: no lease returned for this key; the PRO engine will "
                   "refuse to start.", flush=True)
     except Exception as exc:  # noqa: BLE001 -- surface the reason, never launch a doomed browser
-        print("[clearcote] ERROR: could not lease a run token (%s: %s). The PRO engine will not "
+        print("[code-browser] ERROR: could not lease a run token (%s: %s). The PRO engine will not "
               "start. Check the key, the plan's concurrency limit, and outbound network access."
               % (type(exc).__name__, exc), flush=True)
         raise SystemExit(1)
@@ -170,7 +170,7 @@ def _engine_revision(path):
 
 def _engine_has_switch(name):
     try:
-        from clearcote._launchopts import engine_supports_switch
+        from code_browser._launchopts import engine_supports_switch
     except ImportError:  # an image built with an SDK older than this entrypoint: the same probe
         from proxy_relay import engine_supports_switch
     try:
@@ -180,13 +180,13 @@ def _engine_has_switch(name):
 
 # The seed is the identity. Without CC_FINGERPRINT each container now gets its own random one, kept
 # in the profile directory (it used to be the fixed "clearcote-docker", so every such container was
-# the same device and any two could be linked). See clearcote._containerseed.
+# the same device and any two could be linked). See code_browser._containerseed.
 _seed, _seed_source = container_seed(os.environ.get("CC_FINGERPRINT"), PROFILE_DIR)
 if _seed_source == "new":
-    print("[clearcote] persona seed: %s (new for this container, kept in %s; set CC_FINGERPRINT "
+    print("[code-browser] persona seed: %s (new for this container, kept in %s; set CC_FINGERPRINT "
           "to choose one)" % (_seed, PROFILE_DIR), flush=True)
 elif _seed_source == "saved":
-    print("[clearcote] persona seed: %s (this container's, from %s)" % (_seed, PROFILE_DIR), flush=True)
+    print("[code-browser] persona seed: %s (this container's, from %s)" % (_seed, PROFILE_DIR), flush=True)
 opts = {
     "fingerprint": _seed,
     "platform": os.environ.get("CC_PLATFORM", "linux"),
@@ -262,7 +262,7 @@ for _map, _cast, _what in ((_ENV_TO_OPT, str, "string"),
         try:
             opts[opt_key] = _cast(raw)   # False and 0 are values, so this assigns unconditionally
         except (TypeError, ValueError):
-            print("[clearcote] WARNING: %s=%r is not a %s; ignoring it." % (env_key, raw, _what),
+            print("[code-browser] WARNING: %s=%r is not a %s; ignoring it." % (env_key, raw, _what),
                   flush=True)
 
 # WebRTC IP (CC_WEBRTC_IP): the srflx address the engine reports. Unset, the engine gathers no ICE candidates at all
@@ -382,7 +382,7 @@ def _persona_token_display():
         if sw > 0 and sh > 0 and 0 < aw <= sw and 0 < ah <= sh and dpr > 0:
             return sw, sh, aw, ah, dpr
     except Exception as exc:  # noqa: BLE001 -- the launch itself reports a persona-service failure
-        print("[clearcote] persona display: %s: %s" % (type(exc).__name__, exc), flush=True)
+        print("[code-browser] persona display: %s: %s" % (type(exc).__name__, exc), flush=True)
     return None
 
 
@@ -397,7 +397,7 @@ def _parse_screen(value):
             return width, height, depth
     except (IndexError, ValueError):
         pass
-    print("[clearcote] WARNING: CC_SCREEN=%r is not <w>x<h>[x<depth>]; using 1920x1080x24."
+    print("[code-browser] WARNING: CC_SCREEN=%r is not <w>x<h>[x<depth>]; using 1920x1080x24."
           % value, flush=True)
     return 1920, 1080, 24
 
@@ -414,13 +414,13 @@ _STOCK_RUNTIME = "--disable-runtime-suppression"
 _stock_runtime = _STOCK_RUNTIME in extra
 if _stock_runtime:
     try:
-        from clearcote._launchopts import engine_supports_switch as _has_switch
+        from code_browser._launchopts import engine_supports_switch as _has_switch
     except ImportError:  # an image built with an SDK older than this entrypoint: the same probe
         from proxy_relay import engine_supports_switch as _has_switch
     if not _has_switch(exe, _STOCK_RUNTIME[2:]):
         extra = [a for a in extra if a != _STOCK_RUNTIME]
         _stock_runtime = False
-        print("[clearcote] WARNING: stock_runtime (--disable-runtime-suppression) needs an engine from r32 on; "
+        print("[code-browser] WARNING: stock_runtime (--disable-runtime-suppression) needs an engine from r32 on; "
               "this engine does not support it, so chrome starts without it.", flush=True)
 
 # --enable-runtime-bindings (engine r54+; the SDKs' runtime_bindings option): only the Runtime.addBinding part of
@@ -428,13 +428,13 @@ if _stock_runtime:
 _RUNTIME_BINDINGS = "--enable-runtime-bindings"
 if _RUNTIME_BINDINGS in extra:
     try:
-        from clearcote._launchopts import engine_supports_switch as _has_switch
+        from code_browser._launchopts import engine_supports_switch as _has_switch
     except ImportError:
         from proxy_relay import engine_supports_switch as _has_switch
     if _stock_runtime or not _has_switch(exe, _RUNTIME_BINDINGS[2:]):
         extra = [a for a in extra if a != _RUNTIME_BINDINGS]
         if not _stock_runtime:
-            print("[clearcote] WARNING: runtime_bindings (--enable-runtime-bindings) needs an engine from r54 on; "
+            print("[code-browser] WARNING: runtime_bindings (--enable-runtime-bindings) needs an engine from r54 on; "
                   "this engine does not support it, so chrome starts without it.", flush=True)
 
 # Same discipline as the SDK's _geometry.caller_sized_the_window: ANY window/screen switch the
@@ -481,17 +481,17 @@ def _avail_inset(platform, platform_version):
 avail_w, avail_h = screen_w, screen_h
 pin_screen = os.environ.get("CC_PIN_SCREEN", "").strip().lower() not in _FALSE
 if not pin_screen:
-    print("[clearcote] screen: NOT pinned (CC_PIN_SCREEN=0) -- the seed's screen and the real "
+    print("[code-browser] screen: NOT pinned (CC_PIN_SCREEN=0) -- the seed's screen and the real "
           "%dx%d display will disagree." % (screen_w, screen_h), flush=True)
 elif opts.get("platform") == "android":
     # A phone persona's screen is phone-shaped and fingerprint_args sizes a phone window to match;
     # pinning a desktop display over that would contradict the mobile UA it has just claimed.
     pin_screen = False
-    print("[clearcote] screen: not pinned (an android persona keeps its own mobile display)",
+    print("[code-browser] screen: not pinned (an android persona keeps its own mobile display)",
           flush=True)
 elif _caller_owns_geometry(extra):
     pin_screen = False
-    print("[clearcote] screen: not pinned (CC_EXTRA_ARGS sets window/screen geometry itself)",
+    print("[code-browser] screen: not pinned (CC_EXTRA_ARGS sets window/screen geometry itself)",
           flush=True)
 elif (not _cc_screen and not opts.get("light_stealth") and not opts.get("fingerprint_profile")
       and (persona_display := _persona_display(_seed))):
@@ -500,12 +500,12 @@ elif (not _cc_screen and not opts.get("light_stealth") and not opts.get("fingerp
     _sw, _sh, _aw, _ah, _dpr = persona_display
     screen_w, screen_h = int(round(_sw * _dpr)), int(round(_sh * _dpr))
     avail_w, avail_h = _aw, _ah
-    print("[clearcote] screen: the persona's own, %dx%d (avail %dx%d, DPR %g) -- the virtual display "
+    print("[code-browser] screen: the persona's own, %dx%d (avail %dx%d, DPR %g) -- the virtual display "
           "is created at that size and the engine serves it unpinned" % (_sw, _sh, _aw, _ah, _dpr),
           flush=True)
 else:
     if not _cc_screen and not opts.get("light_stealth") and not opts.get("fingerprint_profile"):
-        print("[clearcote] WARNING: the engine's validator could not describe seed %s; pinning the "
+        print("[code-browser] WARNING: the engine's validator could not describe seed %s; pinning the "
               "default 1920x1080 display onto the persona instead (set CC_SCREEN to choose one)."
               % _seed, flush=True)
     avail_h = screen_h - _avail_inset(opts.get("platform"), opts.get("platform_version"))
@@ -514,7 +514,7 @@ else:
     # colour depth is deliberately NOT pinned from CC_SCREEN's third field: Chrome reports 24 on a
     # 24- AND a 32-bit X visual, so forwarding the Xvfb number would turn a routine "x32" into a
     # screen.colorDepth no desktop Chrome emits. Set CC_COLOR_DEPTH to override it explicitly.
-    print("[clearcote] screen: %dx%d claimed, avail %dx%d" % (screen_w, screen_h, avail_w, avail_h),
+    print("[code-browser] screen: %dx%d claimed, avail %dx%d" % (screen_w, screen_h, avail_w, avail_h),
           flush=True)
 xvfb_screen = "%dx%dx%d" % (screen_w, screen_h, screen_depth)
 
@@ -534,14 +534,14 @@ _wv_on = (_wv not in ("0", "false", "no")) if _wv else (opts.get("platform") in 
 if _wv_on:
     os.environ.setdefault("CLEARCOTE_WIDEVINE_DIR",
                           os.path.join(os.environ.get("XDG_CACHE_HOME", "/opt/xdg-cache"),
-                                       "clearcote", "WidevineCdm"))
+                                       "code-browser", "WidevineCdm"))
     try:
-        from clearcote._widevine import seed_widevine
+        from code_browser._widevine import seed_widevine
 
         seed_widevine(PROFILE_DIR, quiet=True)
-        print("[clearcote] widevine CDM seeded", flush=True)
+        print("[code-browser] widevine CDM seeded", flush=True)
     except Exception as exc:  # noqa: BLE001 -- DRM is best-effort
-        print("[clearcote] widevine unavailable (continuing without DRM): %r" % exc, flush=True)
+        print("[code-browser] widevine unavailable (continuing without DRM): %r" % exc, flush=True)
 
 args = fingerprint_args(opts)
 # Web Bluetooth's default follows the BUILD platform, so a Linux container serving a desktop
@@ -572,7 +572,7 @@ internal = os.environ.get("CC_INTERNAL_PORT", "9223")  # chrome's loopback DevTo
 # CC_EXTRA_ARGS window keep the old behaviour.
 def _engine_places_persona_window(argv):
     try:
-        from clearcote._geometry import engine_places_persona_window
+        from code_browser._geometry import engine_places_persona_window
     except ImportError:  # an image built with an SDK older than this entrypoint
         return False
     return engine_places_persona_window(exe, argv)
@@ -583,9 +583,9 @@ if pin_screen and not _engine_places_persona_window(list(args) + list(extra)):
     window_args.append("--window-position=0,0")
     if not any(str(a).startswith("--window-size=") for a in args):
         window_args.append("--window-size=%d,%d" % (avail_w, avail_h))
-    print("[clearcote] window: %dx%d @0,0" % (avail_w, avail_h), flush=True)
+    print("[code-browser] window: %dx%d @0,0" % (avail_w, avail_h), flush=True)
 elif pin_screen:
-    print("[clearcote] window: the persona's own, opened by the engine inside the claimed work area",
+    print("[code-browser] window: the persona's own, opened by the engine inside the claimed work area",
           flush=True)
 
 # Proxy (CC_PROXY="[scheme://][user:pass@]host:port"). launch() hands a proxy to its automation driver; this
@@ -605,7 +605,7 @@ _proxy_server = _proxy_auth = _proxy_relay = None
 if _proxy:
     try:
         import proxy_relay
-        from clearcote._launchopts import quic_args, webrtc_default_deny_args
+        from code_browser._launchopts import quic_args, webrtc_default_deny_args
 
         _scheme, _host, _pport, _user, _pw = proxy_relay.split_proxy(_proxy)
         _proxy_server = proxy_relay.server_url(_scheme, _host, _pport)  # never the credentials
@@ -614,12 +614,12 @@ if _proxy:
         # WebRTC's non-proxied UDP would egress around it -- the same two defaults launch() applies.
         # Scoped to the proxied path so an unproxied container's behaviour is untouched.
         proxy_args += quic_args({"server": _proxy_server}) + webrtc_default_deny_args(proxy_args + extra)
-        print("[clearcote] proxy: %s" % _proxy_server, flush=True)  # server only -- never the creds
+        print("[code-browser] proxy: %s" % _proxy_server, flush=True)  # server only -- never the creds
         if _proxy_auth:
-            print("[clearcote] proxy login: %s" % ("by the engine" if _proxy_auth == "engine" else
+            print("[code-browser] proxy login: %s" % ("by the engine" if _proxy_auth == "engine" else
                                                    "through a relay on this container's loopback"), flush=True)
     except Exception as exc:  # noqa: BLE001 -- never fall back to an unproxied browser silently
-        print("[clearcote] ERROR: CC_PROXY could not be applied (%s: %s). Refusing to start rather "
+        print("[code-browser] ERROR: CC_PROXY could not be applied (%s: %s). Refusing to start rather "
               "than send traffic direct from the container's own IP."
               % (type(exc).__name__, exc), flush=True)
         raise SystemExit(1)
@@ -636,7 +636,7 @@ headless = os.environ.get("CC_HEADLESS", "").strip().lower() in ("1", "true", "y
 mode_args = []
 if headless:
     mode_args = ["--headless=new"]
-    print("[clearcote] display: pure headless (CC_HEADLESS set)", flush=True)
+    print("[code-browser] display: pure headless (CC_HEADLESS set)", flush=True)
 else:
     display = os.environ.get("DISPLAY") or ":99"
     if not os.environ.get("DISPLAY"):  # start our own Xvfb only if the host didn't provide a display
@@ -659,7 +659,7 @@ else:
                 break
             time.sleep(0.1)
     os.environ["DISPLAY"] = display  # inherited by chrome via `env` below
-    print(f"[clearcote] display: headful on Xvfb {display}", flush=True)
+    print(f"[code-browser] display: headful on Xvfb {display}", flush=True)
 
 # The container has no GPU, so WebGL renders in software -- through the backend whose limits match the
 # GPU the persona NAMES (measured 2026-10-06 against real captures):
@@ -692,25 +692,25 @@ if persona_platform(opts) in ("windows", "macos"):
     _rev = _engine_revision(exe)
     if (_rev is not None and _rev >= 47) or _engine_has_switch("fingerprint-software-webgpu"):
         gpu_args += ["--use-webgpu-adapter=swiftshader", "--enable-unsafe-webgpu"]
-        print("[clearcote] WebGPU: software adapter wearing the persona (engine r%s)"
+        print("[code-browser] WebGPU: software adapter wearing the persona (engine r%s)"
               % (_rev if _rev is not None else "48+"), flush=True)
     else:
-        print("[clearcote] WebGPU: none (a %s claim gets a persona WebGPU adapter from engine r47 on)"
+        print("[code-browser] WebGPU: none (a %s claim gets a persona WebGPU adapter from engine r47 on)"
               % persona_platform(opts), flush=True)
 _BACKENDS = {"--use-angle=gl": "Mesa GL (llvmpipe)", "--use-angle=gl-egl": "Mesa GL over EGL (llvmpipe)"}
-print("[clearcote] WebGL backend: %s" % next((v for k, v in _BACKENDS.items() if k in gpu_args), "SwiftShader"),
+print("[code-browser] WebGL backend: %s" % next((v for k, v in _BACKENDS.items() if k in gpu_args), "SwiftShader"),
       flush=True)
 
 # Chrome's sandbox: on when this container lets Chrome create the user, PID and network namespaces it needs
 # (sandbox_check.probe makes the same calls first). Docker's default seccomp profile refuses them, and Chrome
-# would then abort, so a container started without the profile at /etc/clearcote/seccomp.json gets
+# would then abort, so a container started without the profile at /etc/code-browser/seccomp.json gets
 # --no-sandbox and one log line saying why and how to turn the sandbox on: whatever booted before still boots.
 try:
     import sandbox_check
 
     sandbox, _sandbox_line = sandbox_check.decide(args + extra, os.geteuid())
 except ImportError:  # a custom image that copied serve.py without its probe
-    sandbox, _sandbox_line = False, "[clearcote] sandbox: OFF, Chrome runs with --no-sandbox: sandbox_check.py is missing"
+    sandbox, _sandbox_line = False, "[code-browser] sandbox: OFF, Chrome runs with --no-sandbox: sandbox_check.py is missing"
 print(_sandbox_line, flush=True)
 
 base_args = (["--no-sandbox"] if not sandbox and "--no-sandbox" not in args + extra else []) + [
@@ -731,7 +731,7 @@ base_args += serve_infobar_args(headless, base_args)
 cmd = [exe] + merge_feature_flags(base_args)
 
 env = dict(os.environ)
-try:  # point FONTCONFIG_FILE at the bundled Windows-font clones (+ CLEARCOTE_*FONT_DIRS)
+try:  # point FONTCONFIG_FILE at the bundled Windows-font clones (+ CODE_BROWSER_*FONT_DIRS)
     font_env = linux_font_env(exe, args=cmd)  # --disable-genuine-font-faces in CC_EXTRA_ARGS keeps the rules
 except TypeError:  # an image built with an SDK older than this entrypoint
     font_env = linux_font_env(exe)
@@ -757,14 +757,14 @@ if _sd:
         # renderer would name OpenGL while the dialect says HLSL. Honoured (a custom CC_GPU_RENDERER
         # may legitimately name D3D) but never silently.
         if opts.get("platform") != "windows":
-            print("[clearcote] WARNING: CC_SHADER_DIALECT=%s with a %s persona. HLSL is only "
+            print("[code-browser] WARNING: CC_SHADER_DIALECT=%s with a %s persona. HLSL is only "
                   "coherent next to a Direct3D renderer string; on a persona that names OpenGL "
                   "this creates the contradiction it is meant to remove."
                   % (_sd, opts.get("platform")), flush=True)
 elif opts.get("platform") == "windows":
     env["CLEARCOTE_SHADER_DIALECT"] = "hlsl"
 if env.get("CLEARCOTE_SHADER_DIALECT"):
-    print("[clearcote] shader dialect: %s" % env["CLEARCOTE_SHADER_DIALECT"], flush=True)
+    print("[code-browser] shader dialect: %s" % env["CLEARCOTE_SHADER_DIALECT"], flush=True)
 
 # The lease itself was checked out right after the engine was resolved (the persona display asks the
 # engine's validator for the seed's screen before Xvfb starts, and a PRO validator needs the token too);
@@ -780,23 +780,23 @@ if _lease and _lease.token:
 _shown = dict(opts)
 if _shown.get("fingerprint_profile"):
     _shown["fingerprint_profile"] = "<%d bytes>" % len(str(_shown["fingerprint_profile"]))
-print(f"[clearcote] CDP endpoint on 0.0.0.0:{port} (socat -> chrome 127.0.0.1:{internal}) | persona={_shown}", flush=True)
+print(f"[code-browser] CDP endpoint on 0.0.0.0:{port} (socat -> chrome 127.0.0.1:{internal}) | persona={_shown}", flush=True)
 
 try:
     _idle_limit = int(os.environ.get("CC_IDLE_EXIT_SECONDS", "0") or 0)
 except ValueError:
-    print("[clearcote] WARNING: CC_IDLE_EXIT_SECONDS=%r is not a whole number; ignoring it."
+    print("[code-browser] WARNING: CC_IDLE_EXIT_SECONDS=%r is not a whole number; ignoring it."
           % os.environ.get("CC_IDLE_EXIT_SECONDS"), flush=True)
     _idle_limit = 0
 
-# Engine patch 1021 ("env mode"), the same last step a launch on a host takes (clearcote._personaenv): on an
+# Engine patch 1021 ("env mode"), the same last step a launch on a host takes (code_browser._personaenv): on an
 # engine that implements --persona-from-env, the persona switches -- seed, overrides, proxy credentials --
 # leave chrome's command line and travel in CLEARCOTE_PERSONA_ARGS. A container's processes show up in the
 # Linux host's process table, where any user can read a command line. CLEARCOTE_PERSONA_ENV=0 (what the SDKs
 # pass for persona_env=False) keeps the command line, as does an older engine or an image built with an SDK
 # that predates the module.
 try:
-    from clearcote import _personaenv
+    from code_browser import _personaenv
 except ImportError:
     _personaenv = None
 _persona_env = False
@@ -807,13 +807,13 @@ if _persona_mod is not None and _lease and _lease.token:
     _argv, env = _persona_mod.apply(exe, cmd[1:], env, _lease)
     cmd = [exe] + _argv
     if _persona_mod.TOKEN_ENV in env or _persona_mod.TOKEN_GZ_ENV in env:
-        print("[clearcote] persona: signed by the persona service (r51+)", flush=True)
+        print("[code-browser] persona: signed by the persona service (r51+)", flush=True)
 if _personaenv is not None:
     _argv, _env = _personaenv.apply(exe, cmd[1:], env)
     _persona_env = _env is not env  # a new environment only when the switches moved
     cmd, env = [exe] + _argv, _env
     if _persona_env:
-        print("[clearcote] persona: in CLEARCOTE_PERSONA_ARGS, off chrome's command line", flush=True)
+        print("[code-browser] persona: in CLEARCOTE_PERSONA_ARGS, off chrome's command line", flush=True)
 
 # SERVE_PROTOCOL: what this entrypoint does with the SDK's settings. The image carries it as the label
 # com.clearcotelabs.serve-protocol, so the SDK knows before it starts a container whether the image takes
@@ -840,7 +840,7 @@ _applied = {
     "runtime_bindings": _RUNTIME_BINDINGS in extra,  # r54: --enable-runtime-bindings is on chrome's command line
     "webrtc_ip": _webrtc_ip_source,  # 4: where the WebRTC IP came from: "env", "proxy exit", "own address", "off", ...
 }
-print("[clearcote] serve-state %s" % json.dumps(_applied, sort_keys=True), flush=True)
+print("[code-browser] serve-state %s" % json.dumps(_applied, sort_keys=True), flush=True)
 
 chrome = subprocess.Popen(cmd, env=env)
 
@@ -862,7 +862,7 @@ if _idle_limit > 0:
         "limit": _idle_limit, "alive": lambda: chrome.poll() is None,
         "ready": lambda: idle_exit.cdp_ready(internal), "clients": lambda: idle_exit.cdp_clients(port),
         "stop": _stop_chrome, "log": lambda m: print(m, flush=True)}).start()
-    print("[clearcote] idle exit: after %d s with no CDP client, counted from when CDP answers" % _idle_limit,
+    print("[code-browser] idle exit: after %d s with no CDP client, counted from when CDP answers" % _idle_limit,
           flush=True)
 
 
@@ -895,9 +895,9 @@ def _release_lease():
             stop(wait=True)  # a per-browser lease: check the slot in before exiting
         except TypeError:
             stop()  # a machine-shared lease: the SDK's exit hook checks it in
-        print("[clearcote] licence lease released", flush=True)
+        print("[code-browser] licence lease released", flush=True)
     except Exception as exc:  # noqa: BLE001 -- best-effort; the lease TTL reclaims it
-        print("[clearcote] lease release failed (%r); the slot frees on its own shortly." % exc, flush=True)
+        print("[code-browser] lease release failed (%r); the slot frees on its own shortly." % exc, flush=True)
 
 
 _release_lease()

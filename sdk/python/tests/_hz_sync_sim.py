@@ -1,5 +1,5 @@
 """A SYNC view of the async page simulator in test_humanize_forms_async.py, so the sync humanizer
-(clearcote._humanize) runs against the same simulated DOM. Every coroutine the simulator returns is run to
+(code_browser._humanize) runs against the same simulated DOM. Every coroutine the simulator returns is run to
 completion on the spot; simulator objects are wrapped again, and attributes set by the humanizer (the
 wrapped page.click, mouse.move, ...) live on the proxy, which is cached per object so page.mouse is
 always the same proxy."""

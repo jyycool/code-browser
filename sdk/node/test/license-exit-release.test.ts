@@ -63,8 +63,8 @@ function run(mode: string, act: (child: ReturnType<typeof spawn>) => void): Prom
   const before = n;
   const child = spawn(process.execPath, [join(dir, "child.mjs"), mode], {
     cwd: dir,
-    env: { ...process.env, HOME: home, USERPROFILE: home, CLEARCOTE_LICENSE_API: base, CLEARCOTE_LICENSE_KEY: `cc_lic_free_${mode}`,
-      CLEARCOTE_INSTANCE_ID: "" },
+    env: { ...process.env, HOME: home, USERPROFILE: home, CODE_BROWSER_LICENSE_API: base, CLEARCOTE_LICENSE_KEY: `cc_lic_free_${mode}`,
+      CODE_BROWSER_INSTANCE_ID: "" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   return new Promise((resolve) => {

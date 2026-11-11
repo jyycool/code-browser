@@ -10,7 +10,7 @@ import type { HostFacts } from "../src/profilelib.js";
 let dir: string;
 // PROFILE_DIR is read at module load, so the env must be set before the import below.
 dir = mkdtempSync(join(tmpdir(), "cc-profsrc-"));
-process.env.CLEARCOTE_PROFILE_DIR = dir;
+process.env.CODE_BROWSER_PROFILE_DIR = dir;
 
 // Static type-only import: erased at compile time, so it cannot run before the env is set above.
 // The VALUE import stays dynamic for exactly that reason.

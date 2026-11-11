@@ -467,11 +467,11 @@ describe("playwrightFeatureOverrideArgs, second review (2026-10-06)", () => {
 describe("engineRevision", () => {
   it("reads the PRO tag from the engine's path", async () => {
     const { engineRevision } = await import("../src/launchopts.js");
-    expect(engineRevision("/home/u/.clearcote/pro-155.0.8059.39-r47/chrome")).toBe(47);
-    expect(engineRevision("C:\\Users\\u\\.clearcote\\pro-155.0.8059.39-r46\\chrome.exe")).toBe(46);
-    expect(engineRevision("/Users/u/.clearcote/pro-155.0.8059.39-r48/Chromium.app/Contents/MacOS/Chromium")).toBe(48);
+    expect(engineRevision("/home/u/.code-browser/pro-155.0.8059.39-r47/chrome")).toBe(47);
+    expect(engineRevision("C:\\Users\\u\\.code-browser\\pro-155.0.8059.39-r46\\chrome.exe")).toBe(46);
+    expect(engineRevision("/Users/u/.code-browser/pro-155.0.8059.39-r48/Chromium.app/Contents/MacOS/Chromium")).toBe(48);
     expect(engineRevision("/x/other-r3/pro-155.0.8059.39-r47/chrome")).toBe(47);  // the deepest component wins
-    expect(engineRevision("/opt/clearcote/chrome")).toBeUndefined();  // a binary the caller named: no revision there
+    expect(engineRevision("/opt/code-browser/chrome")).toBeUndefined();  // a binary the caller named: no revision there
     expect(engineRevision("")).toBeUndefined();
     expect(engineRevision(undefined)).toBeUndefined();
   });

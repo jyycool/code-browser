@@ -1,4 +1,4 @@
-// `clearcote cloud ...` against the fake API: exact output, exit codes and the refusal to upload every
+// `code-browser cloud ...` against the fake API: exact output, exit codes and the refusal to upload every
 // cookie. The golden outputs are byte-identical to sdk/python/tests/test_parity_cloud_cli.py, which also
 // runs this CLI (dist/) and the Python one side by side and compares their output and requests.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -57,7 +57,7 @@ const GOLDEN = {
   ],
 };
 
-const ENV = ["CLEARCOTE_API_KEY", "CLEARCOTE_API_URL", "CLEARCOTE_CLOUD"];
+const ENV = ["CODE_BROWSER_API_KEY", "CODE_BROWSER_API_URL", "CODE_BROWSER_CLOUD"];
 const saved: Record<string, string | undefined> = {};
 let api: FakeCloud;
 let dir: string;
@@ -66,9 +66,9 @@ beforeEach(async () => {
   for (const k of ENV) saved[k] = process.env[k];
   api = await startFakeCloud();
   api.runStatuses = ["succeeded"];
-  process.env.CLEARCOTE_API_KEY = API_KEY;
-  process.env.CLEARCOTE_API_URL = api.url;
-  delete process.env.CLEARCOTE_CLOUD;
+  process.env.CODE_BROWSER_API_KEY = API_KEY;
+  process.env.CODE_BROWSER_API_URL = api.url;
+  delete process.env.CODE_BROWSER_CLOUD;
   dir = mkdtempSync(join(tmpdir(), "cc-cloud-cli-"));
   writeFileSync(join(dir, "state.json"), JSON.stringify(STATE));
 });
@@ -94,10 +94,10 @@ async function cli(...argv: string[]): Promise<{ code: number; out: string[]; er
   }
 }
 
-describe("clearcote cloud", () => {
+describe("code-browser cloud", () => {
   it("is documented", () => {
-    expect(USAGE).toContain("clearcote cloud run <task>");
-    expect(USAGE).toContain("CLEARCOTE_API_KEY");
+    expect(USAGE).toContain("code-browser cloud run <task>");
+    expect(USAGE).toContain("CODE_BROWSER_API_KEY");
     for (const flag of ["--url", "--schema", "--secret", "--secret-domain", "--handoff", "--record", "--json", "sessions", "stop <id>",
       "events <id>", "recording <id>", "-o <file.mp4>", "profile sync", "--from-profile", "--from-cdp", "--from-file", "--login",
       "--domain", "--all-domains", "--replace", "webhooks add", "--event", "webhooks list", "webhooks rm", "webhooks test",
@@ -128,7 +128,7 @@ describe("clearcote cloud", () => {
     const r = await cli("run", "Find", "the", "price", "--url", "https://example.com/", "--schema", join(dir, "schema.json"),
       "--secret", "pw=hunter2", "--secret", "otp=x=y", "--secret-domain", "pw=Example.com", "--handoff", "--record");
     expect([r.code, r.out]).toEqual([0, GOLDEN.run]);
-    expect(r.err).toContain("[clearcote] run bs_run1: succeeded");
+    expect(r.err).toContain("[code-browser] run bs_run1: succeeded");
     expect(api.requests("POST", "/api/v1/runs")[0].body).toEqual({
       task: "Find the price", url: "https://example.com/", schema: { type: "object" },
       secrets: { pw: { value: "hunter2", domains: ["example.com"] }, otp: "x=y" }, handoff: true, record: true });
@@ -234,13 +234,13 @@ describe("clearcote cloud", () => {
 
   it("errors", async () => {
     expect((await cli("frobnicate")).code).toBe(2);
-    process.env.CLEARCOTE_API_KEY = "wrong";
+    process.env.CODE_BROWSER_API_KEY = "wrong";
     const r = await cli("sessions");
     expect(r.code).toBe(1);
-    expect(r.err).toContain("clearcote: Missing or invalid API key. (HTTP 401)");
-    delete process.env.CLEARCOTE_API_KEY;
+    expect(r.err).toContain("code-browser: Missing or invalid API key. (HTTP 401)");
+    delete process.env.CODE_BROWSER_API_KEY;
     const k = await cli("sessions");
     expect(k.code).toBe(1);
-    expect(k.err).toContain("CLEARCOTE_API_KEY");
+    expect(k.err).toContain("CODE_BROWSER_API_KEY");
   });
 });

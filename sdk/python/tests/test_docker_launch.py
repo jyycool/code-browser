@@ -1,9 +1,9 @@
-"""launch() on an Intel Mac runs the Clearcote Docker image (the native macOS builds are Apple Silicon only).
+"""launch() on an Intel Mac runs the CodeBrowser Docker image (the native macOS builds are Apple Silicon only).
 
 The host platform is mocked (the module's view of ``sys.platform``) and the docker CLI is replaced by a
 recorder that answers like Docker would; the "container's" CDP endpoint is a real local Chromium, or a
 stand-in that answers /json/version, so the SDK's connect, close and the Playwright objects it returns are
-real. The real image is exercised end to end separately (CLEARCOTE_TEST_ONLY_ASSUME_MACOS, see
+real. The real image is exercised end to end separately (CODE_BROWSER_TEST_ONLY_ASSUME_MACOS, see
 test_docker_launch_live.py). Mirrors sdk/node/test/docker-launch.test.ts."""
 import asyncio
 import io
@@ -20,21 +20,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-import clearcote
-from clearcote import _docker, async_api
+import code_browser
+from code_browser import _docker, async_api
 
 from _chromium import LocalChromium, find_chromium
 
 CHROMIUM = find_chromium()  # found now: the fixtures below move HOME, where it is looked for
-needs_chromium = pytest.mark.skipif(not CHROMIUM, reason="no Chromium (set CLEARCOTE_TEST_BINARY)")
-IMAGE = f"teamflatearth/clearcote:sdk-{clearcote.__version__}"
+needs_chromium = pytest.mark.skipif(not CHROMIUM, reason="no Chromium (set CODE_BROWSER_TEST_BINARY)")
+IMAGE = f"teamflatearth/clearcote:sdk-{code_browser.__version__}"
 DEAD_PID = 2 ** 22 + 12345  # above any pid_max: never a live process
 PROTOCOL = {"com.clearcotelabs.serve-protocol": "2"}
 GONE_ARGV = ["ps", "-a", "-q", "--no-trunc", "--filter", "id=c0ffee1234"]  # is the container still listed?
 
 
 def serve_state(engine="open", proxy=None, idle=30, secrets=False, proxy_auth=None):
-    return "[clearcote] serve-state " + json.dumps({"engine": engine, "idle_exit": idle, "protocol": 2,
+    return "[code-browser] serve-state " + json.dumps({"engine": engine, "idle_exit": idle, "protocol": 2,
                                                     "proxy": proxy, "proxy_auth": proxy_auth,
                                                     "secrets_file": secrets}, sort_keys=True)
 
@@ -173,8 +173,8 @@ def mac(monkeypatch, tmp_path):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     if hasattr(_docker, "_OWNER"):
         monkeypatch.setitem(_docker._OWNER, "token", None)  # a fresh owner token and record in this HOME
-    for k in ("CLEARCOTE_DOCKER", "CLEARCOTE_BINARY", "CLEARCOTE_DOCKER_IMAGE", "CLEARCOTE_CLOUD",
-              "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_DOCKER_IDLE_EXIT", "CLEARCOTE_DOCKER_CACHE_VOLUME",
+    for k in ("CODE_BROWSER_DOCKER", "CODE_BROWSER_BINARY", "CODE_BROWSER_DOCKER_IMAGE", "CODE_BROWSER_CLOUD",
+              "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_DOCKER_IDLE_EXIT", "CODE_BROWSER_DOCKER_CACHE_VOLUME",
               _docker.TEST_ONLY_ASSUME_MACOS):
         monkeypatch.delenv(k, raising=False)
 
@@ -199,9 +199,9 @@ def cdp(docker):
 @pytest.fixture(autouse=True)
 def _stop_sync_driver():
     yield
-    if clearcote._pw is not None:
-        clearcote._pw.stop()
-        clearcote._pw = None
+    if code_browser._pw is not None:
+        code_browser._pw.stop()
+        code_browser._pw = None
 
 
 def e_names(argv):
@@ -225,7 +225,7 @@ KEYED_SOCKS = {"license_key": "cc_lic_docker_test_key_1234",
 
 
 def test_the_decision(monkeypatch):
-    for k in ("CLEARCOTE_DOCKER", "CLEARCOTE_BINARY", _docker.TEST_ONLY_ASSUME_MACOS):
+    for k in ("CODE_BROWSER_DOCKER", "CODE_BROWSER_BINARY", _docker.TEST_ONLY_ASSUME_MACOS):
         monkeypatch.delenv(k, raising=False)
 
     def on(platform, docker=None, env=(), **kw):
@@ -240,9 +240,9 @@ def test_the_decision(monkeypatch):
     assert on("darwin", docker=False) is False and on("darwin", docker="0") is False
     assert on("linux", docker=True) is True
     assert on("darwin", executable_path="/opt/cc/chrome") is False
-    assert on("darwin", env=[("CLEARCOTE_DOCKER", "0")]) is False
-    assert on("linux", env=[("CLEARCOTE_DOCKER", "1")]) is True
-    assert on("darwin", env=[("CLEARCOTE_BINARY", "/opt/cc/chrome")]) is False
+    assert on("darwin", env=[("CODE_BROWSER_DOCKER", "0")]) is False
+    assert on("linux", env=[("CODE_BROWSER_DOCKER", "1")]) is True
+    assert on("darwin", env=[("CODE_BROWSER_BINARY", "/opt/cc/chrome")]) is False
     assert on("linux", env=[(_docker.TEST_ONLY_ASSUME_MACOS, "1")]) is True
 
 
@@ -251,7 +251,7 @@ def test_macos_launch_runs_the_image_and_returns_a_working_browser(mac, docker):
     docker.marks = [serve_state("licensed", "http://proxy.example:8080", secrets=True, proxy_auth="engine")]
     with LocalChromium(CHROMIUM) as chromium:
         docker.cdp_port = int(chromium.http_url.rsplit(":", 1)[1])
-        browser = clearcote.launch(
+        browser = code_browser.launch(
             fingerprint="seed-1", platform="windows", timezone="Europe/Berlin", hardware_concurrency=8,
             canvas_noise=False, headless=True, args=["--lang=de-DE"], humanize=True, **KEYED)
         try:
@@ -260,7 +260,7 @@ def test_macos_launch_runs_the_image_and_returns_a_working_browser(mac, docker):
             assert browser.docker_container == {"id": "c0ffee1234", "image": IMAGE, "serve_protocol": 2,
                                                 "endpoint": f"http://127.0.0.1:{docker.cdp_port}"}
             page = browser.new_page()
-            assert getattr(page, "_clearcote_persona", None) is not None  # humanized, as locally
+            assert getattr(page, "_code_browser_persona", None) is not None  # humanized, as locally
             page.set_content("<title>in docker</title>")
             assert page.title() == "in docker"
             assert page.viewport_size is None  # no emulated viewport over the container's real window
@@ -278,7 +278,7 @@ def test_macos_launch_runs_the_image_and_returns_a_working_browser(mac, docker):
     assert argv[:6] == ["docker", "create", "--rm", "--platform", "linux/amd64", "--shm-size"]
     assert argv[argv.index("-p") + 1] == "127.0.0.1::9222"  # loopback only: CDP is full control
     assert argv[-1] == IMAGE
-    assert argv[argv.index("-v") + 1] == "clearcote-cache:/opt/xdg-cache"  # licensed engine downloads once
+    assert argv[argv.index("-v") + 1] == "code-browser-cache:/opt/xdg-cache"  # licensed engine downloads once
     # owned through this process's token: the next launch removes it once this process is gone
     lab = labels(argv)
     assert lab[:2] == ["com.clearcotelabs.sdk-launch=1", f"com.clearcotelabs.owner-host={socket.gethostname()}"]
@@ -293,13 +293,13 @@ def test_macos_launch_runs_the_image_and_returns_a_working_browser(mac, docker):
         "CC_FINGERPRINT": "seed-1", "CC_PLATFORM": "windows", "CC_TIMEZONE": "Europe/Berlin",
         "CC_HARDWARE_CONCURRENCY": "8", "CC_CANVAS_NOISE": "0", "CC_HEADLESS": "1",
         "CC_EXTRA_ARGS": "--lang=de-DE", "CC_IDLE_EXIT_SECONDS": "30",
-        "CC_SECRETS_FILE": "/tmp/clearcote-secrets.json",
+        "CC_SECRETS_FILE": "/tmp/code-browser-secrets.json",
     }
     assert sorted(e_names(argv)) == sorted(create["env"])
     # the licence key and the proxy URL go in as a file only the image's user can read
     cp = docker.call("cp")
     assert cp["argv"][2:] == ["-", "c0ffee1234:/tmp"] and cp["env"] == {}
-    member, data = tar_members(cp["input"])["clearcote-secrets.json"]
+    member, data = tar_members(cp["input"])["code-browser-secrets.json"]
     assert (member.uid, member.gid, member.mode) == (10001, 10001, 0o600)
     assert json.loads(data) == {"CLEARCOTE_LICENSE_KEY": "cc_lic_docker_test_key_1234",
                                 "CC_PROXY": "http://u:p%20w@proxy.example:8080"}
@@ -309,13 +309,13 @@ def test_macos_launch_runs_the_image_and_returns_a_working_browser(mac, docker):
 
 @needs_chromium
 def test_async_launch_on_macos(mac, docker, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_DOCKER_IDLE_EXIT", "0")  # 0: never stops on its own
+    monkeypatch.setenv("CODE_BROWSER_DOCKER_IDLE_EXIT", "0")  # 0: never stops on its own
     docker.marks = [serve_state(idle=0)]
 
     async def go():
         with LocalChromium(CHROMIUM) as chromium:
             docker.cdp_port = int(chromium.http_url.rsplit(":", 1)[1])
-            browser = await async_api.launch(docker_image="example/clearcote:test")
+            browser = await async_api.launch(docker_image="example/code-browser:test")
             try:
                 assert browser.docker_container["id"] == "c0ffee1234"
                 page = await browser.new_page()
@@ -328,7 +328,7 @@ def test_async_launch_on_macos(mac, docker, monkeypatch):
             assert not docker.listed()
 
     asyncio.run(go())
-    assert docker.call("create")["argv"][-1] == "example/clearcote:test"
+    assert docker.call("create")["argv"][-1] == "example/code-browser:test"
     assert docker.call("create")["env"] == {}  # nothing asked for: the image's own defaults
     assert "-v" not in docker.call("create")["argv"]  # no licence, no engine cache volume
     assert "cp" not in docker.commands()  # no secrets, no file
@@ -341,8 +341,8 @@ def test_an_image_without_the_protocol_label_gets_plain_variables_and_a_warning(
     # An image older than sdk-0.40.0 ignores CC_SECRETS_FILE: handing it the key and proxy as a file would
     # start it on the open engine with no proxy. It gets the variables it understands instead, and a warning.
     docker.labels = {}
-    docker.marks = ["[clearcote] engine: /opt/xdg-cache/clearcote/pro-154.0.8037.57-r30/browser/chrome (licensed)",
-                    "[clearcote] proxy: socks5://proxy.example:1080"]
+    docker.marks = ["[code-browser] engine: /opt/xdg-cache/code-browser/pro-154.0.8037.57-r30/browser/chrome (licensed)",
+                    "[code-browser] proxy: socks5://proxy.example:1080"]
     container = _docker.start_container(dict(KEYED_SOCKS))
     assert container["serve_protocol"] == 0
     create = docker.call("create")
@@ -362,12 +362,12 @@ def test_an_image_without_the_protocol_label_gets_plain_variables_and_a_warning(
     (2, [], "did not report what it applied"),
     # the proxy needs a password and the container did not say it can log in to it: every request would fail
     (2, [serve_state("licensed", "http://proxy.example:8080", secrets=True)], "did not say it can log in"),
-    (0, ["[clearcote] engine: /opt/xdg-cache/clearcote/v0.1.0-pre.23/browser/chrome (free)",
-         "[clearcote] proxy: socks5://proxy.example:1080"], "it runs the open engine"),
-    (0, ["[clearcote] engine: /opt/xdg-cache/clearcote/pro-154.0.8037.57-r30/browser/chrome (licensed)"],
+    (0, ["[code-browser] engine: /opt/xdg-cache/code-browser/v0.1.0-pre.23/browser/chrome (free)",
+         "[code-browser] proxy: socks5://proxy.example:1080"], "it runs the open engine"),
+    (0, ["[code-browser] engine: /opt/xdg-cache/code-browser/pro-154.0.8037.57-r30/browser/chrome (licensed)"],
      "did not apply it"),  # an image from before CC_PROXY: the traffic would go direct
-    (0, ["[clearcote] engine: /opt/xdg-cache/clearcote/pro-154.0.8037.57-r30/browser/chrome (licensed)",
-         "[clearcote] proxy: socks5://other.example:3128"], "a different proxy"),
+    (0, ["[code-browser] engine: /opt/xdg-cache/code-browser/pro-154.0.8037.57-r30/browser/chrome (licensed)",
+         "[code-browser] proxy: socks5://other.example:3128"], "a different proxy"),
 ])
 def test_a_container_that_did_not_apply_the_key_or_proxy_is_refused_and_removed(mac, docker, cdp, protocol, marks, problem):
     docker.labels = dict(PROTOCOL) if protocol else {}
@@ -395,9 +395,9 @@ def test_an_image_not_published_yet_says_what_to_do(mac, docker):
     docker.pull_error = (f'Error response from daemon: failed to resolve reference "docker.io/{IMAGE}": '
                          f"docker.io/{IMAGE}: not found\n")  # Docker 29's wording
     with pytest.raises(RuntimeError) as e:
-        clearcote.launch()
+        code_browser.launch()
     msg = str(e.value)
-    assert f"the Clearcote image {IMAGE} is not available" in msg
+    assert f"the CodeBrowser image {IMAGE} is not available" in msg
     assert "published a few minutes after its SDK release" in msg
     assert "older than sdk-0.40.0 still works, but" in msg and "docker inspect" in msg  # the trade-off, said
     assert "create" not in docker.commands()
@@ -461,10 +461,10 @@ def test_an_unreachable_registry_is_not_called_an_unpublished_image(mac, docker)
     docker.labels = None
     docker.pull_error = (f'Error response from daemon: failed to resolve reference "docker.io/{IMAGE}": failed to '
                          f'do request: Head "https://registry-1.docker.io/v2/teamflatearth/clearcote/manifests/'
-                         f'sdk-{clearcote.__version__}": dial tcp: lookup registry-1.docker.io on 192.168.65.7:53: '
+                         f'sdk-{code_browser.__version__}": dial tcp: lookup registry-1.docker.io on 192.168.65.7:53: '
                          "no such host\n")
     with pytest.raises(RuntimeError) as e:
-        clearcote.launch()
+        code_browser.launch()
     msg = str(e.value)
     assert "registry did not answer" in msg and "network" in msg and "no such host" in msg
     assert "not available" not in msg and "published a few minutes" not in msg
@@ -478,7 +478,7 @@ def test_older_docker_wordings_for_a_missing_image(mac, docker, err):
     docker.labels = None
     docker.pull_error = err
     with pytest.raises(RuntimeError, match="is not available"):
-        clearcote.launch()
+        code_browser.launch()
 
 
 # ── close(): the container is gone when it returns ─────────────────────────────────────────────────
@@ -658,36 +658,36 @@ def test_pid_alive():
 
 
 def test_idle_exit_and_cache_volume_can_be_tuned(mac, docker, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_DOCKER_IDLE_EXIT", "7")
-    monkeypatch.setenv("CLEARCOTE_DOCKER_CACHE_VOLUME", "my-cc-cache")
+    monkeypatch.setenv("CODE_BROWSER_DOCKER_IDLE_EXIT", "7")
+    monkeypatch.setenv("CODE_BROWSER_DOCKER_CACHE_VOLUME", "my-cc-cache")
     docker.running = False
     with pytest.raises(RuntimeError):
-        clearcote.launch(license_key="cc_lic_x")
+        code_browser.launch(license_key="cc_lic_x")
     argv = docker.call("create")["argv"]
     assert docker.call("create")["env"]["CC_IDLE_EXIT_SECONDS"] == "7"
     assert argv[argv.index("-v") + 1] == "my-cc-cache:/opt/xdg-cache"
-    monkeypatch.setenv("CLEARCOTE_DOCKER_IDLE_EXIT", "soon")
-    with pytest.raises(ValueError, match="CLEARCOTE_DOCKER_IDLE_EXIT"):
-        clearcote.launch()
+    monkeypatch.setenv("CODE_BROWSER_DOCKER_IDLE_EXIT", "soon")
+    with pytest.raises(ValueError, match="CODE_BROWSER_DOCKER_IDLE_EXIT"):
+        code_browser.launch()
 
 
 def test_docker_not_installed(mac, monkeypatch):
     calls = []
     monkeypatch.setattr(_docker, "_docker_cli", lambda: None)
     monkeypatch.setattr(_docker, "_run", lambda *a, **k: calls.append(a) or (0, "", ""))
-    with pytest.raises(clearcote.DockerUnavailableError) as e:
-        clearcote.launch()
+    with pytest.raises(code_browser.DockerUnavailableError) as e:
+        code_browser.launch()
     msg = str(e.value)
     assert "no native macOS build" in msg and "`docker` command was not found" in msg
-    assert "Install Docker Desktop" in msg and "docker=False" in msg and "CLEARCOTE_DOCKER=0" in msg
+    assert "Install Docker Desktop" in msg and "docker=False" in msg and "CODE_BROWSER_DOCKER=0" in msg
     assert calls == []
 
 
 def test_docker_not_running(mac, docker):
     docker.info_error = ("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. "
                          "Is the docker daemon running?\n")
-    with pytest.raises(clearcote.DockerUnavailableError) as e:
-        clearcote.launch()
+    with pytest.raises(code_browser.DockerUnavailableError) as e:
+        code_browser.launch()
     msg = str(e.value)
     assert "Docker is not running" in msg and "Cannot connect to the Docker daemon" in msg
     assert "Start Docker Desktop" in msg
@@ -695,47 +695,47 @@ def test_docker_not_running(mac, docker):
 
 
 def test_options_the_image_cannot_take_are_refused_before_docker_runs(mac, docker):
-    with pytest.raises(ValueError, match=r"^user_data_dir is not available when launch\(\) runs Clearcote in Docker"):
-        clearcote.launch(user_data_dir="/tmp/profile")
+    with pytest.raises(ValueError, match=r"^user_data_dir is not available when launch\(\) runs CodeBrowser in Docker"):
+        code_browser.launch(user_data_dir="/tmp/profile")
     with pytest.raises(ValueError, match=r"^extensions is not available"):
-        clearcote.launch(extensions=["/tmp/ext"])
+        code_browser.launch(extensions=["/tmp/ext"])
     with pytest.raises(ValueError, match="whitespace"):
-        clearcote.launch(args=["--window-name=two words"])
+        code_browser.launch(args=["--window-name=two words"])
     assert docker.calls == []
 
 
 def test_docker_false_and_a_named_binary_keep_the_local_launch(mac, docker, tmp_path, monkeypatch):
     missing = str(tmp_path / "no-such-chrome")
     for kw in ({"docker": False, "executable_path": missing}, {"executable_path": missing}):
-        with pytest.raises(FileNotFoundError, match="Clearcote binary not found"):
-            clearcote.launch(**kw)
-    monkeypatch.setenv("CLEARCOTE_DOCKER", "0")
-    monkeypatch.setenv("CLEARCOTE_BINARY", missing)
-    with pytest.raises(FileNotFoundError, match="Clearcote binary not found"):
-        clearcote.launch()
+        with pytest.raises(FileNotFoundError, match="CodeBrowser binary not found"):
+            code_browser.launch(**kw)
+    monkeypatch.setenv("CODE_BROWSER_DOCKER", "0")
+    monkeypatch.setenv("CODE_BROWSER_BINARY", missing)
+    with pytest.raises(FileNotFoundError, match="CodeBrowser binary not found"):
+        code_browser.launch()
     assert docker.calls == []  # the local path, untouched
 
 
 def test_container_that_stops_early_reports_its_logs_and_is_removed(mac, docker):
     docker.running = False
-    docker.logs = "[clearcote] ERROR: could not lease a run token (LicenseError: Invalid license key.).\n"
+    docker.logs = "[code-browser] ERROR: could not lease a run token (LicenseError: Invalid license key.).\n"
     with pytest.raises(RuntimeError, match="stopped before its browser came up") as e:
-        clearcote.launch(license_key="cc_lic_bad")
+        code_browser.launch(license_key="cc_lic_bad")
     assert "could not lease a run token" in str(e.value)
     assert docker.commands()[-3:] == ["stop", "rm", "ps"]
     assert _docker._LIVE == {}
 
 
 def test_create_failure_names_the_image(mac, docker, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_DOCKER_IMAGE", "example/other:tag")
+    monkeypatch.setenv("CODE_BROWSER_DOCKER_IMAGE", "example/other:tag")
     docker.create_error = "docker: Error response from daemon: Conflict. The container name is already in use.\n"
     with pytest.raises(RuntimeError, match=r"`docker create example/other:tag` failed: docker: Error response"):
-        clearcote.launch()
+        code_browser.launch()
 
 
 def test_a_failed_connect_after_the_container_started_removes_it(mac, docker, cdp):
     with pytest.raises(Exception):  # noqa: B017 -- Playwright's own connect error
-        clearcote.launch(timeout=5000)
+        code_browser.launch(timeout=5000)
     assert docker.commands()[-3:] == ["stop", "rm", "ps"]
     assert [c["argv"][-1] for c in docker.calls if c["argv"][1] in ("stop", "rm")] == ["c0ffee1234", "c0ffee1234"]
     assert _docker._LIVE == {}
@@ -743,7 +743,7 @@ def test_a_failed_connect_after_the_container_started_removes_it(mac, docker, cd
 
 @needs_chromium
 def test_a_failure_after_the_connect_disconnects_and_removes_it(mac, docker, monkeypatch):
-    from clearcote import _humanize
+    from code_browser import _humanize
 
     def broken(*_a, **_k):
         raise RuntimeError("humanize setup failed")
@@ -752,7 +752,7 @@ def test_a_failure_after_the_connect_disconnects_and_removes_it(mac, docker, mon
     with LocalChromium(CHROMIUM) as chromium:
         docker.cdp_port = int(chromium.http_url.rsplit(":", 1)[1])
         with pytest.raises(RuntimeError, match="humanize setup failed"):
-            clearcote.launch()
+            code_browser.launch()
         assert chromium.alive()
     assert docker.commands()[-3:] == ["stop", "rm", "ps"]
     assert _docker._LIVE == {}
@@ -761,7 +761,7 @@ def test_a_failure_after_the_connect_disconnects_and_removes_it(mac, docker, mon
 def test_cloud_launch_still_wins(mac, docker, monkeypatch):
     # launch(cloud=True) is the hosted browser; the docker path is a local launch only
     with pytest.raises(ValueError, match="docker is not available for cloud browsers"):
-        clearcote.launch(cloud=True, docker=True)
+        code_browser.launch(cloud=True, docker=True)
     assert docker.calls == []
 
 
@@ -781,7 +781,7 @@ def test_an_image_that_runs_chromes_sandbox_is_started_with_the_seccomp_profile(
     assert argv.count("--security-opt") == 1 and argv.index("--security-opt") < argv.index(IMAGE)
     assert argv[argv.index("--security-opt") + 1] == f"seccomp={_docker.SECCOMP_PROFILE}"
     with open(_docker.SECCOMP_PROFILE, encoding="utf-8") as fh:
-        added = [s for s in json.load(fh)["syscalls"] if str(s.get("comment", "")).startswith("clearcote:")]
+        added = [s for s in json.load(fh)["syscalls"] if str(s.get("comment", "")).startswith("code-browser:")]
     assert [s["names"] for s in added] == [["clone"], ["unshare"]]
     _docker._remove("docker", container["id"])
 
@@ -834,7 +834,7 @@ def test_the_container_again_without_the_profile_waits_out_the_volume_race_too(m
     monkeypatch.setattr(_docker.time, "sleep", lambda s: None)
     docker.labels = dict(SANDBOX_IMAGE)
     docker.start_errors = [START_REFUSED]
-    race = "Error response from daemon: failed to mkdir /var/lib/docker/volumes/clearcote-cache/_data/x: file exists"
+    race = "Error response from daemon: failed to mkdir /var/lib/docker/volumes/code-browser-cache/_data/x: file exists"
     docker.create_errors = [None, race]  # the first create works; the one without the profile meets the race once
     docker.marks = [serve_state("licensed", "http://proxy.example:8080", secrets=True, proxy_auth="engine")]
     container = _docker.start_container(dict(KEYED), quiet=True)
@@ -900,7 +900,7 @@ def test_seccomp_args():
 @pytest.mark.skipif(not os.path.exists(REPO_PROFILE), reason="no docker/seccomp.json in this tree")
 def test_the_packaged_profile_is_docker_seccomp_json():
     with open(_docker.SECCOMP_PROFILE, "rb") as mine, open(REPO_PROFILE, "rb") as repo:
-        assert mine.read() == repo.read(), "copy docker/seccomp.json to clearcote/docker-seccomp.json"
+        assert mine.read() == repo.read(), "copy docker/seccomp.json to code-browser/docker-seccomp.json"
 
 
 # ── prefers-color-scheme: Playwright's light emulation is off for the container's pages too ─────────
@@ -976,7 +976,7 @@ def connected(monkeypatch):
         async def stop(self):
             pass
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
 
     async def start():
         return _AsyncPW()
@@ -986,7 +986,7 @@ def connected(monkeypatch):
 
 
 def test_the_containers_pages_get_no_color_scheme_emulation(mac, docker, cdp, connected):
-    browser = clearcote.launch(fingerprint="seed-1", platform="windows")
+    browser = code_browser.launch(fingerprint="seed-1", platform="windows")
     assert browser is connected
     existing = browser.contexts[0]
     assert existing.pages[0].media == [{"color_scheme": "null"}]  # open at connect time
@@ -1054,12 +1054,12 @@ def geo(monkeypatch, docker):
         state["calls"].append(proxy)
         return state["answer"]
 
-    monkeypatch.setattr(clearcote, "resolve_geo_detailed", resolve)
+    monkeypatch.setattr(code_browser, "resolve_geo_detailed", resolve)
     return state
 
 
 def test_geoip_fills_the_containers_clock_language_location_and_webrtc_ip(mac, docker, cdp, connected, geo):
-    browser = clearcote.launch(geoip=True, proxy=PROXY, fingerprint="seed-1", quiet=True)
+    browser = code_browser.launch(geoip=True, proxy=PROXY, fingerprint="seed-1", quiet=True)
     assert browser is connected and geo["calls"] == [PROXY]  # resolved through the proxy, once
     env = docker.call("create")["env"]
     assert env["CC_TIMEZONE"] == "Europe/Berlin" and env["CC_ACCEPT_LANGUAGE"] == "de-DE"
@@ -1069,7 +1069,7 @@ def test_geoip_fills_the_containers_clock_language_location_and_webrtc_ip(mac, d
 
 
 def test_geoip_keeps_what_the_caller_set(mac, docker, cdp, connected, geo):
-    clearcote.launch(geoip=True, proxy=PROXY, timezone="Europe/Paris", webrtc_ip="198.51.100.9", quiet=True)
+    code_browser.launch(geoip=True, proxy=PROXY, timezone="Europe/Paris", webrtc_ip="198.51.100.9", quiet=True)
     env = docker.call("create")["env"]
     assert env["CC_TIMEZONE"] == "Europe/Paris" and env["CC_WEBRTC_IP"] == "198.51.100.9"
     assert env["CC_ACCEPT_LANGUAGE"] == "de-DE"  # the unset ones are still filled
@@ -1077,8 +1077,8 @@ def test_geoip_keeps_what_the_caller_set(mac, docker, cdp, connected, geo):
 
 def test_geoip_fails_closed_before_any_container_starts(mac, docker, cdp, geo):
     geo["answer"] = (None, "could not determine the exit IP through the proxy", 1500)
-    with pytest.raises(clearcote.GeoipError) as ei:
-        clearcote.launch(geoip=True, proxy=PROXY, quiet=True)
+    with pytest.raises(code_browser.GeoipError) as ei:
+        code_browser.launch(geoip=True, proxy=PROXY, quiet=True)
     assert ei.value.code == "GEOIP_UNRESOLVED"
     assert docker.calls == []  # not even `docker info`
 
@@ -1087,7 +1087,7 @@ def test_geoip_with_an_explicit_timezone_and_language_still_launches(mac, docker
     geo["answer"] = (None, "timed out after 2s", 2000)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        browser = clearcote.launch(geoip=True, proxy=PROXY, timezone="Europe/Paris", accept_language="fr-FR,fr")
+        browser = code_browser.launch(geoip=True, proxy=PROXY, timezone="Europe/Paris", accept_language="fr-FR,fr")
     assert browser is connected
     assert any("using the explicit timezone and accept_language" in str(w.message) for w in caught)
     env = docker.call("create")["env"]
@@ -1131,7 +1131,7 @@ def test_geoip_is_an_option_the_image_takes(mac):
 def test_geoip_off_tells_an_image_that_fills_the_webrtc_ip_itself_to_leave_it_unset(mac, docker, cdp, connected,
                                                                                       label, sent):
     docker.labels = {"com.clearcotelabs.serve-protocol": label}
-    browser = clearcote.launch(geoip=False, quiet=True)
+    browser = code_browser.launch(geoip=False, quiet=True)
     env = docker.call("create")["env"]
     assert env.get("CC_WEBRTC_IP") == sent  # an older image would read "off" as an address: it never gets it
     browser.close()
@@ -1139,13 +1139,13 @@ def test_geoip_off_tells_an_image_that_fills_the_webrtc_ip_itself_to_leave_it_un
 
 def test_geoip_off_keeps_a_webrtc_ip_the_caller_set(mac, docker, cdp, connected):
     docker.labels = {"com.clearcotelabs.serve-protocol": "4"}
-    clearcote.launch(geoip=False, webrtc_ip="198.51.100.9", quiet=True)
+    code_browser.launch(geoip=False, webrtc_ip="198.51.100.9", quiet=True)
     assert docker.call("create")["env"]["CC_WEBRTC_IP"] == "198.51.100.9"
 
 
 def test_geoip_on_never_sends_off(mac, docker, cdp, connected, geo):
     docker.labels = {"com.clearcotelabs.serve-protocol": "4"}
-    clearcote.launch(geoip=True, proxy=PROXY, quiet=True)
+    code_browser.launch(geoip=True, proxy=PROXY, quiet=True)
     assert docker.call("create")["env"]["CC_WEBRTC_IP"] == "203.0.113.7"
 
 

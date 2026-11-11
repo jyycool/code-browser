@@ -217,7 +217,7 @@ export function evaluateRenderInfo(info: RenderInfo, claimedGpu?: string): Rende
  * `coherent`, and human-readable `warnings`. Pass `claimedGpu` to also assert the rendered family.
  *
  * @example
- * const br = await clearcote.launch({ fingerprint: "77" });
+ * const br = await code_browser.launch({ fingerprint: "77" });
  * const page = await br.newPage(); await page.goto("about:blank");
  * const verdict = await checkRenderCoherence(page);
  * if (!verdict.coherent) console.warn(verdict.warnings);

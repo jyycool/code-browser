@@ -244,7 +244,7 @@ export function stepsToSamples(
 
 // =====================================================================================================
 // SC 232 lane G: scorers for the other humanize surfaces (typed runs, wheel streams, drags, hover dwell)
-// and one entry point, scoreAction(kind, samples). Port of sdk/python/clearcote/_motionscore.py (same
+// and one entry point, scoreAction(kind, samples). Port of sdk/python/code_browser/_motionscore.py (same
 // thresholds, same penalties, same flag names); sdk/testdata/humanize_motion_vectors.json `scores` pins
 // the three SDKs to identical scores.
 //

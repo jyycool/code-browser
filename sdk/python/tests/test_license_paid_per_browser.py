@@ -2,7 +2,7 @@
 the licence server answers it for an uncapped paid key, and each launch then holds its own lease like the free
 tier. Unlike the free tier a paid browser fails OPEN when the licence server gives no verdict (unreachable,
 5xx, a challenge, RATE_LIMITED after its retries): it starts uncounted on the grace token
-(~/.clearcote/grace-<hash>.json, never the shared lease-<hash>.json) and the next checkout reports it.
+(~/.code-browser/grace-<hash>.json, never the shared lease-<hash>.json) and the next checkout reports it.
 
 Hermetic: _post is replaced by a fake licence server, HOME/USERPROFILE/LOCALAPPDATA are a temp dir, and the
 default lease bases point at .invalid hosts, so nothing here can reach a real licence server."""
@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-import clearcote
-import clearcote._license as L
+import code_browser
+import code_browser._license as L
 
 PRIMARY = "http://lease.test.invalid"
 FALLBACK = "http://www.test.invalid"
@@ -117,8 +117,8 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))  # where the engine keeps its token mark
-    for var in ("CLEARCOTE_INSTANCE_ID", "CLEARCOTE_LICENSE_API", "CLEARCOTE_LEASE_API",
-                "CLEARCOTE_LICENSE_THROUGH_PROXY"):
+    for var in ("CODE_BROWSER_INSTANCE_ID", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_LEASE_API",
+                "CODE_BROWSER_LICENSE_THROUGH_PROXY"):
         monkeypatch.delenv(var, raising=False)
     # The default bases, primary and fallback, on hosts that cannot resolve: a call the fake missed fails.
     monkeypatch.setattr(L, "DEFAULT_LEASE_API_BASE", PRIMARY)
@@ -155,8 +155,8 @@ def new_process():
 
 
 def grace_path(key):
-    """~/.clearcote/grace-<the same 16-hex key hash as lease-<hash>.json>.json"""
-    return Path.home() / ".clearcote" / f"grace-{hashlib.sha256(key.encode()).hexdigest()[:16]}.json"
+    """~/.code-browser/grace-<the same 16-hex key hash as lease-<hash>.json>.json"""
+    return Path.home() / ".code-browser" / f"grace-{hashlib.sha256(key.encode()).hexdigest()[:16]}.json"
 
 
 def write_grace(key, token, exp_in=3600):
@@ -313,7 +313,7 @@ def test_a_409_recheckout_keeps_a_confirmed_lease_marked(env):
 def test_a_refresh_keeps_the_marked_cache_marked(env):
     key, server = env("pro")
     write_lease_cache(key, tok("pro", 5, 1000), scope="machine")
-    (Path.home() / ".clearcote" / ".cc_hwm").write_text("1500")  # the engine accepted a newer token here
+    (Path.home() / ".code-browser" / ".cc_hwm").write_text("1500")  # the engine accepted a newer token here
     handle = L.acquire_lease(quiet=True)
     assert [ep for _u, ep, _b in server.calls] == ["heartbeat"]
     cached = json.loads(L._cache_path(key).read_text())
@@ -331,7 +331,7 @@ def test_paid_unreachable_launch_runs_on_the_grace_token_and_is_reported_next_ti
     assert isinstance(second, L._UncountedLease)
     err = capsys.readouterr().err
     assert err.count(UNREACHABLE) == 1
-    assert "[clearcote] [license] licence server unreachable (" in err and "getaddrinfo failed" in err
+    assert "[code-browser] [license] licence server unreachable (" in err and "getaddrinfo failed" in err
     attempted = server.urls("checkout")[1:]
     assert attempted == [f"{PRIMARY}/api/v1/lease/checkout", f"{FALLBACK}/api/v1/lease/checkout"]  # both tried
     assert L._uncounted_launches == {key: 1}
@@ -557,7 +557,7 @@ def test_rate_limited_maps_to_its_own_code():
 # ── 9. definitive verdicts never fall back ───────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("status,answer,error", [
-    (426, {"error": "This SDK is too old for this licence: upgrade clearcote.", "code": "SDK_UPGRADE_REQUIRED"},
+    (426, {"error": "This SDK is too old for this licence: upgrade code_browser.", "code": "SDK_UPGRADE_REQUIRED"},
      L.LicenseError),
     (401, {"error": "Invalid licence key.", "code": "INVALID_LICENSE"}, L.LicenseError),
     (403, {"error": "Licence revoked.", "code": "LICENSE_REVOKED"}, L.LicenseRevokedError),
@@ -584,7 +584,7 @@ def test_a_notice_is_printed_once_per_process(env, capsys):
     a = L.acquire_lease()
     b = L.acquire_lease()
     assert len(server.eps("checkout")) == 2
-    assert capsys.readouterr().err.count("[clearcote] [license] Your licence renews in 3 days.\n") == 1
+    assert capsys.readouterr().err.count("[code-browser] [license] Your licence renews in 3 days.\n") == 1
     a.stop(wait=True)
     b.stop(wait=True)
 
@@ -700,16 +700,16 @@ def test_launch_runs_an_uncounted_browser_on_the_grace_token(env, monkeypatch):
     class PW:
         chromium = Chromium()
 
-    monkeypatch.setattr(clearcote, "_prepare", lambda kwargs: ("exe", [], {"env": {"KEEP": "1"}}, None, False, None))
-    monkeypatch.setattr(clearcote, "apply_font_env", lambda exe, kw, *a, **k: None)
-    monkeypatch.setattr(clearcote, "apply_shader_dialect", lambda d, kw, *a, **k: None)
-    monkeypatch.setattr(clearcote, "_headless_geometry_kwargs", lambda *a: None)
-    monkeypatch.setattr(clearcote, "_win_av_retry", start)
-    monkeypatch.setattr(clearcote, "_playwright", lambda: PW())
-    monkeypatch.setattr(clearcote, "engine_decides_color_scheme", lambda exe: False)
-    monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "resolved_engine_version", lambda *a, **k: "155.0.0.0")  # no catalog call
-    clearcote.launch(ephemeral_profile=False, headless=True, quiet=True)
+    monkeypatch.setattr(code_browser, "_prepare", lambda kwargs: ("exe", [], {"env": {"KEEP": "1"}}, None, False, None))
+    monkeypatch.setattr(code_browser, "apply_font_env", lambda exe, kw, *a, **k: None)
+    monkeypatch.setattr(code_browser, "apply_shader_dialect", lambda d, kw, *a, **k: None)
+    monkeypatch.setattr(code_browser, "_headless_geometry_kwargs", lambda *a: None)
+    monkeypatch.setattr(code_browser, "_win_av_retry", start)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: PW())
+    monkeypatch.setattr(code_browser, "engine_decides_color_scheme", lambda exe: False)
+    monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "resolved_engine_version", lambda *a, **k: "155.0.0.0")  # no catalog call
+    code_browser.launch(ephemeral_profile=False, headless=True, quiet=True)
     assert seen["env"]["CLEARCOTE_RUN_TOKEN"] == tok("pro", 3, 3) and seen["env"]["KEEP"] == "1"
     token_file = seen["env"]["CLEARCOTE_RUN_TOKEN_FILE"]
     with open(token_file, encoding="utf-8") as fh:

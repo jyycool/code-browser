@@ -167,26 +167,26 @@ class IssueFormsInRepoTest(unittest.TestCase):
         form = load(FINGERPRINT_FORM)
         self.assertEqual(validate_form(form), [])
         by_id = {el["id"]: el for el in form["body"] if "id" in el}
-        for needed in ("repro", "clearcote-value", "chrome-value", "chrome-version", "launch-options",
+        for needed in ("repro", "code-browser-value", "chrome-value", "chrome-version", "launch-options",
                        "engine-version", "sdk", "sdk-version", "os", "checks"):
             self.assertIn(needed, by_id, f"the form has no {needed!r} field")
-        for required in ("repro", "clearcote-value", "chrome-value", "launch-options", "engine-version", "os"):
+        for required in ("repro", "code-browser-value", "chrome-value", "launch-options", "engine-version", "os"):
             self.assertTrue(by_id[required].get("validations", {}).get("required"), f"{required} must be required")
         same_machine = [o for o in by_id["checks"]["attributes"]["options"] if "same machine" in o["label"]]
         self.assertEqual(len(same_machine), 1, "needs the 'compared on the same machine' checkbox")
         self.assertIs(same_machine[0].get("required"), True)
 
-    def test_os_choices_only_name_platforms_with_a_clearcote_build(self):
+    def test_os_choices_only_name_platforms_with_a_code_browser_build(self):
         """Every OS choice except "Other" must be a platform the SDKs pin a browser build for."""
         import runpy
-        shipped = runpy.run_path(str(ROOT / "sdk" / "python" / "clearcote" / "release.py"))["PLATFORMS"]
+        shipped = runpy.run_path(str(ROOT / "sdk" / "python" / "code-browser" / "release.py"))["PLATFORMS"]
         names = {"win32": "Windows", "linux": "Linux", "darwin": "macOS"}
         self.assertFalse(set(shipped) - set(names), "a new platform ships: name it here and in the form")
         prefixes = tuple(names[k] for k in shipped)
         by_id = {el["id"]: el for el in load(FINGERPRINT_FORM)["body"] if "id" in el}
         for option in by_id["os"]["attributes"]["options"]:
             if option != "Other":
-                self.assertTrue(option.startswith(prefixes), f"OS choice {option!r} has no Clearcote build")
+                self.assertTrue(option.startswith(prefixes), f"OS choice {option!r} has no CodeBrowser build")
 
     def test_fingerprint_difference_form_wording_is_neutral(self):
         text = FINGERPRINT_FORM.read_text(encoding="utf-8").lower()

@@ -70,7 +70,7 @@ const makePage = (engine: Engine) => {
   return { page, log, browser };
 };
 
-const ENV = "CLEARCOTE_HUMANIZE_ENGINE_CLICKS";
+const ENV = "CODE_BROWSER_HUMANIZE_ENGINE_CLICKS";
 afterEach(() => { delete process.env[ENV]; });
 
 describe("engine pointer path routing", () => {
@@ -125,7 +125,7 @@ describe("engine pointer path routing", () => {
     expect(spent).toBeLessThan(walk + 150);
   }, 20_000);
 
-  it("CLEARCOTE_HUMANIZE_ENGINE_CLICKS=off keeps every click on the planner", async () => {
+  it("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS=off keeps every click on the planner", async () => {
     process.env[ENV] = "off";
     const eng = new Engine();
     const { page, log, browser } = makePage(eng);
@@ -179,7 +179,7 @@ class R42Engine extends Engine {
   }
 }
 
-const EXT_ENVS = ["CLEARCOTE_HUMANIZE_TYPO_RATE", "CLEARCOTE_HUMANIZE_ENGINE_EXT"];
+const EXT_ENVS = ["CODE_BROWSER_HUMANIZE_TYPO_RATE", "CODE_BROWSER_HUMANIZE_ENGINE_EXT"];
 const extSaved: Record<string, string | undefined> = {};
 
 describe("r43 engine extensions (lane H)", () => {
@@ -189,7 +189,7 @@ describe("r43 engine extensions (lane H)", () => {
   });
   // No typos and NO ROLLOVER: a run the persona rolls over stays per key since verifier A's R3b (its own test below);
   // these tests look at the engine run itself. The rate is read at attach, so it is forced before attachHumanize.
-  const noTypos = () => { for (const k of EXT_ENVS) extSaved[k] = process.env[k]; process.env.CLEARCOTE_HUMANIZE_TYPO_RATE = "0"; forced.roll = 0; };
+  const noTypos = () => { for (const k of EXT_ENVS) extSaved[k] = process.env[k]; process.env.CODE_BROWSER_HUMANIZE_TYPO_RATE = "0"; forced.roll = 0; };
 
   it("walks right, double and modified clicks, held legs and slip-free typed runs engine-side", async () => {
     noTypos();
@@ -245,9 +245,9 @@ describe("r43 engine extensions (lane H)", () => {
     expect(log.filter((e) => e[0] === "down").length).toBe(3);
   }, 30_000);
 
-  it("CLEARCOTE_HUMANIZE_ENGINE_EXT=off keeps the r42 route on an r43 engine", async () => {
+  it("CODE_BROWSER_HUMANIZE_ENGINE_EXT=off keeps the r42 route on an r43 engine", async () => {
     noTypos();
-    process.env.CLEARCOTE_HUMANIZE_ENGINE_EXT = "off";
+    process.env.CODE_BROWSER_HUMANIZE_ENGINE_EXT = "off";
     const eng = new R43Engine();
     const { page, log, browser } = makePage(eng);
     await attachHumanize(browser as never, page, { humanize: true, seed: "route" });
@@ -275,7 +275,7 @@ class InvalidTargetEngine extends Engine {
 const typedKeys = (log: any[]) => log.filter((e) => (e[0] === "press" || e[0] === "kdown") && e[1].length === 1).map((e) => e[1]);
 
 describe("fixes after verifier A (R3-R5)", () => {
-  const ENVS = ["CLEARCOTE_HUMANIZE_TYPO_RATE", "CLEARCOTE_HUMANIZE_SCORE", "CLEARCOTE_HUMANIZE_SCORE_FILE", "CLEARCOTE_NO_WARN"];
+  const ENVS = ["CODE_BROWSER_HUMANIZE_TYPO_RATE", "CODE_BROWSER_HUMANIZE_SCORE", "CODE_BROWSER_HUMANIZE_SCORE_FILE", "CODE_BROWSER_NO_WARN"];
   const saved: Record<string, string | undefined> = {};
   let dir = "";
   afterEach(() => {
@@ -284,7 +284,7 @@ describe("fixes after verifier A (R3-R5)", () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
     dir = "";
   });
-  const setup = () => { for (const k of ENVS) saved[k] = process.env[k]; process.env.CLEARCOTE_HUMANIZE_TYPO_RATE = "0"; };
+  const setup = () => { for (const k of ENVS) saved[k] = process.env[k]; process.env.CODE_BROWSER_HUMANIZE_TYPO_RATE = "0"; };
 
   it("R3a: engine 'off' keeps a typed run per key on an r43 engine (no probe, no dispatchKeySequence)", async () => {
     setup();
@@ -320,9 +320,9 @@ describe("fixes after verifier A (R3-R5)", () => {
     setup();
     dir = mkdtempSync(join(tmpdir(), "cc-r3c-"));
     const file = join(dir, "score.jsonl");
-    process.env.CLEARCOTE_HUMANIZE_SCORE = "1";
-    process.env.CLEARCOTE_HUMANIZE_SCORE_FILE = file;
-    process.env.CLEARCOTE_NO_WARN = "1";
+    process.env.CODE_BROWSER_HUMANIZE_SCORE = "1";
+    process.env.CODE_BROWSER_HUMANIZE_SCORE_FILE = file;
+    process.env.CODE_BROWSER_NO_WARN = "1";
     forced.roll = 0;
     const eng = new R43Engine();
     const { page, browser } = makePage(eng);

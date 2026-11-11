@@ -1,5 +1,5 @@
-// Your own fonts (fontDirs / CLEARCOTE_FONT_DIRS), fallback fonts (CLEARCOTE_FALLBACK_FONT_DIRS) and the
-// font lines of `clearcote info` on Linux. Mirrors sdk/python/tests/test_font_dirs.py.
+// Your own fonts (fontDirs / CODE_BROWSER_FONT_DIRS), fallback fonts (CLEARCOTE_FALLBACK_FONT_DIRS) and the
+// font lines of `code-browser info` on Linux. Mirrors sdk/python/tests/test_font_dirs.py.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, delimiter, dirname, join } from "node:path";
@@ -187,8 +187,8 @@ describe("the generated fontconfig file", () => {
     const block = (path: string) => mkdirSync(join(path, "x"), { recursive: true }); // fails even as root
     let env: Record<string, string | undefined>;
     beforeEach(() => {
-      env = { CLEARCOTE_CACHE: process.env.CLEARCOTE_CACHE, XDG_CACHE_HOME: process.env.XDG_CACHE_HOME, CLEARCOTE_NO_WARN: process.env.CLEARCOTE_NO_WARN };
-      delete process.env.CLEARCOTE_NO_WARN;
+      env = { CODE_BROWSER_CACHE: process.env.CODE_BROWSER_CACHE, XDG_CACHE_HOME: process.env.XDG_CACHE_HOME, CODE_BROWSER_NO_WARN: process.env.CODE_BROWSER_NO_WARN };
+      delete process.env.CODE_BROWSER_NO_WARN;
       resetFontConfWarnings();
     });
     afterEach(() => {
@@ -203,7 +203,7 @@ describe("the generated fontconfig file", () => {
       withPlatform("linux", () => {
         const { dir, exe, fonts } = bundle();
         block(join(fonts, "fonts.generated.conf"));
-        process.env.CLEARCOTE_CACHE = join(dir, "cache");
+        process.env.CODE_BROWSER_CACHE = join(dir, "cache");
         const path = linuxFontEnv(exe).FONTCONFIG_FILE;
         expect(dirname(path)).toBe(join(dir, "cache", "fontconfig"));
         expect(basename(path)).toMatch(/^fonts\.generated-[0-9a-f]{12}\.conf$/);
@@ -213,8 +213,8 @@ describe("the generated fontconfig file", () => {
     });
 
     it("the user's cache follows XDG_CACHE_HOME", () => {
-      expect(userConfDir({ XDG_CACHE_HOME: "/x/cache" })).toBe(join("/x/cache", "clearcote", "fontconfig"));
-      expect(userConfDir({ CLEARCOTE_CACHE: "/c" })).toBe(join("/c", "fontconfig"));
+      expect(userConfDir({ XDG_CACHE_HOME: "/x/cache" })).toBe(join("/x/cache", "code-browser", "fontconfig"));
+      expect(userConfDir({ CODE_BROWSER_CACHE: "/c" })).toBe(join("/c", "fontconfig"));
     });
 
     it("then to a private temp directory", () => {
@@ -222,7 +222,7 @@ describe("the generated fontconfig file", () => {
         const { dir, exe, fonts } = bundle();
         block(join(fonts, "fonts.generated.conf"));
         writeFileSync(join(dir, "a-file"), "");
-        process.env.CLEARCOTE_CACHE = join(dir, "a-file"); // nothing can be created under a file
+        process.env.CODE_BROWSER_CACHE = join(dir, "a-file"); // nothing can be created under a file
         const path = linuxFontEnv(exe).FONTCONFIG_FILE;
         expect(basename(dirname(path))).toMatch(/^cc-fontconfig-/);
         expect(statSync(dirname(path)).mode & 0o777).toBe(0o700);
@@ -237,7 +237,7 @@ describe("the generated fontconfig file", () => {
         const { dir, exe, fonts } = bundle();
         block(join(fonts, "fonts.generated.conf"));
         writeFileSync(join(dir, "a-file"), "");
-        process.env.CLEARCOTE_CACHE = join(dir, "a-file");
+        process.env.CODE_BROWSER_CACHE = join(dir, "a-file");
         vi.spyOn(confDirs, "privateTmp").mockReturnValue(join(dir, "a-file", "tmp"));
         const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
         expect(linuxFontEnv(exe)).toEqual({});
@@ -246,17 +246,17 @@ describe("the generated fontconfig file", () => {
         expect(out.split("could not write the font configuration").length - 1).toBe(1);
         expect(out).toContain(fonts);
         expect(out).toContain(join(dir, "a-file"));
-        expect(out).toContain("CLEARCOTE_CACHE");
+        expect(out).toContain("CODE_BROWSER_CACHE");
       });
     });
 
-    it("CLEARCOTE_NO_WARN silences the warning", () => {
+    it("CODE_BROWSER_NO_WARN silences the warning", () => {
       withPlatform("linux", () => {
         const { dir, exe, fonts } = bundle();
         block(join(fonts, "fonts.generated.conf"));
         writeFileSync(join(dir, "a-file"), "");
-        process.env.CLEARCOTE_CACHE = join(dir, "a-file");
-        process.env.CLEARCOTE_NO_WARN = "1";
+        process.env.CODE_BROWSER_CACHE = join(dir, "a-file");
+        process.env.CODE_BROWSER_NO_WARN = "1";
         vi.spyOn(confDirs, "privateTmp").mockReturnValue(join(dir, "a-file", "tmp"));
         const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
         expect(linuxFontEnv(exe)).toEqual({});
@@ -353,7 +353,7 @@ describe("the generated fontconfig file", () => {
   });
 });
 
-describe("clearcote info", () => {
+describe("code-browser info", () => {
   function reportBundle() {
     const b = bundle();
     makeFont(join(b.fonts, "Arimo-Regular.ttf"), ["Arimo"], [0x41, 0x3a9, 0x416, 0x5d0]);
@@ -399,7 +399,7 @@ describe("clearcote info", () => {
     expect(fontLines({
       bundled: true, note: "metric-compatible Windows font clones are bundled with this build",
       scripts: { covered: ["Latin", "Greek"], missing: ["Khmer", "Ethiopic"] },
-      fontDirs: ["/srv/winfonts"], fallbackFontDirs: ["/usr/local/share/clearcote/fonts"], ignoredFontDirs: ["/nope"],
+      fontDirs: ["/srv/winfonts"], fallbackFontDirs: ["/usr/local/share/code-browser/fonts"], ignoredFontDirs: ["/nope"],
       genuineWindowsFamilies: ["Arial", "Segoe UI"], lookalikeWindowsFamilies: ["Calibri"], genuineFacesSupported: false,
     })).toEqual([
       "Fonts           metric-compatible Windows font clones are bundled with this build",
@@ -408,7 +408,7 @@ describe("clearcote info", () => {
       "                real: Arial, Segoe UI",
       "                lookalike: Calibri",
       "                this engine still draws its lookalikes for them (real faces need PRO r32 or newer)",
-      "Fallback fonts  /usr/local/share/clearcote/fonts",
+      "Fallback fonts  /usr/local/share/code-browser/fonts",
       "Ignored         /nope (not a directory)",
     ]);
     expect(fontLines({ bundled: true, note: "n", scripts: { covered: ["Latin"], missing: [] }, fontDirs: [] }))

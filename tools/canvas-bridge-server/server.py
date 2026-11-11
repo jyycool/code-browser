@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Canvas-bridge render server.
 
-Replays the canvas/WebGL operations forwarded by a clearcote client on a *real*
+Replays the canvas/WebGL operations forwarded by a code-browser client on a *real*
 browser and returns the genuine readback pixels. Whatever GPU that browser runs on
 becomes the canvas/WebGL identity your clients present, so the readback APIs
 (getImageData / toDataURL / readPixels / measureText) stay coherent with real
@@ -10,7 +10,7 @@ hardware instead of the scraper host's GPU.
 Two render backends:
 
   --backend local --chrome <path>
-        Launch a local headless clearcote and render on THIS host's GPU. Simple, but
+        Launch a local headless code-browser and render on THIS host's GPU. Simple, but
         the canvas identity is your own machine's GPU.
 
   --backend cdp --cdp-url <ws(s)://...>
@@ -22,7 +22,7 @@ Two render backends:
         rasterizer) if you want a plausible consumer canvas identity.
         See get_cdp_url() to plug a provider that mints short-lived sessions via an API.
 
-The server speaks the clearcote little-endian bridge codec over RFC 6455 (async),
+The server speaks the code-browser little-endian bridge codec over RFC 6455 (async),
 buffers ops per server-side canvas id, and on a readback request replays them on a
 real OffscreenCanvas via page.evaluate.
 
@@ -85,7 +85,7 @@ async def _warm(page):
 
 
 class LocalBackend:
-    """Render on a local headless clearcote (this host's GPU)."""
+    """Render on a local headless code_browser (this host's GPU)."""
 
     def __init__(self, pw, chrome, fingerprint):
         self.pw, self.chrome, self.fingerprint = pw, chrome, fingerprint
@@ -258,7 +258,7 @@ class Reader:
 
 def enc_welcome(gpu_vendor, gpu_renderer):
     out = struct.pack("<I", WELCOME) + struct.pack("<I", 1)
-    for field in ["clearcote-render-server/1", "Windows", gpu_vendor, gpu_renderer]:
+    for field in ["code-browser-render-server/1", "Windows", gpu_vendor, gpu_renderer]:
         b = field.encode("utf-8"); out += struct.pack("<I", len(b)) + b
     return out
 
@@ -527,7 +527,7 @@ async def main():
     ap.add_argument("--port", type=int, default=9099)
     ap.add_argument("--host", default="127.0.0.1")
     # local backend
-    ap.add_argument("--chrome", help="path to a clearcote chrome binary (--backend local)")
+    ap.add_argument("--chrome", help="path to a code-browser chrome binary (--backend local)")
     ap.add_argument("--fingerprint", default="")
     # cdp backend
     ap.add_argument("--cdp-url", help="CDP/WebSocket endpoint of the render browser (--backend cdp)")

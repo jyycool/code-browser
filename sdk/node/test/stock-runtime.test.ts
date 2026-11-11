@@ -1,4 +1,4 @@
-// stockRuntime / CLEARCOTE_STOCK_RUNTIME: Chromium's own DevTools Runtime behaviour, back on request.
+// stockRuntime / CODE_BROWSER_STOCK_RUNTIME: Chromium's own DevTools Runtime behaviour, back on request.
 //
 // The engine holds back part of what V8 reports to a DevTools client (patch 110). Engine r32 adds
 // --disable-runtime-suppression, which restores stock Chromium for it: Playwright's console and pageerror events,
@@ -19,7 +19,7 @@ import { join } from "node:path";
 const stub = vi.hoisted(() => ({
   // PROFILE_DIR is read once, at import: point it somewhere empty before the SDK loads, so no saved
   // profile on this machine can change what these tests see.
-  savedProfileDir: ((prev) => { process.env.CLEARCOTE_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CLEARCOTE_PROFILE_DIR),
+  savedProfileDir: ((prev) => { process.env.CODE_BROWSER_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CODE_BROWSER_PROFILE_DIR),
   launches: [] as Array<{ kind: "persistent" | "incognito"; opts: Record<string, unknown> }>,
   spawns: [] as Array<{ args: string[]; env: Record<string, string | undefined> | undefined }>,
 }));
@@ -83,7 +83,7 @@ import { launch, launchPersistentContext, serve } from "../src/index.js";
 import { API_KEY, startFakeCloud, type FakeCloud } from "./helpers/fake-cloud.js";
 
 const SWITCH = "--disable-runtime-suppression";
-const ENV = "CLEARCOTE_STOCK_RUNTIME";
+const ENV = "CODE_BROWSER_STOCK_RUNTIME";
 const ENGINE_R32 = "\0disable-runtime-suppression\0";
 const ENGINE_1021 = "\0persona-from-env\0";
 const UNSUPPORTED = "this engine does not support it"; // in the one-time warning
@@ -91,15 +91,15 @@ const CLOUD_ONLY_LOCAL = "only applies to local and Docker launches"; // in the 
 const CONSOLE_NOTE = "page.on('console')"; // in the engine note about console events
 
 afterAll(() => {
-  if (stub.savedProfileDir === undefined) delete process.env.CLEARCOTE_PROFILE_DIR;
-  else process.env.CLEARCOTE_PROFILE_DIR = stub.savedProfileDir;
+  if (stub.savedProfileDir === undefined) delete process.env.CODE_BROWSER_PROFILE_DIR;
+  else process.env.CODE_BROWSER_PROFILE_DIR = stub.savedProfileDir;
 });
 
 // No licence (a key would select a lease), nothing inherited from the shell, warnings on, and a TEMP of our own:
 // everything a test or the code under test creates goes under `root`, removed after.
-const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY",
-  "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_API_KEY",
-  "CLEARCOTE_API_URL", ENV, P.OPT_OUT_ENV, P.ENV_VAR] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY",
+  "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CODE_BROWSER_API_KEY",
+  "CODE_BROWSER_API_URL", ENV, P.OPT_OUT_ENV, P.ENV_VAR] as const;
 let savedEnv: Record<string, string | undefined>;
 let root: string;
 let stderr: string[];
@@ -115,8 +115,8 @@ beforeEach(() => {
   process.env.TEMP = temp;
   process.env.TMP = temp;
   process.env.TMPDIR = temp;
-  for (const k of ["CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION",
-    "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_API_KEY", "CLEARCOTE_API_URL", ENV, P.OPT_OUT_ENV, P.ENV_VAR]) delete process.env[k];
+  for (const k of ["CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION",
+    "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CODE_BROWSER_API_KEY", "CODE_BROWSER_API_URL", ENV, P.OPT_OUT_ENV, P.ENV_VAR]) delete process.env[k];
   stub.launches.length = 0;
   stub.spawns.length = 0;
   resetSeenWarnings();
@@ -219,19 +219,19 @@ describe("an engine without the switch", () => {
     }
     expect(said(UNSUPPORTED)).toBe(1);
     const line = stderr.join("").split("\n").find((l) => l.includes(UNSUPPORTED))!;
-    expect(line.startsWith("clearcote: warning: stockRuntime")).toBe(true);
+    expect(line.startsWith("code-browser: warning: stockRuntime")).toBe(true);
     expect(line).toContain("r32");
   });
 
-  it("quiet and CLEARCOTE_NO_WARN silence it without using it up", async () => {
+  it("quiet and CODE_BROWSER_NO_WARN silence it without using it up", async () => {
     const exe = fakeEngine();
     const udd = join(root, "udd");
     await (await launchPersistentContext(udd, { ...base(exe, true), stockRuntime: true })).close();
-    process.env.CLEARCOTE_NO_WARN = "1";
+    process.env.CODE_BROWSER_NO_WARN = "1";
     await (await launchPersistentContext(udd, { ...base(exe, false), stockRuntime: true })).close();
     expect(said(UNSUPPORTED)).toBe(0);
     expect(lastLaunch().opts).not.toHaveProperty("stockRuntime");
-    delete process.env.CLEARCOTE_NO_WARN;
+    delete process.env.CODE_BROWSER_NO_WARN;
     await (await launchPersistentContext(udd, { ...base(exe, false), stockRuntime: true })).close();
     expect(said(UNSUPPORTED)).toBe(1);
   });
@@ -325,8 +325,8 @@ describe("cloud", () => {
   let api: FakeCloud;
   beforeEach(async () => {
     api = await startFakeCloud();
-    process.env.CLEARCOTE_API_KEY = API_KEY;
-    process.env.CLEARCOTE_API_URL = api.url;
+    process.env.CODE_BROWSER_API_KEY = API_KEY;
+    process.env.CODE_BROWSER_API_URL = api.url;
   });
   afterEach(async () => {
     await api.close();
@@ -339,7 +339,7 @@ describe("cloud", () => {
     expect(bodies[0]).toEqual({ country: "us", humanize: false }); // nothing about it reaches the API (humanize: the SDK's, on by default)
     expect(bodies.flatMap((b) => Object.keys(b)).filter((k) => k.toLowerCase().includes("runtime"))).toEqual([]);
     expect(said(CLOUD_ONLY_LOCAL)).toBe(1);
-    expect(stderr.join("").split("\n").find((l) => l.includes(CLOUD_ONLY_LOCAL))!.startsWith("clearcote: warning: stockRuntime")).toBe(true);
+    expect(stderr.join("").split("\n").find((l) => l.includes(CLOUD_ONLY_LOCAL))!.startsWith("code-browser: warning: stockRuntime")).toBe(true);
     // the environment variable too
     resetSeenWarnings();
     process.env[ENV] = "1";

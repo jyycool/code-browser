@@ -5,13 +5,13 @@ humanizer's wheel / drag paths run with no browser.
 What the fake records (``page.log``): ("move", x, y, t), ("down", t), ("up", t), ("wheel", dx, dy, x, y, t)
 and ("prog", how, t) for every PROGRAMMATIC scroll (isolated scrollIntoViewIfNeeded, scrollBy,
 Playwright's scroll_into_view_if_needed), ("native_dnd", ...) for Playwright's own drag_and_drop."""
-import clearcote._humanize as H
-import clearcote._pacing as P
+import code_browser._humanize as H
+import code_browser._pacing as P
 try:   # absent before 0.52: the tests then run against the old humanizer and fail on behaviour
-    import clearcote._scroll as S
+    import code_browser._scroll as S
 except ImportError:  # pragma: no cover
     S = None
-from clearcote._isolated import (
+from code_browser._isolated import (
     CSS_BOX, DESCRIBE, FRAMES, HIT_IN_BOX, PLATFORM, SCROLL, SCROLL_BY, VIEWPORT,
 )
 
@@ -288,7 +288,7 @@ def make(monkeypatch, doc, seed="lane-e", device=None):
             monkeypatch.setattr(mod, "time", clock)
     world = World(doc)
     monkeypatch.setattr(H, "world_for", lambda page: world)
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_ENGINE_CLICKS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_ENGINE_CLICKS", raising=False)
     page = Page(doc)
     # the device through lane A's real options object (HumanizeOptions.input_device)
     H.attach_humanize(None, page, humanize={"input_device": device} if device else True, seed=seed)

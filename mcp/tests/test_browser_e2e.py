@@ -1,8 +1,8 @@
-"""The read tools on a real Clearcote browser, over stdio, the way an MCP client runs the server: read_page formats and
+"""The read tools on a real CodeBrowser browser, over stdio, the way an MCP client runs the server: read_page formats and
 capped fields, http_status / page_state for each kind of answer a local server gives (including a navigation the page
 makes itself, after a click), the untrusted-content fence, and screenshots inline only when small.
 
-Opt-in (launches a browser): CLEARCOTE_MCP_BROWSER_TESTS=1 python -m pytest tests/test_browser_e2e.py
+Opt-in (launches a browser): CODE_BROWSER_MCP_BROWSER_TESTS=1 python -m pytest tests/test_browser_e2e.py
 """
 import asyncio
 import base64
@@ -15,8 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("CLEARCOTE_MCP_BROWSER_TESTS") != "1",
-                                reason="drives a real Clearcote browser; set CLEARCOTE_MCP_BROWSER_TESTS=1")
+pytestmark = pytest.mark.skipif(os.environ.get("CODE_BROWSER_MCP_BROWSER_TESTS") != "1",
+                                reason="drives a real CodeBrowser browser; set CODE_BROWSER_MCP_BROWSER_TESTS=1")
 
 ARTICLE = (pathlib.Path(__file__).parent / "fixtures" / "article.html").read_text(encoding="utf-8")
 
@@ -94,9 +94,9 @@ async def test_read_tools_on_a_real_browser(site, tmp_path):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
-    env = dict(os.environ, CLEARCOTE_ALLOW_PRIVATE_EGRESS="1", CLEARCOTE_MCP_WRITE_DIR=str(tmp_path / "out"),
-               CLEARCOTE_HEADLESS="1")
-    params = StdioServerParameters(command=sys.executable, args=["-m", "clearcote_mcp"], env=env)
+    env = dict(os.environ, CODE_BROWSER_ALLOW_PRIVATE_EGRESS="1", CODE_BROWSER_MCP_WRITE_DIR=str(tmp_path / "out"),
+               CODE_BROWSER_HEADLESS="1")
+    params = StdioServerParameters(command=sys.executable, args=["-m", "code_browser_mcp"], env=env)
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -235,9 +235,9 @@ def forms(port):
 async def try_forms(port, env, tmp_path):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
-    env = dict(env, CLEARCOTE_MCP_WRITE_DIR=str(tmp_path / "out"), CLEARCOTE_HEADLESS="1")
+    env = dict(env, CODE_BROWSER_MCP_WRITE_DIR=str(tmp_path / "out"), CODE_BROWSER_HEADLESS="1")
     answers = {}
-    params = StdioServerParameters(command=sys.executable, args=["-m", "clearcote_mcp"], env=env)
+    params = StdioServerParameters(command=sys.executable, args=["-m", "code_browser_mcp"], env=env)
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -250,9 +250,9 @@ async def try_forms(port, env, tmp_path):
 @pytest.mark.asyncio
 async def test_private_address_forms_never_reach_this_machine(recorder, tmp_path):
     port, hits = recorder()
-    base = {k: v for k, v in os.environ.items() if k != "CLEARCOTE_ALLOW_PRIVATE_EGRESS"}
+    base = {k: v for k, v in os.environ.items() if k != "CODE_BROWSER_ALLOW_PRIVATE_EGRESS"}
     # control: with the guard off, the browser does reach this machine through each form
-    await try_forms(port, dict(base, CLEARCOTE_ALLOW_PRIVATE_EGRESS="1"), tmp_path)
+    await try_forms(port, dict(base, CODE_BROWSER_ALLOW_PRIVATE_EGRESS="1"), tmp_path)
     reached = {name for name in forms(port) if any(h.endswith(name if name != "view-source" else "/vs") for h in hits)}
     assert {"decimal", "no-slashes", "one-slash", "backslash", "hex", "percent"} <= reached, hits
     hits.clear()
@@ -269,9 +269,9 @@ async def test_every_request_a_page_makes_is_checked(recorder, monkeypatch):
     because both test servers live on this machine."""
     import inspect
 
-    from clearcote_mcp import _facade
+    from code_browser_mcp import _facade
     try:
-        from clearcote_mcp import _egress
+        from code_browser_mcp import _egress
     except ImportError:
         _egress = None
     port_b, hits_b = recorder()
@@ -286,8 +286,8 @@ async def test_every_request_a_page_makes_is_checked(recorder, monkeypatch):
         return "refused private/internal address (test)" if refuse_b["on"] and f":{port_b}/" in url else None
     if _egress is not None:
         monkeypatch.setattr(_egress, "request_refusal", refusal)
-    options = {"guard": True} if "guard" in inspect.signature(_facade.ClearcoteBrowser).parameters else {}
-    browser = _facade.ClearcoteBrowser({"headless": True}, **options)
+    options = {"guard": True} if "guard" in inspect.signature(_facade.CodeBrowserBrowser).parameters else {}
+    browser = _facade.CodeBrowserBrowser({"headless": True}, **options)
     await browser.start()
     try:
         for refuse in (False, True):  # first the control: the page really makes these requests
@@ -329,9 +329,9 @@ def test_a_stopped_server_leaves_no_browser_behind(site, tmp_path, how):
     temp = tmp_path / "temp"
     temp.mkdir()
     windows = sys.platform == "win32"
-    env = dict(os.environ, CLEARCOTE_ALLOW_PRIVATE_EGRESS="1", CLEARCOTE_HEADLESS="1", CLEARCOTE_MCP_PREWARM="0",
-               CLEARCOTE_MCP_WRITE_DIR=str(tmp_path / "out"), TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
-    proc = subprocess.Popen([sys.executable, "-m", "clearcote_mcp"], env=env, stdin=subprocess.PIPE,
+    env = dict(os.environ, CODE_BROWSER_ALLOW_PRIVATE_EGRESS="1", CODE_BROWSER_HEADLESS="1", CODE_BROWSER_MCP_PREWARM="0",
+               CODE_BROWSER_MCP_WRITE_DIR=str(tmp_path / "out"), TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
+    proc = subprocess.Popen([sys.executable, "-m", "code_browser_mcp"], env=env, stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if windows else 0)
     lines = queue.Queue()
@@ -354,7 +354,7 @@ def test_a_stopped_server_leaves_no_browser_behind(site, tmp_path, how):
         read = call(2, "tools/call", {"name": "read_page", "arguments": {"url": f"{site}/article"}})
         assert json.loads(read["content"][0]["text"])["status"] == "ok", read
         running = sorted(os.listdir(temp))
-        assert any(n.startswith("clearcote-serve-") for n in running), running  # control: they are there now
+        assert any(n.startswith("code-browser-serve-") for n in running), running  # control: they are there now
         assert any(n.startswith("playwright-artifacts-") for n in running), running
         if how == "stdin closed":
             proc.stdin.close()
@@ -396,7 +396,7 @@ async def test_a_pdf_renders_with_every_request_checked(monkeypatch):
     chrome: resources: the request guard must let those through, or every PDF comes out blank. The local server
     plays a public one here (the address check lets 127.0.0.1 through for this test; the scheme rules are the real
     ones)."""
-    from clearcote_mcp import _egress, _facade
+    from code_browser_mcp import _egress, _facade
     document = one_page_pdf("Opening hours")
 
     class Pdf(BaseHTTPRequestHandler):
@@ -418,7 +418,7 @@ async def test_a_pdf_renders_with_every_request_checked(monkeypatch):
     monkeypatch.setattr(_egress, "refused", [])
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Pdf)
     threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
-    browser = _facade.ClearcoteBrowser({"headless": True}, guard=True)
+    browser = _facade.CodeBrowserBrowser({"headless": True}, guard=True)
     await browser.start()
     try:
         await browser.navigate(f"http://127.0.0.1:{srv.server_address[1]}/hours.pdf")
@@ -460,7 +460,7 @@ async def test_a_redirect_padded_with_control_characters_cannot_reach_a_private_
     """A page on a public host (127.0.0.1 counts as one here) redirects to 127.0.0.2, which stays private, with control
     characters around the Location. The browser trims them and follows the redirect; the request guard must read the
     Location the same way and refuse it. First, the control: with 127.0.0.2 allowed too, the browser does get there."""
-    from clearcote_mcp import _egress, _facade
+    from code_browser_mcp import _egress, _facade
     hits = []
 
     class Private(BaseHTTPRequestHandler):
@@ -507,7 +507,7 @@ async def test_a_redirect_padded_with_control_characters_cannot_reach_a_private_
     async def narrowed(host):  # the real check, with the redirecting server counted as public
         return None if host in allowed else await real(host)
     monkeypatch.setattr(_egress, "host_refusal", narrowed)
-    browser = _facade.ClearcoteBrowser({"headless": True}, guard=True)
+    browser = _facade.CodeBrowserBrowser({"headless": True}, guard=True)
     await browser.start()
     base = f"http://127.0.0.1:{public.server_address[1]}"
     try:

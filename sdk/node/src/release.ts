@@ -1,4 +1,4 @@
-// Pinned Clearcote releases the SDK downloads and verifies — one pin per platform.
+// Pinned CodeBrowser releases the SDK downloads and verifies — one pin per platform.
 // Bumping to a new browser build = updating the platform entry here (and the version in
 // package.json). The sha256 is the SINGLE trust anchor for the auto-download: if you trust this
 // package, the hash check guarantees you run exactly the published, signed binary.
@@ -115,7 +115,7 @@ export function proPlatformKey(plat: string = process.platform, arch: string = h
   const key = PRO_PLATFORMS[plat] ?? null;
   if (key === "macos" && !MACOS_ARCHES.includes(arch)) {
     throw new Error(
-      `The native macOS Clearcote PRO build is for Apple Silicon (arm64) only; this Mac reports ${arch || "an unknown CPU"}. ` +
+      `The native macOS CodeBrowser PRO build is for Apple Silicon (arm64) only; this Mac reports ${arch || "an unknown CPU"}. ` +
         "Use the Docker image instead (launch({ docker: true })), or run on an Apple Silicon Mac.",
     );
   }
@@ -135,7 +135,7 @@ export const RELEASE: ReleaseInfo = platformRelease() ?? WINDOWS;
 /** GitHub repo (owner/name) the releases come from — used by the opt-in auto-update resolver. */
 export const REPO = "clearcotelabs/clearcote-browser";
 
-/** Clearcote's release-signing key fingerprint, pinned out-of-band. This NEVER changes between
+/** CodeBrowser's release-signing key fingerprint, pinned out-of-band. This NEVER changes between
  * releases, so it is the durable trust anchor for `autoUpdate`: when a `gpg` binary is available,
  * an auto-resolved (un-pinned) release's `SHA256SUMS.txt.asc` is verified against THIS fingerprint
  * before the binary is trusted. (Pinned mode trusts the baked-in sha256 instead.) */

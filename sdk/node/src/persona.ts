@@ -30,8 +30,8 @@ import { proxiedRequest } from "./net.js";
 import { makeRecoveredCopy, recoveredExe } from "./winlaunch.js";
 
 export const TOKEN_ENV = "CLEARCOTE_PERSONA_TOKEN";
-export const TOKEN_GZ_ENV = "CLEARCOTE_PERSONA_TOKEN_GZ";
-export const API_ENV = "CLEARCOTE_PERSONA_API"; // comma-separated base URLs; tests and self-hosting
+export const TOKEN_GZ_ENV = "CODE_BROWSER_PERSONA_TOKEN_GZ";
+export const API_ENV = "CODE_BROWSER_PERSONA_API"; // comma-separated base URLs; tests and self-hosting
 export const MARKER_SWITCH = "cc-persona-host-facts"; // only an r51+ engine implements it
 export const DEFAULT_HOSTS = ["https://persona.clearcotelabs.com", "https://persona-us.clearcotelabs.com"];
 // Over this many bytes the token goes gzip + base64 in TOKEN_GZ_ENV (a Windows environment variable holds at most
@@ -117,7 +117,7 @@ export function selectorFromArgs(args: readonly string[]): { sel: Selector; prof
 
 function factsCachePath(env: Env): string | null {
   const base = process.platform === "win32" ? env.LOCALAPPDATA : env.HOME;
-  return base ? join(base, ".clearcote", "persona-host-facts.json") : null;
+  return base ? join(base, ".code-browser", "persona-host-facts.json") : null;
 }
 
 /**
@@ -128,7 +128,7 @@ function factsCachePath(env: Env): string | null {
 export function describeProbe(r: { stdout?: string | null; stderr?: string | null; status: number | null; signal?: string | null; error?: Error }): string {
   const stdout = r.stdout ?? "";
   if (!r.error && r.status === 0 && stdout.trim()) return stdout;
-  const said = (r.stderr ?? "").trim().split(/\r?\n/).filter(Boolean).pop()?.replace(/^\[clearcote\]\s*/, "");
+  const said = (r.stderr ?? "").trim().split(/\r?\n/).filter(Boolean).pop()?.replace(/^\[code-browser\]\s*/, "");
   let why: string;
   if ((r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") why = "it did not answer within 30 s";
   else if (r.error) why = `it could not be started: ${r.error.message}`;
@@ -172,7 +172,7 @@ function defaultRunner(cmd: string[], env: Env): string {
 /**
  * The facts of this machine the generator needs, as the engine itself reports them for a launch with these
  * switches: `chrome --cc-persona-host-facts` prints {"gpu_vendor": ...} and exits. Cached per (binary, the switches
- * that influence the answer) in memory and in ~/.clearcote.
+ * that influence the answer) in memory and in ~/.code-browser.
  */
 export function hostFacts(exe: string, args: readonly string[], runToken: string, runner: FactsRunner = defaultRunner, env: Env = process.env): HostFacts {
   const relevant = args.filter((a) => { const s = parseSwitch(a); return !!s && HOST_FACT_SWITCHES.has(s[0]); }).sort();

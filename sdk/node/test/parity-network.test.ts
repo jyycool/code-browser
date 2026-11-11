@@ -181,12 +181,12 @@ describe("licence seats + licence through proxy", () => {
   const savedEnv: Record<string, string | undefined> = {};
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "cc-home-"));
-    for (const k of ["HOME", "USERPROFILE", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_LICENSE_THROUGH_PROXY", "CLEARCOTE_LICENSE_API", "CLEARCOTE_INSTANCE_ID"]) savedEnv[k] = process.env[k];
+    for (const k of ["HOME", "USERPROFILE", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_LICENSE_THROUGH_PROXY", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_INSTANCE_ID"]) savedEnv[k] = process.env[k];
     process.env.HOME = home;
     process.env.USERPROFILE = home;
     delete process.env.CLEARCOTE_LICENSE_KEY;
-    delete process.env.CLEARCOTE_LICENSE_THROUGH_PROXY;
-    process.env.CLEARCOTE_INSTANCE_ID = "test-instance";
+    delete process.env.CODE_BROWSER_LICENSE_THROUGH_PROXY;
+    process.env.CODE_BROWSER_INSTANCE_ID = "test-instance";
     cleanups.push(() => {
       for (const [k, v] of Object.entries(savedEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
       rmSync(home, { recursive: true, force: true });
@@ -195,8 +195,8 @@ describe("licence seats + licence through proxy", () => {
 
   it("licenseThroughProxy: option wins, else the env switch", () => {
     expect(licenseThroughProxyRequested(undefined, {})).toBe(false);
-    expect(licenseThroughProxyRequested(undefined, { CLEARCOTE_LICENSE_THROUGH_PROXY: "1" })).toBe(true);
-    expect(licenseThroughProxyRequested(false, { CLEARCOTE_LICENSE_THROUGH_PROXY: "true" })).toBe(false);
+    expect(licenseThroughProxyRequested(undefined, { CODE_BROWSER_LICENSE_THROUGH_PROXY: "1" })).toBe(true);
+    expect(licenseThroughProxyRequested(false, { CODE_BROWSER_LICENSE_THROUGH_PROXY: "true" })).toBe(false);
   });
 
   it("getSessionSeats: ok / invalid / older server / unreachable / no key — never throws", async () => {

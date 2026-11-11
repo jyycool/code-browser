@@ -67,8 +67,8 @@ describe("coherenceWarnings", () => {
       writes.push(String(chunk));
       return true;
     }) as never);
-    const prev = process.env.CLEARCOTE_NO_WARN;
-    delete process.env.CLEARCOTE_NO_WARN;
+    const prev = process.env.CODE_BROWSER_NO_WARN;
+    delete process.env.CODE_BROWSER_NO_WARN;
     try {
       const opts = { platform: "windows", fingerprint: "s", headless: false };
       emitCoherenceWarnings(opts, false, "win32", "149");
@@ -76,7 +76,7 @@ describe("coherenceWarnings", () => {
       expect(writes.filter((w) => w.includes("page.on('console')")).length).toBe(1);
     } finally {
       spy.mockRestore();
-      if (prev !== undefined) process.env.CLEARCOTE_NO_WARN = prev;
+      if (prev !== undefined) process.env.CODE_BROWSER_NO_WARN = prev;
     }
   });
 });

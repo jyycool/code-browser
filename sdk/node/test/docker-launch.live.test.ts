@@ -1,8 +1,8 @@
-// launch()'s macOS path against the REAL Clearcote image: docker run, CDP, a page that loads, the persona
+// launch()'s macOS path against the REAL CodeBrowser image: docker run, CDP, a page that loads, the persona
 // options reaching the engine, and no container left after close().
 //
-// Off by default. Set CLEARCOTE_TEST_DOCKER_IMAGE to the image to run (and have a working docker); the test
-// sets CLEARCOTE_TEST_ONLY_ASSUME_MACOS=1 so the macOS decision itself is what sends launch() to Docker.
+// Off by default. Set CODE_BROWSER_TEST_DOCKER_IMAGE to the image to run (and have a working docker); the test
+// sets CODE_BROWSER_TEST_ONLY_ASSUME_MACOS=1 so the macOS decision itself is what sends launch() to Docker.
 // Mirrors sdk/python/tests/test_docker_launch_live.py and DockerLaunchLiveTests.cs.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -11,8 +11,8 @@ import { launch } from "../src/index.js";
 import { dockerCli, imageProtocol, TEST_ONLY_ASSUME_MACOS } from "../src/docker.js";
 import { tempDir } from "./helpers/temp.js";
 
-const IMAGE = process.env.CLEARCOTE_TEST_DOCKER_IMAGE;
-const ENV = ["HOME", "USERPROFILE", "CLEARCOTE_DOCKER", "CLEARCOTE_BINARY", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER_IMAGE", TEST_ONLY_ASSUME_MACOS];
+const IMAGE = process.env.CODE_BROWSER_TEST_DOCKER_IMAGE;
+const ENV = ["HOME", "USERPROFILE", "CODE_BROWSER_DOCKER", "CODE_BROWSER_BINARY", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER_IMAGE", TEST_ONLY_ASSUME_MACOS];
 const saved: Record<string, string | undefined> = {};
 
 const containerExists = (id: string) =>
@@ -120,12 +120,12 @@ async function probe(browser: Browser) {
   return { page, got };
 }
 
-describe.skipIf(!IMAGE || !dockerCli.which())("launch() on macOS against the real Clearcote image", () => {
+describe.skipIf(!IMAGE || !dockerCli.which())("launch() on macOS against the real CodeBrowser image", () => {
   beforeEach(() => {
     for (const k of ENV) saved[k] = process.env[k];
     for (const k of ENV) delete process.env[k];
     process.env[TEST_ONLY_ASSUME_MACOS] = "1";
-    process.env.CLEARCOTE_DOCKER_IMAGE = IMAGE;
+    process.env.CODE_BROWSER_DOCKER_IMAGE = IMAGE;
     const home = tempDir("cc-docker-live-home-"); // no saved licence key: the image's open engine
     process.env.HOME = home;
     process.env.USERPROFILE = home;
@@ -205,16 +205,16 @@ describe.skipIf(!IMAGE || !dockerCli.which())("launch() on macOS against the rea
     }
   }, 300_000);
 
-  // Licensed and proxied, against whatever image CLEARCOTE_TEST_DOCKER_IMAGE names (one from before sdk-0.40.0 too):
+  // Licensed and proxied, against whatever image CODE_BROWSER_TEST_DOCKER_IMAGE names (one from before sdk-0.40.0 too):
   // launch() must come back on the licensed engine with the proxy applied -- or refuse -- never on the open engine
   // with traffic going direct. The test checks both itself: the engine from the container's process list, the
   // traffic from the test proxy's log. The proxy wants a password from an image that can log in to one (sdk-0.40.0
-  // and newer); an older image gets one without. Needs CLEARCOTE_TEST_DOCKER_KEY (a real key) and, optionally,
-  // CLEARCOTE_TEST_DOCKER_CACHE_VOLUME (a scratch volume for the licensed engine).
-  const KEY = process.env.CLEARCOTE_TEST_DOCKER_KEY;
+  // and newer); an older image gets one without. Needs CODE_BROWSER_TEST_DOCKER_KEY (a real key) and, optionally,
+  // CODE_BROWSER_TEST_DOCKER_CACHE_VOLUME (a scratch volume for the licensed engine).
+  const KEY = process.env.CODE_BROWSER_TEST_DOCKER_KEY;
   it.skipIf(!KEY)("a licensed, proxied launch is never downgraded", async () => {
-    if (saved.CLEARCOTE_DOCKER_CACHE_VOLUME === undefined && process.env.CLEARCOTE_TEST_DOCKER_CACHE_VOLUME) {
-      process.env.CLEARCOTE_DOCKER_CACHE_VOLUME = process.env.CLEARCOTE_TEST_DOCKER_CACHE_VOLUME;
+    if (saved.CODE_BROWSER_DOCKER_CACHE_VOLUME === undefined && process.env.CODE_BROWSER_TEST_DOCKER_CACHE_VOLUME) {
+      process.env.CODE_BROWSER_DOCKER_CACHE_VOLUME = process.env.CODE_BROWSER_TEST_DOCKER_CACHE_VOLUME;
     }
     const login = (await imageProtocol("docker", IMAGE!, true)) >= 2 ? ["cc-user", "p@ss:w rd"] : [];
     const tp = await startProxy(...login);
@@ -233,7 +233,7 @@ describe.skipIf(!IMAGE || !dockerCli.which())("launch() on macOS against the rea
         expect(tp.log()).toContain(`TUNNEL CONNECT example.com:443 ${login.length ? "logged-in" : "open"}`);
       } finally {
         await b.close();
-        delete process.env.CLEARCOTE_DOCKER_CACHE_VOLUME;
+        delete process.env.CODE_BROWSER_DOCKER_CACHE_VOLUME;
       }
       expect(containerExists(info.id)).toBe(false);
     } finally {

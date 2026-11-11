@@ -36,7 +36,7 @@ function keyFile(over: Record<string, unknown> = {}): string {
 
 afterEach(() => {
   for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
-  delete process.env.CLEARCOTE_OFFLINE_KEY;
+  delete process.env.CODE_BROWSER_OFFLINE_KEY;
   vi.restoreAllMocks();
 });
 
@@ -56,7 +56,7 @@ describe("offline key", () => {
 
   it.each([
     [{ expires_at: new Date(NOW.getTime() - day).toISOString() }, /expired/],
-    [{ format: "something-else" }, /not a Clearcote offline key/],
+    [{ format: "something-else" }, /not a CodeBrowser offline key/],
     [{ token: "no-dot" }, /no valid token/],
     [{ expires_at: "soon" }, /no valid expires_at/],
   ])("bad keys fail clearly (%o)", (over, msg) => {
@@ -81,15 +81,15 @@ describe("offline key", () => {
 
   it("offline mode needs a binary; the env var key counts too", () => {
     expect(() => requireOfflineBinary("/k.json", undefined, {})).toThrow(/executablePath/);
-    expect(() => requireOfflineBinary(undefined, undefined, { CLEARCOTE_OFFLINE_KEY: "/k.json" })).toThrow(OfflineKeyError);
-    expect(() => requireOfflineBinary("/k.json", "/opt/clearcote/chrome", {})).not.toThrow();
-    expect(() => requireOfflineBinary("/k.json", undefined, { CLEARCOTE_BINARY: "/opt/clearcote/chrome" })).not.toThrow();
+    expect(() => requireOfflineBinary(undefined, undefined, { CODE_BROWSER_OFFLINE_KEY: "/k.json" })).toThrow(OfflineKeyError);
+    expect(() => requireOfflineBinary("/k.json", "/opt/code-browser/chrome", {})).not.toThrow();
+    expect(() => requireOfflineBinary("/k.json", undefined, { CODE_BROWSER_BINARY: "/opt/code-browser/chrome" })).not.toThrow();
     expect(() => requireOfflineBinary(undefined, undefined, {})).not.toThrow(); // online mode: nothing to check
   });
 
   it("acquireLease with an offline key makes no network call, even with a licence key set", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline mode must not call the server"));
-    process.env.CLEARCOTE_OFFLINE_KEY = keyFile({ expires_at: new Date(Date.now() + 40 * day).toISOString() });
+    process.env.CODE_BROWSER_OFFLINE_KEY = keyFile({ expires_at: new Date(Date.now() + 40 * day).toISOString() });
     const lease = await acquireLease({ licenseKey: "cc_lic_" + "x".repeat(40) });
     expect(lease?.token).toBe("eyJwYXlsb2FkIjoxfQ.c2ln");
     expect(fetchSpy).not.toHaveBeenCalled();

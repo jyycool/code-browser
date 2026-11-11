@@ -3,9 +3,9 @@
 # and build `gn`. The same clang/lld is also the cross-compiler for the Windows target.
 # Run AFTER patches are applied. Idempotent.
 #
-#   WORK   working dir (default: ~/clearcote-build)
+#   WORK   working dir (default: ~/code-browser-build)
 set -euo pipefail
-WORK="${WORK:-$HOME/clearcote-build}"
+WORK="${WORK:-$HOME/code-browser-build}"
 SRC="$WORK/build/src"
 UG="$WORK/ungoogled-chromium"
 cd "$SRC"

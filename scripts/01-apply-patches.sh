@@ -2,7 +2,7 @@
 # 01 — apply the patch series to the pruned Chromium source tree, in order:
 #       1. ungoogled-chromium base            (de-Google)                     — both targets
 #       2. ungoogled-chromium-windows overlay (Windows build patches)         — both targets
-#       3. Clearcote patch set (this repo's patches/, listed in patches/series) — both targets
+#       3. CodeBrowser patch set (this repo's patches/, listed in patches/series) — both targets
 #
 # Since Chromium 150 ONE patched tree builds both binaries: the released Windows and Linux builds
 # come from the same source tree, so the overlay and the whole series apply for either TARGET.
@@ -12,11 +12,11 @@
 # plain unified diff (-p1) against the pinned revision in UPSTREAM_REVISION.
 #
 #   TARGET  windows | linux   (default: windows)
-#   WORK    working dir (default: ~/clearcote-build)
+#   WORK    working dir (default: ~/code-browser-build)
 #   REPO    path to this repository (default: parent of this script)
 set -euo pipefail
 TARGET="${TARGET:-windows}"
-WORK="${WORK:-$HOME/clearcote-build}"
+WORK="${WORK:-$HOME/code-browser-build}"
 REPO="${REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
 SRC="$WORK/build/src"
 UG="$WORK/ungoogled-chromium"
@@ -34,8 +34,8 @@ python3 "$PATCHES_PY" apply "$SRC" "$UG/patches"
 echo "  applying: ungoogled-chromium-windows overlay"
 python3 "$PATCHES_PY" apply "$SRC" "$UGW/patches"
 
-# 3. Clearcote patch set, in patches/series order (-p1), both targets.
-echo "  applying: Clearcote patch set (patches/series, target=$TARGET)"
+# 3. CodeBrowser patch set, in patches/series order (-p1), both targets.
+echo "  applying: CodeBrowser patch set (patches/series, target=$TARGET)"
 while IFS= read -r line; do
   p="${line%%#*}"; p="$(printf '%s' "$p" | tr -d '[:space:]')"; [ -z "$p" ] && continue
   echo "    $p"
@@ -46,8 +46,8 @@ done < "$REPO/patches/series"
 # to the tree; if one silently rejected, fuzzed into the wrong place, or partially applied, this
 # catches it HERE — before a single object file is built — instead of quietly shipping a
 # de-stealthed binary. Same gate the release runbook re-runs against the packaged artifact.
-# See docs/en/PATCH-INTEGRITY.md. Set CLEARCOTE_SKIP_PATCH_VERIFY=1 only for local debugging.
-if [ "${CLEARCOTE_SKIP_PATCH_VERIFY:-0}" != "1" ]; then
+# See docs/en/PATCH-INTEGRITY.md. Set CODE_BROWSER_SKIP_PATCH_VERIFY=1 only for local debugging.
+if [ "${CODE_BROWSER_SKIP_PATCH_VERIFY:-0}" != "1" ]; then
   echo "  verifying: patch integrity (reverse-apply gate)"
   python3 "$REPO/scripts/verify_patches.py" --tree "$SRC" --target "$TARGET"
 fi

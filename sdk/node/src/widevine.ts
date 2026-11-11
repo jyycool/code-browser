@@ -1,27 +1,27 @@
 // Widevine CDM fetch + persistent-profile seeding (Windows + Linux).
 //
-// clearcote is a 100%-open-source build: it ships the EME/Widevine *plumbing* (enable_widevine=true)
+// code-browser is a 100%-open-source build: it ships the EME/Widevine *plumbing* (enable_widevine=true)
 // but NOT Google's proprietary CDM binary (that blob can't live in a FOSS package). This module fetches
 // the CDM from Google's component server at runtime — exactly how a real Chrome receives it via the
 // component updater — so requestMediaKeySystemAccess('com.widevine.alpha') resolves (DRM plays, and the
 // EME surface matches a real Chrome instead of a no-Widevine tell).
 //
-//   import { fetchWidevine, launchPersistentContext } from "clearcote";
-//   await fetchWidevine();                                  // download + verify into ~/.clearcote
+//   import { fetchWidevine, launchPersistentContext } from "code-browser";
+//   await fetchWidevine();                                  // download + verify into ~/.code-browser
 //   const ctx = await launchPersistentContext("profile", { widevine: true });  // seeds + enables it
 //
 // WHEN IT IS ON (since 0.48.0). A licensed launch (a licence key resolved: the launch that selects the
 // PRO build, which claims the Google Chrome brand) on an engine with --widevine-cdm-path (r32+) loads the
-// CDM by default; a free launch keeps it opt-in. `widevine: false` or CLEARCOTE_WIDEVINE=0 turns it off,
-// `widevine: true` or CLEARCOTE_WIDEVINE=1 on for any launch; an explicit option wins over the
+// CDM by default; a free launch keeps it opt-in. `widevine: false` or CODE_BROWSER_WIDEVINE=0 turns it off,
+// `widevine: true` or CODE_BROWSER_WIDEVINE=1 on for any launch; an explicit option wins over the
 // environment (see widevineMode). The default is FAIL-SOFT and never waits on the network when a CDM is
 // cached: a cached CDM is used at once (a stale one is refreshed in the background). Only the very first
-// launch, with nothing cached, waits for the download, at most CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS (default
+// launch, with nothing cached, waits for the download, at most CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS (default
 // 15, clamped to 1-600); when that fails the launch goes on without Widevine and says so once per process.
 // The default path prints nothing else. A launch that ASKED for Widevine keeps its old behaviour (a note,
 // unless quiet, and no DRM).
 //
-// The CDM is cached (CLEARCOTE_WIDEVINE_DIR, else ~/.clearcote/WidevineCdm); Google is asked for a newer
+// The CDM is cached (CLEARCOTE_WIDEVINE_DIR, else ~/.code-browser/WidevineCdm); Google is asked for a newer
 // one at most once a day, and a failed check counts as one (the cached CDM keeps working). Installs take
 // the SDK's install lock in the cache directory and land with download.ts's rename (retried on Windows
 // while a scanner holds the fresh tree), so concurrent first launches never see a half-extracted CDM. The
@@ -40,9 +40,9 @@ import { hostArch } from "./release.js";
 import { warnOnce } from "./warnings.js";
 
 /** 1/true/yes/on forces Widevine on, 0/false/no/off off; an explicit `widevine` option wins over it. */
-export const WIDEVINE_ENV = "CLEARCOTE_WIDEVINE";
+export const WIDEVINE_ENV = "CODE_BROWSER_WIDEVINE";
 /** How long a DEFAULT (not requested) launch waits for a first download, in seconds (clamped to 1-600). */
-export const TIMEOUT_ENV = "CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS";
+export const TIMEOUT_ENV = "CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS";
 export const DEFAULT_TIMEOUT_SECONDS = 15;
 export const MIN_TIMEOUT_SECONDS = 1;
 export const MAX_TIMEOUT_SECONDS = 600;
@@ -120,7 +120,7 @@ export function omahaUserAgent(platform: string = process.platform): string {
 }
 
 export interface WidevineOptions {
-  /** Destination root (default CLEARCOTE_WIDEVINE_DIR, else ~/.clearcote/WidevineCdm). */
+  /** Destination root (default CLEARCOTE_WIDEVINE_DIR, else ~/.code-browser/WidevineCdm). */
   dest?: string;
   /** Suppress progress logging. */
   quiet?: boolean;
@@ -133,11 +133,11 @@ export interface WidevineOptions {
 }
 
 function log(quiet: boolean | undefined, msg: string): void {
-  if (!quiet) process.stderr.write(`[clearcote] [widevine] ${msg}\n`);
+  if (!quiet) process.stderr.write(`[code-browser] [widevine] ${msg}\n`);
 }
 
 function cacheRoot(): string {
-  return process.env.CLEARCOTE_WIDEVINE_DIR || path.join(os.homedir(), ".clearcote", "WidevineCdm");
+  return process.env.CLEARCOTE_WIDEVINE_DIR || path.join(os.homedir(), ".code-browser", "WidevineCdm");
 }
 
 /** Minimal Omaha v3.1 update check for the current OS's Widevine CDM (version 0.0.0.0 -> latest). */
@@ -146,7 +146,7 @@ export function omahaRequestBody(): unknown {
   return {
     request: {
       "@os": atOs,
-      "@updater": "clearcote",
+      "@updater": "code-browser",
       acceptformat: "crx3",
       protocol: "3.1",
       arch,
@@ -354,7 +354,7 @@ async function install(root: string, url: string, sha256: string, version: strin
 
 /**
  * Download + verify the current-OS x64 Widevine CDM into `dest` (default CLEARCOTE_WIDEVINE_DIR, else
- * ~/.clearcote/WidevineCdm) as <version>/. Returns the versioned CDM directory (manifest.json +
+ * ~/.code-browser/WidevineCdm) as <version>/. Returns the versioned CDM directory (manifest.json +
  * _platform_specific/<subdir>/<filename>).
  *
  * Always asks Google's update server for the latest version; the download is skipped when that version is
@@ -401,7 +401,7 @@ export async function resolveCdm(opts: WidevineOptions = {}): Promise<string> {
 
 /**
  * `"explicit"`, `"default"` or `"off"` for a launch. `option` (the `widevine` launch option) wins: true ->
- * explicit, false -> off. Unset follows CLEARCOTE_WIDEVINE (1/true/yes/on -> explicit, 0/false/no/off ->
+ * explicit, false -> off. Unset follows CODE_BROWSER_WIDEVINE (1/true/yes/on -> explicit, 0/false/no/off ->
  * off). Otherwise a licensed launch (a licence key resolved, which selects the PRO build) gets the default
  * and a free launch stays off. Same rules in the Python and .NET SDKs.
  */
@@ -413,7 +413,7 @@ export function widevineMode(option: boolean | undefined | null, licensed: boole
   return licensed ? "default" : "off";
 }
 
-/** How long a default launch waits for a first download: CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS clamped to 1-600, else 15
+/** How long a default launch waits for a first download: CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS clamped to 1-600, else 15
  * (an unparsable or non-positive value too). */
 export function timeoutSeconds(env: NodeJS.ProcessEnv = process.env): number {
   const raw = String(env[TIMEOUT_ENV] ?? "").trim();
@@ -457,7 +457,7 @@ function shortReason(e: unknown): string {
 function warnDefault(reason: string, quiet?: boolean): void {
   warnOnce(WARN_CODE,
     `Widevine is on by default for licensed launches, but the CDM could not be loaded (${reason}); ` +
-      "launching without it. Set CLEARCOTE_WIDEVINE=0 (or pass widevine: false) to stop trying.",
+      "launching without it. Set CODE_BROWSER_WIDEVINE=0 (or pass widevine: false) to stop trying.",
     quiet);
 }
 

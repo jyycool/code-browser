@@ -16,7 +16,7 @@ import { gunzipSync } from "node:zlib";
 const stub = vi.hoisted(() => ({
   // PROFILE_DIR is read once, at import: point it somewhere empty before the SDK loads, so no saved
   // profile on this machine (a real auto.json included) can change what these tests see.
-  savedProfileDir: ((prev) => { process.env.CLEARCOTE_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CLEARCOTE_PROFILE_DIR),
+  savedProfileDir: ((prev) => { process.env.CODE_BROWSER_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CODE_BROWSER_PROFILE_DIR),
   launches: [] as Array<{ kind: "persistent" | "incognito"; userDataDir?: string; opts: Record<string, unknown> }>,
   spawns: [] as string[][],
   fontDirs: [] as unknown[],  // the fontDirs argument of every fontLaunchEnv call
@@ -127,12 +127,12 @@ import { removeLiveTokenFiles, resolveLicenseKey } from "../src/license.js";
 import { installedPlaywrightDisabledFeatures, PAGE_VISIBLE_PLAYWRIGHT_FEATURES, PLAYWRIGHT_DISABLED_FEATURES } from "../src/launchopts.js";
 
 afterAll(() => {
-  if (stub.savedProfileDir === undefined) delete process.env.CLEARCOTE_PROFILE_DIR;
-  else process.env.CLEARCOTE_PROFILE_DIR = stub.savedProfileDir;
+  if (stub.savedProfileDir === undefined) delete process.env.CODE_BROWSER_PROFILE_DIR;
+  else process.env.CODE_BROWSER_PROFILE_DIR = stub.savedProfileDir;
 });
 
-const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY",
-  "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY",
+  "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"] as const;
 let savedEnv: Record<string, string | undefined>;
 let root: string;
 let temp: string; // the TEMP every launch sees: anything left in it after a test leaked
@@ -154,8 +154,8 @@ beforeEach(() => {
   process.env.TEMP = temp;
   process.env.TMP = temp;
   process.env.TMPDIR = temp;
-  process.env.CLEARCOTE_NO_WARN = "1";
-  for (const k of ["CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"]) delete process.env[k];
+  process.env.CODE_BROWSER_NO_WARN = "1";
+  for (const k of ["CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"]) delete process.env[k];
   stub.launches.length = 0;
   stub.spawns.length = 0;
   stub.fontDirs.length = 0;
@@ -189,7 +189,7 @@ it("harness: no licence is visible, so no launch here can take a real lease", ()
 
 describe("profile: \"auto\" on every entry point", () => {
   // Regression: launch() is profile-backed by default (0.23.0), and launchPersistentContext loaded
-  // "auto" as a SAVED profile name -> ENOENT ~/.clearcote/profiles/auto.json. Only the incognito
+  // "auto" as a SAVED profile name -> ENOENT ~/.code-browser/profiles/auto.json. Only the incognito
   // path (ephemeralProfile: false) knew "auto" was special.
   it("launch() — the default ephemeral profile", async () => {
     const browser = await launch({ ...base(), profile: "auto" });
@@ -242,7 +242,7 @@ describe("throwaway profiles are never left behind", () => {
   it("launch() removes its profile when the launch fails", async () => {
     stub.failLaunch = new Error("browser failed to start");
     await expect(launch(base())).rejects.toThrow("browser failed to start");
-    expect(stub.launches.at(-1)!.userDataDir).toMatch(/clearcote-run-/);
+    expect(stub.launches.at(-1)!.userDataDir).toMatch(/code-browser-run-/);
     expect(leftovers()).toEqual([]);
   });
 
@@ -254,7 +254,7 @@ describe("throwaway profiles are never left behind", () => {
   it("launchAgent() removes its profile when the launch fails", async () => {
     stub.failLaunch = new Error("browser failed to start");
     await expect(launchAgent(base())).rejects.toThrow("browser failed to start");
-    expect(stub.launches.at(-1)!.userDataDir).toMatch(/clearcote-agent-/);
+    expect(stub.launches.at(-1)!.userDataDir).toMatch(/code-browser-agent-/);
     expect(leftovers()).toEqual([]);
   });
 
@@ -277,7 +277,7 @@ describe("throwaway profiles are never left behind", () => {
     expect(existsSync(udd)).toBe(true);
   });
 
-  // Regression (0.35.0/0.36.0 release smoke on Linux: a clearcote-run-* directory left in /tmp per
+  // Regression (0.35.0/0.36.0 release smoke on Linux: a code-browser-run-* directory left in /tmp per
   // run). The profile was deleted on the "close" event, while the browser was still shutting down;
   // Chrome then wrote the directory back (Default/, Local State) after the cleanup had marked itself
   // done, so nothing ever retried.
@@ -343,7 +343,7 @@ describe("throwaway profiles are never left behind", () => {
     expect(existsSync(join(precious, "SingletonSocket"))).toBe(true);
   });
 
-  // A licensed launch writes a run-token file for the engine (<tmp>/clearcote-rt-*.tok) before the
+  // A licensed launch writes a run-token file for the engine (<tmp>/code-browser-rt-*.tok) before the
   // browser starts. When the browser then failed to start, the lease was released but the file stayed
   // in the temp directory until the process exited (a paid lease is shared, so its stop() only drops a
   // reference) — and for good when the process was killed.
@@ -374,7 +374,7 @@ describe("throwaway profiles are never left behind", () => {
     }
   });
 
-  // SC 283: the release-test harness left one clearcote-rt-*.tok per run. A step timed out with its
+  // SC 283: the release-test harness left one code-browser-rt-*.tok per run. A step timed out with its
   // persistent context open, then the harness called process.exit(): no "close", and "beforeExit"
   // (the only hook that removed token files) never runs on process.exit() or a signal.
   describe("licensed: no run-token file is left behind", () => {
@@ -389,7 +389,7 @@ describe("throwaway profiles are never left behind", () => {
     });
     afterEach(() => { globalThis.fetch = realFetch; });
     const licensed = () => ({ ...base(), licenseKey: `cc_lic_pro_${Date.now()}_${Math.random().toString(36).slice(2)}`, licenseApiBase: "http://test.local" });
-    const tokens = () => leftovers().filter((n) => n.startsWith("clearcote-rt-"));
+    const tokens = () => leftovers().filter((n) => n.startsWith("code-browser-rt-"));
     const envFile = () => (stub.launches.at(-1)!.opts.env as Record<string, string>).CLEARCOTE_RUN_TOKEN_FILE;
 
     it("launchPersistentContext(): close() removes it", async () => {
@@ -424,10 +424,10 @@ describe("throwaway profiles are never left behind", () => {
   // leaves behind — and a licensed launch had taken a lease by then.
   it.each([
     ["executablePath", (missing: string) => launch({ ...base(), executablePath: missing })],
-    ["CLEARCOTE_BINARY", (missing: string) => { process.env.CLEARCOTE_BINARY = missing; return launch({ headless: false, quiet: true }); }],
+    ["CODE_BROWSER_BINARY", (missing: string) => { process.env.CODE_BROWSER_BINARY = missing; return launch({ headless: false, quiet: true }); }],
   ])("a missing %s is refused before any browser is started", async (_name, start) => {
     const missing = join(root, "nowhere", process.platform === "win32" ? "chrome.exe" : "chrome");
-    await expect(start(missing)).rejects.toThrow(/Clearcote binary not found/);
+    await expect(start(missing)).rejects.toThrow(/CodeBrowser binary not found/);
     expect(stub.launches).toEqual([]);
     expect(leftovers()).toEqual([]);
   });

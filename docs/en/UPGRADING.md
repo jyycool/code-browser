@@ -1,4 +1,4 @@
-# Upgrading clearcote: Chromium 149 → 150 — Canonical Plan
+# Upgrading code-browser: Chromium 149 → 150 — Canonical Plan
 
 > **Status (151):** the open build moves to Chromium 151 (`151.0.7922.108`, `v0.1.0-pre.25`). What
 > changes for users: the build is now **official** (`is_official_build=true`, ThinLTO + PGO, a
@@ -25,7 +25,7 @@
 > upstream + `patches/series` apply against the built tree — edits made in the tree but never
 > captured in a patch are what that check finds.
 
-`$BOX` = build host (SSH). All build work happens on `$BOX` only; `gh`/`git push`/releases run from the local Windows PC. Repo clone referenced as `/tmp/ccrepo`; build tree as `~/clearcoat/build/src`. This plan generalizes to any major bump (N → N+1).
+`$BOX` = build host (SSH). All build work happens on `$BOX` only; `gh`/`git push`/releases run from the local Windows PC. Repo clone referenced as `/tmp/ccrepo`; build tree as `~/code-browser/build/src`. This plan generalizes to any major bump (N → N+1).
 
 ---
 
@@ -53,7 +53,7 @@ Net: the build is the long pole in wall-clock; the porting is the long pole in *
 |---|---|---|
 | **ungoogled-chromium 150 tag** | none (latest `149.0.7827.114-1`) | **GATE.** See decision tree below. |
 | **ungoogled-chromium-windows 150 overlay** | none (latest `149.0.7827.114-1.1`) | Lands hours-to-days after the core tag. Confirm it exists before pinning `UGW_TAG`. |
-| **adryfish 150** | dead end (stuck at 144) | **Ignore.** Do not wait on it. The clearcote-on-149 stack IS the authoritative base; re-port `142→150` forward from clearcote, not from adryfish. |
+| **adryfish 150** | dead end (stuck at 144) | **Ignore.** Do not wait on it. The code-browser-on-149 stack IS the authoritative base; re-port `142→150` forward from code_browser, not from adryfish. |
 | **Chromium 150 tarball** | M150 branch = **7846**; Dev is `150.0.7846.4`; stable will be `150.0.7846.NN` | Get exact version/hash from ungoogled's `chromium_version.txt` + `downloads.ini` once their tag lands — NOT from chromiumdash guesses. |
 | **Windows SDK 10.0.26100 / xwin toolchain** | present on `$BOX` | **REUSE.** Decoupled from Chromium. Only overlay a newer header if 150 forces it (149 already needed a `UIAutomationCore.h` overlay — re-check). |
 
@@ -61,7 +61,7 @@ Net: the build is the long pole in wall-clock; the porting is the long pole in *
 
 - **If ungoogled-150 tag exists** → GO. Pull the exact stable version from their `chromium_version.txt`, proceed to §4.
 - **If it does NOT exist yet and the bump is not urgent** → **WAIT.** Diffing against Dev wastes effort (anchors move under you). Re-check the [tags page](https://github.com/ungoogled-software/ungoogled-chromium/tags) and the 150 tracking issue weekly.
-- **If it does NOT exist and you must move now** → **port the ungoogled deltas yourself**: take the upstream Chromium `150.0.7846.NN -lite` tarball directly, apply ungoogled's `master`-branch patch set (de-Google) against it manually, then the windows overlay, then clearcote. Higher effort and you eat the ungoogled-rebase risk yourself — only do this if the schedule truly demands it.
+- **If it does NOT exist and you must move now** → **port the ungoogled deltas yourself**: take the upstream Chromium `150.0.7846.NN -lite` tarball directly, apply ungoogled's `master`-branch patch set (de-Google) against it manually, then the windows overlay, then code-browser. Higher effort and you eat the ungoogled-rebase risk yourself — only do this if the schedule truly demands it.
 
 > Cadence note: this is the **last comfortable (~4-week) bump**. Chrome moves to a **two-week** milestone cadence from M153 (~2026-09-08). Consider scripting the re-port now.
 
@@ -85,7 +85,7 @@ Load-bearing pins are **bold** — these actually select source / are trust anch
 - [ ] `scripts/05-package.sh` `V` default `149.0.7827.114` → new (or pass `V=` inline); update the manifest comment
 - [ ] **`sdk/node/src/release.ts`** `tag`, `version`/`asset`/`url`, **recompute `sha256` (zip) + `exeSha256` (chrome.exe) + `size`** from the 150 artifact
 - [ ] `sdk/node/package.json` `version` → bump (independent of Chromium)
-- [ ] **`sdk/python/clearcote/release.py`** `tag`/`version`/`asset`/`url`, **recompute `sha256`/`exe_sha256`/`size`** — byte-identical to node
+- [ ] **`sdk/python/code_browser/release.py`** `tag`/`version`/`asset`/`url`, **recompute `sha256`/`exe_sha256`/`size`** — byte-identical to node
 - [ ] `sdk/python/pyproject.toml` `version` → bump
 
 **Docs / cosmetic:**
@@ -100,13 +100,13 @@ Load-bearing pins are **bold** — these actually select source / are trust anch
 
 ## 4. Step-by-Step Upgrade
 
-All on `$BOX`, in the existing `~/clearcoat/build` tree (incremental — do **not** nuke `out/Default`).
+All on `$BOX`, in the existing `~/code-browser/build` tree (incremental — do **not** nuke `out/Default`).
 
 1. **Pin sources** — bump `UG_TAG`/`UGW_TAG`/sub-DEPS SHAs (§3) once the 150 tags are confirmed live.
 2. **Fetch + unpack (`00-fetch-source.sh`)** — clone/checkout ungoogled-150 + windows-150 overlay; `downloads.py retrieve+unpack` the exact 150 tarball into `build/src`; `prune_binaries.py` with `pruning.list`; `fetch_dep` the two Windows sub-DEPS at the 150-pinned SHAs.
 3. **Restore MIDL `.tlb` files** — pruning deletes ~48 checked-in `.tlb` under `third_party/win_build_output`; **re-derive the 150 set** (it can shift) and restore from the 150 tarball. Cross MIDL can't regenerate them.
-4. **Apply patch layers (`01-apply-patches.sh`)** — (1) ungoogled base, (2) windows overlay, (3) clearcote `patches/` series. Expect rejects in layer 3 → §5.
-5. **Reuse the toolchain — do NOT refetch.** Keep `~/clearcoat/wintoolchain` (MSVC + SDK 10.0.26100, `SetEnv.x64.json`, ciopfs include mount), the winsdk, host sysroot, host node. **Re-check only:** does 150 need a newer SDK header overlay? (149 needed `UIAutomationCore.h` + a hand-defined CLSID.)
+4. **Apply patch layers (`01-apply-patches.sh`)** — (1) ungoogled base, (2) windows overlay, (3) code-browser `patches/` series. Expect rejects in layer 3 → §5.
+5. **Reuse the toolchain — do NOT refetch.** Keep `~/code-browser/wintoolchain` (MSVC + SDK 10.0.26100, `SetEnv.x64.json`, ciopfs include mount), the winsdk, host sysroot, host node. **Re-check only:** does 150 need a newer SDK header overlay? (149 needed `UIAutomationCore.h` + a hand-defined CLSID.)
 6. **Let the fresh in-tree toolchain come with 150 (`02-host-toolchain.sh`)** — clang/lld, Rust, gn are pinned BY the 150 checkout and refetch automatically. **Update the `clang_rt.builtins` drop path**: the clang major dir will likely bump with 150's clang roll → drop `clang_rt.builtins-x86_64.lib` into `third_party/llvm-build/Release+Asserts/lib/clang/<NEW_N>/lib/windows/`.
 7. **Configure (`04-configure-build.sh`)** — `ulimit -n 1048576`; tree clang/lld on PATH; `DEPOT_TOOLS_WIN_TOOLCHAIN=1` (NOT 0), `GYP_MSVS_OVERRIDE_PATH`, `WINDOWSSDKDIR`, `GYP_MSVS_VERSION=2026`, `WDK_DIR=`; copy validated `args.gn`; `gn gen out/Default` (fix any flag-drift errors here, §3).
 8. **Build** — §6 (single detached `ninja -k 0`).
@@ -139,7 +139,7 @@ All on `$BOX`, in the existing `~/clearcoat/build` tree (incremental — do **no
 - **`040` `FontFaceSet` IDL** changed in 150 (`[LegacyNoInterfaceObject]` removed → global constructor); re-check font-enumeration hooks. Also `FontFaceCreationParams` / `GetOrCreateFontPlatformData` churn.
 - **`060` paths:** Skia (`SkImages::RasterFromData`, `PaintImage::GetNextContentId`) + `partition_alloc::MaxDirectMapped()` include path (already moved once — likely again).
 - **`100` webrtc** is a *separately-rolled* dep — a 150 bump pulls a different libwebrtc revision; the `AddAddress(...)` arg list + `IceCandidateType::kSrflx`/`ICE_TYPE_PREFERENCE_SRFLX` and `P2PPortAllocator::Config` fields (`enable_multiple_routes`, `enable_nonproxied_udp`) can move independently. `110` (`v8/src/inspector`) same caveat — a silent signature change here re-exposes the `Runtime.enable` automation vector (correctness, not compile, regression).
-- **Storage/quota note:** 150 rewrites IndexedDB onto SQLite — not in the clearcote stack today, but if any patch grows into storage/quota surfaces (e.g. the storage-quota spoof), expect collisions.
+- **Storage/quota note:** 150 rewrites IndexedDB onto SQLite — not in the code-browser stack today, but if any patch grows into storage/quota surfaces (e.g. the storage-quota spoof), expect collisions.
 
 ---
 
@@ -147,7 +147,7 @@ All on `$BOX`, in the existing `~/clearcoat/build` tree (incremental — do **no
 
 - **One detached build, `-k 0`:** `ninja -C out/Default -k 0 chrome` run detached on `$BOX` (e.g. `setsid`/`nohup`/`tmux`). `-k 0` keeps going past the first error so **all** compile failures surface in one pass instead of one-per-rebuild — invaluable right after a reject-heavy port.
 - **Incremental only.** Re-port onto the **existing** `out/Default`. Never a clean ~2-day rebuild mid-iteration (project rule).
-- **One ninja, one out dir, no concurrency.** Coordination rule: never run concurrent clearcote builds across sessions/boxes. One out dir, one ninja, build detached.
+- **One ninja, one out dir, no concurrency.** Coordination rule: never run concurrent code-browser builds across sessions/boxes. One out dir, one ninja, build detached.
 - **Raise FD limit before launching:** `ulimit -n 1048576` for both ciopfs and ninja, or deep WinRT include chains × parallel jobs blow past 1024 → "Too many open files".
 - **Keep ccache/reclient if available** — unchanged TUs (most of the tree) hit cache; only re-ported files recompile.
 - **Overlap the long build with nothing-blocking work:** while the first full build runs, do the §3 doc/SDK pin edits, draft the release notes, and pre-stage the validation scripts. Don't sit idle on ninja.
@@ -203,7 +203,7 @@ A clean build is **necessary but not sufficient** — Skia Graphite can silently
 - No clean rebuild mid-iteration (it's the ~2-day path; use incremental ninja).
 - No concurrent ninjas / second out dir across sessions or boxes.
 - Don't start the port against Chromium Dev — wait for the ungoogled 150 tag (§2).
-- Don't wait on adryfish — it's abandoned for current versions; re-port clearcote-on-149 forward.
+- Don't wait on adryfish — it's abandoned for current versions; re-port code-browser-on-149 forward.
 - Don't refetch the Windows SDK/MSVC toolchain — reuse it; only the in-tree clang/rust/gn come fresh with the checkout.
 - Don't ship on a clean compile — Skia Graphite can silently kill canvas/WebGL/font noise; validate the defense, not just the build.
 - Don't drop any stealth/anti-fingerprint patch to clear a reject.

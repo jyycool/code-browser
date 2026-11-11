@@ -3,7 +3,7 @@ chosen on one SDK must be the persona chosen on another for the same host and ke
 
 import pytest
 
-from clearcote._profilelib import (
+from code_browser._profilelib import (
     DEFAULT_MAX_ENCODED,
     eligible,
     gpu_vendor_class,

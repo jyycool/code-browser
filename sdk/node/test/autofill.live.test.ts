@@ -1,10 +1,10 @@
 /**
  * LIVE: a form submitted in a launchPersistentContext() profile is remembered in Default/Web Data, as
  * Chrome does. The engine's own defaults (r54) have autofill off and save 0 rows; the SDK seeds it on
- * (./src/autofillpref.ts). Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is
- * available for a PRO build: CLEARCOTE_LICENSE_KEY or ~/.clearcote/license.key).
+ * (./src/autofillpref.ts). Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is
+ * available for a PRO build: CLEARCOTE_LICENSE_KEY or ~/.code-browser/license.key).
  *
- *   CLEARCOTE_LIVE_ENGINE=/path/to/chrome npx vitest run test/autofill.live.test.ts
+ *   CODE_BROWSER_LIVE_ENGINE=/path/to/chrome npx vitest run test/autofill.live.test.ts
  *
  * Mirrors sdk/python/tests/test_autofill_live.py.
  */
@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { launchPersistentContext } from "../src/index.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 
 const FORM = `<!doctype html><form method="post" action="/done">
 <input name="name" autocomplete="name"><input name="email" type="email" autocomplete="email">

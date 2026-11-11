@@ -7,9 +7,9 @@ import asyncio
 
 import pytest
 
-import clearcote
-from clearcote import _colorscheme
-from clearcote._colorscheme import (default_color_scheme, engine_decides_color_scheme,
+import code_browser
+from code_browser import _colorscheme
+from code_browser._colorscheme import (default_color_scheme, engine_decides_color_scheme,
                                     install_color_scheme_default,
                                     install_color_scheme_default_async)
 
@@ -21,7 +21,7 @@ def _no_licence(monkeypatch, tmp_path):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
-    for k in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD"):
+    for k in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD"):
         monkeypatch.delenv(k, raising=False)
 
 
@@ -78,9 +78,9 @@ class _Capture:
         class _PW:
             chromium = _Chromium()
 
-        monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-        monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
-        monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+        monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+        monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
+        monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
         return self
 
 
@@ -143,21 +143,21 @@ def test_async_browser_wrapper_defaults_new_pages_and_contexts():
 
 def test_persistent_context_on_an_r32_engine_turns_the_emulation_off(monkeypatch, tmp_path):
     cap = _Capture().install(monkeypatch)
-    clearcote.launch_persistent_context(
+    code_browser.launch_persistent_context(
         str(tmp_path / "prof"), executable_path=_engine(tmp_path, r32=True), headless=False, quiet=True)
     assert cap.context_kwargs["color_scheme"] == "null"
 
 
 def test_persistent_context_on_an_older_engine_is_unchanged(monkeypatch, tmp_path):
     cap = _Capture().install(monkeypatch)
-    clearcote.launch_persistent_context(
+    code_browser.launch_persistent_context(
         str(tmp_path / "prof"), executable_path=_engine(tmp_path, r32=False), headless=False, quiet=True)
     assert "color_scheme" not in cap.context_kwargs
 
 
 def test_persistent_context_keeps_the_callers_color_scheme(monkeypatch, tmp_path):
     cap = _Capture().install(monkeypatch)
-    clearcote.launch_persistent_context(
+    code_browser.launch_persistent_context(
         str(tmp_path / "prof"), executable_path=_engine(tmp_path, r32=True), headless=False,
         color_scheme="dark", quiet=True)
     assert cap.context_kwargs["color_scheme"] == "dark"
@@ -165,13 +165,13 @@ def test_persistent_context_keeps_the_callers_color_scheme(monkeypatch, tmp_path
 
 def test_default_launch_goes_through_the_throwaway_profile_with_the_default(monkeypatch, tmp_path):
     cap = _Capture().install(monkeypatch)
-    clearcote.launch(executable_path=_engine(tmp_path, r32=True), headless=False, quiet=True)
+    code_browser.launch(executable_path=_engine(tmp_path, r32=True), headless=False, quiet=True)
     assert cap.context_kwargs["color_scheme"] == "null"
 
 
 def test_incognito_launch_defaults_new_pages_on_an_r32_engine(monkeypatch, tmp_path):
     cap = _Capture().install(monkeypatch)
-    browser = clearcote.launch(executable_path=_engine(tmp_path, r32=True), ephemeral_profile=False,
+    browser = code_browser.launch(executable_path=_engine(tmp_path, r32=True), ephemeral_profile=False,
                                headless=False, quiet=True)
     assert "color_scheme" not in cap.launch_kwargs, "color_scheme is not a chromium.launch option"
     assert browser.new_page().kw == {"no_viewport": True, "color_scheme": "null"}
@@ -180,7 +180,7 @@ def test_incognito_launch_defaults_new_pages_on_an_r32_engine(monkeypatch, tmp_p
 
 def test_incognito_launch_on_an_older_engine_is_unchanged(monkeypatch, tmp_path):
     _Capture().install(monkeypatch)
-    browser = clearcote.launch(executable_path=_engine(tmp_path, r32=False), ephemeral_profile=False,
+    browser = code_browser.launch(executable_path=_engine(tmp_path, r32=False), ephemeral_profile=False,
                                headless=False, quiet=True)
     assert browser.new_page().kw == {"no_viewport": True}
 
@@ -222,7 +222,7 @@ class _FakeConnectedBrowser:
 
 
 def test_existing_context_gets_the_emulation_off_per_page_now_and_on_new_page():
-    from clearcote._colorscheme import install_color_scheme_default_on_context
+    from code_browser._colorscheme import install_color_scheme_default_on_context
     open_page, closed_page = _FakePage(), _FakePage(closed=True)
     ctx = _FakeContext([open_page, closed_page])
     install_color_scheme_default_on_context(ctx)  # the closed page raises inside; ignored
@@ -233,7 +233,7 @@ def test_existing_context_gets_the_emulation_off_per_page_now_and_on_new_page():
 
 
 def test_connected_browser_defaults_new_pages_contexts_and_the_existing_context():
-    from clearcote._colorscheme import install_color_scheme_default_connected
+    from code_browser._colorscheme import install_color_scheme_default_connected
     b = _FakeConnectedBrowser()
     install_color_scheme_default_connected(b)
     b.new_page()
@@ -245,7 +245,7 @@ def test_connected_browser_defaults_new_pages_contexts_and_the_existing_context(
 
 
 def test_async_connected_browser_twin():
-    from clearcote._colorscheme import install_color_scheme_default_connected_async
+    from code_browser._colorscheme import install_color_scheme_default_connected_async
 
     class _AsyncPage(_FakePage):
         async def emulate_media(self, **kw):

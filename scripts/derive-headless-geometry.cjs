@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Re-derive the headless screen-profile table used by all three SDKs
- * (sdk/python/clearcote/_geometry.py, sdk/node/src/geometry.ts, sdk/dotnet/src/Clearcote/Geometry.cs)
+ * (sdk/python/code_browser/_geometry.py, sdk/node/src/geometry.ts, sdk/dotnet/src/CodeBrowser/Geometry.cs)
  * from the real captures in `audit_profiles`.
  *
  * READ-ONLY: issues SELECTs and nothing else. `audit_profiles` is the ground-truth corpus every

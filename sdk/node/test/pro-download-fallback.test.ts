@@ -16,7 +16,7 @@ const proPlatform = process.platform === "win32" || process.platform === "linux"
 const OLD = "pro-155.0.8059.39-r48";
 const NEW = "pro-155.0.8059.39-r50";
 const OTHER_MAJOR = "pro-154.0.8037.57-r41";
-const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CLEARCOTE_LICENSE_API", "CLEARCOTE_RELEASE_CHANNEL"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_RELEASE_CHANNEL"] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const servers: Server[] = [];
 
@@ -37,8 +37,8 @@ async function setup() {
   process.env.HOME = home;
   process.env.USERPROFILE = home;
   process.env.LOCALAPPDATA = home;
-  delete process.env.CLEARCOTE_LICENSE_API;
-  delete process.env.CLEARCOTE_RELEASE_CHANNEL;
+  delete process.env.CODE_BROWSER_LICENSE_API;
+  delete process.env.CODE_BROWSER_RELEASE_CHANNEL;
   vi.resetModules();
   const stderr: string[] = [];
   vi.spyOn(process.stderr, "write").mockImplementation((s: string | Uint8Array) => {
@@ -155,7 +155,7 @@ describe.runIf(proPlatform)("PRO download fall-back and backoff", () => {
     r.state.archiveStatus = 429;
     r.state.retryAfter = "600";
     const opts = { apiBase: r.base, cacheDir: cache, quiet: true };
-    await expect(dl.proEnsureBinary("cc_lic_fb3", opts)).rejects.toThrow(/HTTP 429[\s\S]*CLEARCOTE_CACHE/);
+    await expect(dl.proEnsureBinary("cc_lic_fb3", opts)).rejects.toThrow(/HTTP 429[\s\S]*CODE_BROWSER_CACHE/);
     await expect(dl.proEnsureBinary("cc_lic_fb3", opts)).rejects.toThrow(/download is paused until/);
     expect(r.state.archiveHits).toBe(1);
   });
@@ -234,7 +234,7 @@ describe.runIf(proPlatform)("PRO download fall-back and backoff", () => {
     // names no version (every SDK before 0.63 sent plain "clearcote-sdk" here), so the version must go.
     const { cache, dl } = await setup();
     const r = await route();
-    r.state.metaExtra = { notice: "Clearcote 156-r51 needs a newer client; you were given 155-r50 instead." };
+    r.state.metaExtra = { notice: "CodeBrowser 156-r51 needs a newer client; you were given 155-r50 instead." };
     const lines: string[] = [];
     const err = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
       lines.push(String(chunk));

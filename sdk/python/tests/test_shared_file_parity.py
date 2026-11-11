@@ -1,4 +1,4 @@
-"""Node/Python parity on the files the SDKs share under ~/.clearcote, and on the profile="auto" path.
+"""Node/Python parity on the files the SDKs share under ~/.code-browser, and on the profile="auto" path.
 
 * host.json: Node writes ``_at`` as an ISO time, this SDK as epoch seconds. Each must read the other.
 * local-index.json: Node keys it on ``mtimeMs``; this SDK used to write ``mtime``, so each re-indexed after
@@ -15,17 +15,17 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-import clearcote
-import clearcote._license as L
-from clearcote import _profileauto, _profilesource
-from clearcote._profileimport import index_entry_from_profile
+import code_browser
+import code_browser._license as L
+from code_browser import _profileauto, _profilesource
+from code_browser._profileimport import index_entry_from_profile
 
-download = importlib.import_module("clearcote.download")
+download = importlib.import_module("code_browser.download")
 
 
 @pytest.fixture
 def profile_dir(monkeypatch, tmp_path):
-    monkeypatch.setenv("CLEARCOTE_PROFILE_DIR", str(tmp_path / "profiles"))
+    monkeypatch.setenv("CODE_BROWSER_PROFILE_DIR", str(tmp_path / "profiles"))
     return tmp_path
 
 
@@ -68,21 +68,21 @@ def test_host_cache_round_trips_epoch_seconds(profile_dir):
 @pytest.fixture
 def old_engine(monkeypatch):
     calls = {"resolve": 0}
-    monkeypatch.setattr(clearcote, "measure_host", lambda launch_fn, exe, major: {**FACTS, "browser_major": 149})
+    monkeypatch.setattr(code_browser, "measure_host", lambda launch_fn, exe, major: {**FACTS, "browser_major": 149})
 
     def fake_resolve(host, **kw):
         calls["resolve"] += 1
         return {"profile": {"navigator": {}}, "selection": {}, "source": "service"}
 
-    monkeypatch.setattr(clearcote, "resolve_auto", fake_resolve)
+    monkeypatch.setattr(code_browser, "resolve_auto", fake_resolve)
     return calls
 
 
 def test_auto_on_engine_149_falls_back_to_the_sticky_seed(old_engine, capsys):
     fp = {}
-    clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=False)
+    code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=False)
     assert "fingerprint_profile" not in fp
-    assert fp["fingerprint"] == clearcote.default_sticky_key()
+    assert fp["fingerprint"] == code_browser.default_sticky_key()
     assert old_engine["resolve"] == 0  # no profile is spent on an engine that would drop it
     err = capsys.readouterr().err
     assert "engine 149 does not support imported profiles" in err and "150" in err
@@ -90,14 +90,14 @@ def test_auto_on_engine_149_falls_back_to_the_sticky_seed(old_engine, capsys):
 
 def test_auto_on_engine_149_keeps_a_caller_seed_and_quiet_says_nothing(old_engine, capsys):
     fp = {"fingerprint": "mine"}
-    clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
+    code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
     assert fp == {"fingerprint": "mine"}
     assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize("major,ok", [(150, True), (151, True), (149, False), (None, False), ("x", False)])
 def test_engine_supports_profiles(major, ok):
-    assert clearcote.engine_supports_profiles(major) is ok
+    assert code_browser.engine_supports_profiles(major) is ok
 
 
 # ── UA-CH-only records (converted chrome-fingerprints) ──────────────────────────────────────────────
@@ -215,14 +215,14 @@ def test_pro_meta_is_written_by_rename_with_the_windows_retry(home, monkeypatch)
     assert len(calls) == 3 and all(dst == path for _src, dst in calls)
     with open(path, encoding="utf-8") as f:
         assert json.load(f)["meta"] == {"tag": "pro-1"}
-    assert _leftovers(home / ".clearcote") == []
+    assert _leftovers(home / ".code-browser") == []
 
 
 def test_pro_meta_write_never_leaves_a_tmp_file_when_the_rename_keeps_failing(home, monkeypatch):
     _flaky_replace(monkeypatch, download, fails=100)
     download._keep_pro_meta("k2", {"tag": "pro-2"})  # must not raise: this process still has it
     assert not os.path.exists(download._pro_meta_path("k2"))
-    assert _leftovers(home / ".clearcote") == []
+    assert _leftovers(home / ".code-browser") == []
     assert download._kept_pro_meta("k2") == {"tag": "pro-2"}
 
 

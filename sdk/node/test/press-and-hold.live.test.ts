@@ -4,7 +4,7 @@
  * locators and non-humanized pages working too, and the press-and-hold widget
  * (sdk/testdata/press_and_hold.html) rejecting a plain click but passing a hold.
  *
- * Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is available for a PRO
+ * Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is available for a PRO
  * build). Mirrors sdk/python/tests/test_press_and_hold_live.py (+ the async file's `until` check).
  */
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -15,7 +15,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { Browser, Page } from "playwright-core";
 import { launch, pressAndHold } from "../src/index.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const WIDGET = pathToFileURL(fileURLToPath(new URL("../../testdata/press_and_hold.html", import.meta.url))).href;
 const widgetUrl = (ms: number) => `${WIDGET}?ms=${ms}`;
 const T = 60_000;

@@ -1,7 +1,7 @@
 // Optional first-run bootstrap for the local profile directory.
 //
 // WE DOWNLOAD, WE DO NOT REDISTRIBUTE — and here that distinction is legal, not stylistic.
-// The chrome-fingerprints dataset is **GPL-3.0**. Clearcote's SDK is BSD-3-Clause, so shipping
+// The chrome-fingerprints dataset is **GPL-3.0**. CodeBrowser's SDK is BSD-3-Clause, so shipping
 // those records inside the package would mean distributing GPL data from a permissively licensed
 // artifact. Fetching it onto the user's own machine, from the upstream repository, at the user's
 // request, is an entirely different act: no redistribution occurs and the dataset's terms are
@@ -13,7 +13,7 @@
 // WHY IT SHELLS OUT TO PYTHON. The dataset is `fingerprints.json.xz` (LZMA — Node has no built-in
 // decompressor) with strings INTERNED as integer indices into a 137 KB `vars.py`. Converting it
 // means resolving that interning and remapping ~157 WebGL keys and ~108 audio keys onto the
-// clearcote-profile schema. tools/fingerprint-collect/convert_dataset.py already does all of
+// code-browser-profile schema. tools/fingerprint-collect/convert_dataset.py already does all of
 // that, is tested, and is the file that gets updated when either schema moves. Reimplementing it
 // in TypeScript (and again in C#) would be three copies of one mapping table drifting apart, plus
 // an LZMA dependency in each. Python is a soft requirement for one optional bootstrap step.
@@ -38,7 +38,7 @@ export interface BootstrapOptions {
 }
 
 function note(quiet: boolean | undefined, msg: string): void {
-  if (!quiet) process.stderr.write(`[clearcote] [profile] ${msg}\n`);
+  if (!quiet) process.stderr.write(`[code-browser] [profile] ${msg}\n`);
 }
 
 /** True when the directory already holds at least one profile — the cheap check that makes this
@@ -99,7 +99,7 @@ export async function ensureLocalProfiles(
     if (missing.length) {
       note(opts.quiet,
         `downloading the chrome-fingerprints dataset (GPL-3.0, ~1.3 MB) from its upstream repo — ` +
-        `not redistributed by clearcote`);
+        `not redistributed by code-browser`);
       for (const f of missing) await download(`${RAW_BASE}/${f}`, join(dataset, f));
     }
 
@@ -128,7 +128,7 @@ export async function ensureLocalProfiles(
  */
 function defaultConverterPath(): string | null {
   try {
-    const env = process.env.CLEARCOTE_PROFILE_CONVERTER;
+    const env = process.env.CODE_BROWSER_PROFILE_CONVERTER;
     if (env) return env;
     // `__dirname` does not exist here: this package is `"type": "module"`, so the CJS globals are
     // absent and referencing one throws a ReferenceError at runtime that typechecking cannot see.

@@ -42,6 +42,6 @@ export function applyAutofillPrefs(userDataDir: string, quiet?: boolean): void {
   try {
     seedAutofillPrefs(userDataDir);
   } catch (e) {
-    if (!quiet) process.stderr.write(`[clearcote] could not turn autofill on in ${userDataDir} (continuing): ${String(e)}\n`);
+    if (!quiet) process.stderr.write(`[code-browser] could not turn autofill on in ${userDataDir} (continuing): ${String(e)}\n`);
   }
 }

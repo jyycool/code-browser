@@ -11,8 +11,8 @@ import time
 
 import pytest
 
-import clearcote
-import clearcote._license as L
+import code_browser
+import code_browser._license as L
 
 LAUNCH_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
@@ -86,8 +86,8 @@ def wait_until(pred, timeout=3.0):
 def env(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    monkeypatch.delenv("CLEARCOTE_INSTANCE_ID", raising=False)
-    monkeypatch.setenv("CLEARCOTE_LICENSE_API", "http://test.local")
+    monkeypatch.delenv("CODE_BROWSER_INSTANCE_ID", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_LICENSE_API", "http://test.local")
     counter = {"n": 0}
 
     def use(plan, **kw):
@@ -284,17 +284,17 @@ def test_free_open_browsers_released_at_process_exit(env):
 
 def test_free_launch_failure_releases_the_slot(env, monkeypatch):
     _, be = env("free")
-    monkeypatch.setattr(clearcote, "_prepare", lambda kwargs: ("exe", [], {}, None, False, None))
-    monkeypatch.setattr(clearcote, "apply_font_env", lambda exe, kw, *a, **k: None)
-    monkeypatch.setattr(clearcote, "apply_shader_dialect", lambda d, kw, *a, **k: None)
-    monkeypatch.setattr(clearcote, "_headless_geometry_kwargs", lambda *a: None)
+    monkeypatch.setattr(code_browser, "_prepare", lambda kwargs: ("exe", [], {}, None, False, None))
+    monkeypatch.setattr(code_browser, "apply_font_env", lambda exe, kw, *a, **k: None)
+    monkeypatch.setattr(code_browser, "apply_shader_dialect", lambda d, kw, *a, **k: None)
+    monkeypatch.setattr(code_browser, "_headless_geometry_kwargs", lambda *a: None)
 
     def boom(*a, **k):
         raise RuntimeError("browser failed to start")
 
-    monkeypatch.setattr(clearcote, "_win_av_retry", boom)
+    monkeypatch.setattr(code_browser, "_win_av_retry", boom)
     with pytest.raises(RuntimeError):
-        clearcote.launch(ephemeral_profile=False, headless=True)
+        code_browser.launch(ephemeral_profile=False, headless=True)
     assert wait_until(lambda: len(be.eps("checkin")) == 1)
     assert be.live == {}
     # and the next launch can take the slot
@@ -422,9 +422,9 @@ def test_run_token_file_two_launches_independent_and_follow_token(env):
 
 def test_run_token_file_env_carries_file_alongside_token():
     pw = {"env": {"BASE": "1"}}  # controlled base so the assertions are hermetic
-    L.inject_run_token(pw, "tok.sig", "/tmp/clearcote-rt-xyz.tok")
+    L.inject_run_token(pw, "tok.sig", "/tmp/code-browser-rt-xyz.tok")
     assert pw["env"]["CLEARCOTE_RUN_TOKEN"] == "tok.sig"
-    assert pw["env"]["CLEARCOTE_RUN_TOKEN_FILE"] == "/tmp/clearcote-rt-xyz.tok"
+    assert pw["env"]["CLEARCOTE_RUN_TOKEN_FILE"] == "/tmp/code-browser-rt-xyz.tok"
     assert pw["env"]["BASE"] == "1"  # base env preserved
     # additive: with no file arg the FILE env is absent (older-engine / no-opt-in behaviour)
     pw2 = {"env": {"BASE": "1"}}
@@ -461,9 +461,9 @@ def _fake_driver(monkeypatch):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
 
 
 def test_free_auto_profile_probe_runs_on_the_callers_slot(env, monkeypatch, tmp_path):
@@ -481,14 +481,14 @@ def test_free_auto_profile_probe_runs_on_the_callers_slot(env, monkeypatch, tmp_
                 "screen_width": 1920, "screen_height": 1080, "device_pixel_ratio": 1,
                 "hardware_concurrency": 8, "device_memory": 8}
 
-    monkeypatch.setattr(clearcote, "measure_host", fake_measure)
-    monkeypatch.setattr(clearcote, "resolve_auto", lambda host, **kw: {
+    monkeypatch.setattr(code_browser, "measure_host", fake_measure)
+    monkeypatch.setattr(code_browser, "resolve_auto", lambda host, **kw: {
         "profile": {"navigator": {"user_agent": "ua"}}, "selection": {"entry": {"id": "p1"}},
         "source": "service"})
     exe = tmp_path / "chrome"
     exe.write_bytes(bytes([0]))
 
-    ctx = clearcote.launch_persistent_context(str(tmp_path / "udd"), profile="auto",
+    ctx = code_browser.launch_persistent_context(str(tmp_path / "udd"), profile="auto",
                                               executable_path=str(exe), quiet=True)
 
     assert ctx is not None
@@ -499,7 +499,7 @@ def test_free_auto_profile_probe_runs_on_the_callers_slot(env, monkeypatch, tmp_
 # SC 283: a browser still open when the process ended kept its run-token file, and a process killed
 # outright runs no hook at all. Real child processes: sys.exit() runs atexit, os._exit() runs nothing.
 _CHILD = (
-    "import os, sys, clearcote._license as L\n"
+    "import os, sys, code_browser._license as L\n"
     "path, _rel = L._TokenFileSet().bind('tok.sig')\n"
     "print(path, flush=True)\n"
     "sys.exit(0) if sys.argv[1] == 'exit' else os._exit(0)\n"
@@ -521,7 +521,7 @@ def test_run_token_file_name_carries_pid_and_host(env):
     h = L.acquire_lease(quiet=True)
     try:
         path, rel = h.bind_launch()
-        assert re.match(rf"^clearcote-rt-{os.getpid()}-{L._token_host_tag()}-[0-9a-f-]{{36}}\.tok$",
+        assert re.match(rf"^code-browser-rt-{os.getpid()}-{L._token_host_tag()}-[0-9a-f-]{{36}}\.tok$",
                         os.path.basename(path))
         rel()
     finally:
@@ -545,10 +545,10 @@ def test_sweep_keeps_live_other_host_and_legacy_files(tmp_path):
     tag = L._token_host_tag()
     other = "00000000" if tag != "00000000" else "11111111"
     u = "12390cc9-7546-487c-8321-b3a52ee2ddc6"
-    keep = [f"clearcote-rt-{os.getpid()}-{tag}-{u}.tok",       # this process
-            f"clearcote-rt-999999-{other}-{u}.tok",            # another host's (shared temp dir)
-            f"clearcote-rt-{u}.tok"]                           # pre-fix name: no owner, never touched
-    for n in keep + [f"clearcote-rt-999999-{tag}-{u}.tok"]:
+    keep = [f"code-browser-rt-{os.getpid()}-{tag}-{u}.tok",       # this process
+            f"code-browser-rt-999999-{other}-{u}.tok",            # another host's (shared temp dir)
+            f"code-browser-rt-{u}.tok"]                           # pre-fix name: no owner, never touched
+    for n in keep + [f"code-browser-rt-999999-{tag}-{u}.tok"]:
         (tmp_path / n).write_text("t")
     assert L._sweep_dead_token_files(str(tmp_path), alive=lambda pid: True) == 0  # live/reused pid kept
     assert L._sweep_dead_token_files(str(tmp_path), alive=lambda pid: False) == 1

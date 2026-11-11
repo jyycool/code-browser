@@ -1,6 +1,6 @@
 // The PRO engine refuses a run-token older than the newest it has accepted for this OS user.
 //
-// Its clock-rollback guard (patch 990) keeps that newest `iat` in `$LOCALAPPDATA/.clearcote/.cc_hwm` (else
+// Its clock-rollback guard (patch 990) keeps that newest `iat` in `$LOCALAPPDATA/.code-browser/.cc_hwm` (else
 // `$HOME`) and refuses any lower one: "this run-token is older than the last one accepted here (system clock
 // set back?); refusing." The SDK reuses a cached token for its 24 h life, and anything else under the same OS
 // user that launches with a newer token (another process, the hosted-browser gateway, a run with another key)
@@ -20,11 +20,11 @@ import { acquireLease, engineHwm, tokenIat, STALE_TOKEN_REFUSAL, type LeaseSessi
 const realFetch = globalThis.fetch;
 const REFUSAL =
   "browserType.launchPersistentContext: Target page, context or browser has been closed\nBrowser logs:\n" +
-  "[pid=1][err] [clearcote] licence: this run-token is older than the last one accepted here (system clock set back?); refusing.";
+  "[pid=1][err] [code-browser] licence: this run-token is older than the last one accepted here (system clock set back?); refusing.";
 
 const tok = (iat: number, plan = "pro") => Buffer.from(JSON.stringify({ v: 1, plan, iat })).toString("base64url") + ".sig";
 
-const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_LICENSE_API", "CLEARCOTE_INSTANCE_ID"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "LOCALAPPDATA", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_INSTANCE_ID"] as const;
 let saved: Record<string, string | undefined> = {};
 const homes: string[] = [];
 
@@ -36,9 +36,9 @@ function isolate(): string {
   process.env.HOME = home;
   process.env.USERPROFILE = home;
   process.env.LOCALAPPDATA = home;
-  process.env.CLEARCOTE_LICENSE_API = "http://test.local";
+  process.env.CODE_BROWSER_LICENSE_API = "http://test.local";
   process.env.CLEARCOTE_LICENSE_KEY = "cc_lic_stale_" + Date.now() + "_" + Math.random().toString(36).slice(2);
-  delete process.env.CLEARCOTE_INSTANCE_ID;
+  delete process.env.CODE_BROWSER_INSTANCE_ID;
   return home;
 }
 
@@ -52,14 +52,14 @@ afterEach(() => {
 });
 
 function setMark(home: string, iat: number): void {
-  mkdirSync(join(home, ".clearcote"), { recursive: true });
-  writeFileSync(join(home, ".clearcote", ".cc_hwm"), String(iat));
+  mkdirSync(join(home, ".code-browser"), { recursive: true });
+  writeFileSync(join(home, ".code-browser", ".cc_hwm"), String(iat));
 }
 
 function cacheToken(home: string, iat: number, leaseId: string | null = "L1"): void {
   const id = createHash("sha256").update(process.env.CLEARCOTE_LICENSE_KEY!).digest("hex").slice(0, 16);
-  mkdirSync(join(home, ".clearcote"), { recursive: true });
-  writeFileSync(join(home, ".clearcote", `lease-${id}.json`), JSON.stringify({ token: tok(iat), exp: Math.floor(Date.now() / 1000) + 3600, lease_id: leaseId, scope: "machine" }));
+  mkdirSync(join(home, ".code-browser"), { recursive: true });
+  writeFileSync(join(home, ".code-browser", `lease-${id}.json`), JSON.stringify({ token: tok(iat), exp: Math.floor(Date.now() / 1000) + 3600, lease_id: leaseId, scope: "machine" }));
 }
 
 type Answer = [status: number, body: unknown];
@@ -91,15 +91,15 @@ describe("token iat and the engine mark", () => {
     const local = join(root, "local");
     const home = join(root, "home");
     for (const [d, v] of [[local, "200"], [home, "100"]] as const) {
-      mkdirSync(join(d, ".clearcote"), { recursive: true });
-      writeFileSync(join(d, ".clearcote", ".cc_hwm"), v + "\n");
+      mkdirSync(join(d, ".code-browser"), { recursive: true });
+      writeFileSync(join(d, ".code-browser", ".cc_hwm"), v + "\n");
     }
     expect(engineHwm({ LOCALAPPDATA: local, HOME: home })).toBe(200); // Windows: LOCALAPPDATA first
     expect(engineHwm({ HOME: home })).toBe(100); // elsewhere: HOME
     expect(engineHwm({ LOCALAPPDATA: "", HOME: home })).toBe(100); // empty counts as unset, as there
     expect(engineHwm({ HOME: join(root, "none") })).toBe(0);
     expect(engineHwm({})).toBe(0);
-    writeFileSync(join(home, ".clearcote", ".cc_hwm"), "garbage");
+    writeFileSync(join(home, ".code-browser", ".cc_hwm"), "garbage");
     expect(engineHwm({ HOME: home })).toBe(0);
   });
 });

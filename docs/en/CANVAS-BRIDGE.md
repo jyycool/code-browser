@@ -4,7 +4,7 @@ Render canvas and WebGL on a **real remote GPU** so the pixels a page reads back
 coherent with the GPU your profile claims.
 
 > **Status:** experimental — `v0.1.0-pre.12`. Opt-in: with no
-> `--canvas-bridge-url`, clearcote renders entirely locally, exactly as before.
+> `--canvas-bridge-url`, code-browser renders entirely locally, exactly as before.
 > Canvas2D (incl. `measureText`) and **WebGL** are both forwarded: geometry,
 > shaders, uniforms, draws, **procedural textures** (`texImage2D` from a pixel
 > array), `readPixels` **and** `toDataURL`. A WebGL canvas that sources a
@@ -21,7 +21,7 @@ coherent with the GPU your profile claims.
 
 ## Why
 
-clearcote renders canvas/WebGL on whatever GPU the host machine actually has. If a
+code-browser renders canvas/WebGL on whatever GPU the host machine actually has. If a
 profile claims a *different* GPU than the host, strict anti-detect / browser-tampering
 checks that compare the rendered pixels against the claimed hardware can notice the
 mismatch (you cannot make one GPU emit another GPU's exact pixels in software — see
@@ -36,7 +36,7 @@ handles arbitrary and procedurally-generated canvases — not just known probes.
 ## How it works
 
 ```
-   clearcote (your automation host)          render browser (real GPU)
+   code_browser (your automation host)          render browser (real GPU)
    +-----------------------------+           +------------------------+
    | page: getImageData /        |  ops  --> | a real browser renders |
    |   toDataURL / readPixels /  |           |  the ops on its real   |
@@ -55,7 +55,7 @@ The render browser can be:
 - **a browser you reach over the Chrome DevTools Protocol** (`--backend cdp`) — the
   recommended setup, because you can choose a host whose GPU is the consumer GPU you
   want to present; or
-- **a local headless clearcote** (`--backend local`) — simplest, but the canvas
+- **a local headless code-browser** (`--backend local`) — simplest, but the canvas
   identity is then your own machine's GPU.
 
 The reference render server lives in
@@ -78,7 +78,7 @@ client that uses it presents.** Two things follow:
 
 You **bring your own render host.** Anything that exposes a CDP/WebSocket endpoint to
 a browser works — a browser-hosting provider, or a browser you run yourself on a spare
-machine. clearcote does not ship or endorse a provider; choose one that meets the
+machine. code-browser does not ship or endorse a provider; choose one that meets the
 criteria above.
 
 ## Tutorial — render on a remote real-GPU browser (recommended)
@@ -119,14 +119,14 @@ them, e.g.:
 Confirm it's a real consumer GPU (not a software renderer or datacenter card). Copy
 the vendor + renderer strings — you'll match the client to them next.
 
-### 4. Launch clearcote with the bridge **and a matching GPU** (coherence)
+### 4. Launch code-browser with the bridge **and a matching GPU** (coherence)
 
 The bridge makes the canvas *pixels* match the render GPU; you must also make
-clearcote's WebGL `getParameter(UNMASKED_*)` *strings* match it, or the string and the
+code-browser's WebGL `getParameter(UNMASKED_*)` *strings* match it, or the string and the
 pixels disagree. Pass the exact strings from step 3:
 
 ```bash
-clearcote \
+code-browser \
   --canvas-bridge-url=ws://127.0.0.1:9099 \
   --no-sandbox \
   --fingerprint=<seed> \
@@ -160,7 +160,7 @@ If you have a real-GPU machine to dedicate, skip the CDP host and render locally
 
 ```bash
 python tools/canvas-bridge-server/server.py \
-    --backend local --chrome /path/to/clearcote/chrome.exe --port 9099
+    --backend local --chrome /path/to/code-browser/chrome.exe --port 9099
 ```
 
 The canvas identity is then that machine's GPU.
@@ -171,8 +171,8 @@ Use the first-class `canvasBridge` option — it emits the switches and auto-add
 required `--no-sandbox`:
 
 ```python
-import clearcote
-browser = clearcote.launch(
+import code_browser
+browser = code_browser.launch(
     fingerprint="user-1",
     gpu_vendor="Google Inc. (Intel)",
     gpu_renderer="ANGLE (Intel, Intel(R) UHD Graphics ... D3D11)",
@@ -187,7 +187,7 @@ browser = clearcote.launch(
 
 ```js
 // Node
-const browser = await clearcote.launch({
+const browser = await code_browser.launch({
   fingerprint: "user-1",
   gpuVendor: "Google Inc. (Intel)",
   gpuRenderer: "ANGLE (Intel, Intel(R) UHD Graphics ... D3D11)",
@@ -232,7 +232,7 @@ const browser = await clearcote.launch({
 A synchronous canvas readback (`getImageData`/`toDataURL`/`readPixels`/`measureText`)
 over the bridge is a network round-trip on the renderer thread. Against a
 *latency-aware* detector, that round-trip is itself a signal — distinct from the
-static canvas/WebGL hash the bridge makes coherent. clearcote mitigates this at the
+static canvas/WebGL hash the bridge makes coherent. code-browser mitigates this at the
 engine level; tune it for your target:
 
 - **Prefetch + cache (automatic).** After each draw, the engine speculatively fetches
@@ -246,7 +246,7 @@ engine level; tune it for your target:
   *and* must never present a readback stall.
 - **`--canvas-bridge-mode` (per-origin).** Bridge only the origins where canvas
   coherence is actually scored; serve everything else locally (fast, and using the
-  coherent persona GPU strings). On non-bridged origins clearcote behaves exactly as
+  coherent persona GPU strings). On non-bridged origins code-browser behaves exactly as
   it does with no bridge configured.
 - **Collapse the RTT.** The only way to keep coherence *and* erase the timing
   difference entirely is to put the render host on the same LAN/datacenter so the RTT
@@ -263,7 +263,7 @@ engine level; tune it for your target:
 - **`--no-sandbox` is required** on the client.
 - The first synchronous read right after a draw still pays one round-trip — see
   **Latency & timing** for the prefetch/`fallback=local`/per-origin mitigations.
-- Graceful fallback: if the bridge is unreachable, clearcote logs a warning and
+- Graceful fallback: if the bridge is unreachable, code-browser logs a warning and
   **renders locally** — a misconfigured bridge degrades gracefully, it does not break
   the page.
 

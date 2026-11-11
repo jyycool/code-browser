@@ -1,10 +1,10 @@
-# clearcote fingerprint collector
+# code-browser fingerprint collector
 
 Capture an **exhaustive, importable** fingerprint profile from a real Chrome on any machine, so
-clearcote can present *that machine's* identity instead of a synthetic seed-derived one.
+code-browser can present *that machine's* identity instead of a synthetic seed-derived one.
 
 ## Three ways to get a profile
-1. **Ready-made** — the curated [**clearcote-profiles**](https://github.com/clearcotelabs/clearcote-profiles) library ships validated real-GPU desktop profiles you can use immediately (it consumes `convert_dataset.py` below and adds quality curation).
+1. **Ready-made** — the curated [**code-browser-profiles**](https://github.com/clearcotelabs/clearcote-profiles) library ships validated real-GPU desktop profiles you can use immediately (it consumes `convert_dataset.py` below and adds quality curation).
 2. **Capture your own** — open `collect.html` on the donor Chrome and click **Capture** (or paste `collect.js` + `snippet.js` in DevTools).
 3. **Convert the open dataset** — `pip install chrome-fingerprints && python convert_dataset.py --out ./profiles --count 100`.
 
@@ -12,14 +12,14 @@ clearcote can present *that machine's* identity instead of a synthetic seed-deri
 - **`collect.js`** — the collector library; `collectFingerprint()` returns a `Promise<profile>`.
 - **`collect.html`** — host this and open it in the donor's Chrome; click to capture + download (and optionally POST to a collector endpoint that attaches the network layer).
 - **`snippet.js`** — DevTools-console path: paste `collect.js`, then paste this; it downloads the JSON. No server needed.
-- **`convert_dataset.py`** — convert records from the open [chrome-fingerprints] dataset into clearcote-profiles. Also importable (`convert`, `load_tables`, `load_records`, `find_dataset`) and pip-installable from this subdirectory (see `pyproject.toml`), which is how the clearcote-profiles library reuses it.
+- **`convert_dataset.py`** — convert records from the open [chrome-fingerprints] dataset into code-browser-profiles. Also importable (`convert`, `load_tables`, `load_records`, `find_dataset`) and pip-installable from this subdirectory (see `pyproject.toml`), which is how the code-browser-profiles library reuses it.
 - **`verify_profile.py`** — **confirm a profile actually loads.** Launches the binary with the profile, probes the live surfaces (WebGL renderer + params, hardware, screen, voices, audio, color-gamut, fonts) and prints a PASS/FAIL table:
   ```bash
   pip install playwright
-  python verify_profile.py --executable /path/to/clearcote/chrome.exe profile.json
+  python verify_profile.py --executable /path/to/code-browser/chrome.exe profile.json
   ```
 
-## What it captures (the `clearcote-profile` schema)
+## What it captures (the `code-browser-profile` schema)
 A **superset** of the [chrome-fingerprints] dataset — nothing JS-observable is left behind:
 
 | Section | Contents |
@@ -41,11 +41,11 @@ Each profile carries `meta` (schema_version, captured_at, chrome_version, source
 
 ## Two capture layers
 1. **JS-observable** (everything above) — `collect.js`, runs in the page.
-2. **Network** (`network`) — HTTP header **order** + TLS JA4 / HTTP-2 SETTINGS. These cannot be read from JS; the optional collector endpoint records them from the incoming request and stitches them into the profile. *(Lower priority: clearcote's native TLS/HTTP-2 already matches the advertised Chrome.)*
+2. **Network** (`network`) — HTTP header **order** + TLS JA4 / HTTP-2 SETTINGS. These cannot be read from JS; the optional collector endpoint records them from the incoming request and stitches them into the profile. *(Lower priority: code-browser's native TLS/HTTP-2 already matches the advertised Chrome.)*
 
 ## Bootstrap from the 10k-profile dataset — `convert_dataset.py`
 No donor machines? The open-source [chrome-fingerprints] dataset ships **10,000 real
-Windows-Chrome fingerprints**. `convert_dataset.py` turns any record into a clearcote-profile,
+Windows-Chrome fingerprints**. `convert_dataset.py` turns any record into a code-browser-profile,
 resolving the dataset's string interning (it stores `voice_uri`/`fonts`/extension values as
 integer refs) and remapping its `webgl.properties` (157 keys, camelCase) + `audio` (108 keys)
 onto our schema:
@@ -59,25 +59,25 @@ python convert_dataset.py --index 0 --stdout            # inspect a single recor
 Then feed a profile to the browser like any other capture:
 
 ```python
-from clearcote import launch
+from code_browser import launch
 launch(fingerprint="seed-1", fingerprint_profile="./profiles/profile-00000.json")
 ```
 
 It imports the **version-independent hardware identity** — GPU (WebGL unmasked vendor/renderer +
 GL/GL2 `MAX_*` limits + bit depths/ranges), screen geometry, fonts, speech voices, Web Audio
 metadata, CPU/memory, keyboard layout. It deliberately **does not import the dataset's Chrome
-version** (the records are Chrome ~114/115; the clearcote binary is 149 — importing
+version** (the records are Chrome ~114/115; the code-browser binary is 149 — importing
 `uaFullVersion` would disagree with the real UA string, a coherence tell). Pass `--include-version`
 to override only if your binary's major version matches the dataset.
 
-## How clearcote consumes a profile (engine)
+## How code-browser consumes a profile (engine)
 - **`--fingerprint-profile=<gzip+base64 JSON>`** — the renderer base64-decodes + gunzips + parses the profile and the persona becomes **profile-driven**: any field present overrides the seed-derived value, absent fields fall back to `DerivePersona(seed)` so partial profiles stay coherent. (gzip keeps a full ~40 KB capture within the command-line length limit.)
 - **SDK** (does the gzip+base64 for you, from a path / object / JSON string): `launch(fingerprint_profile="profile.json")` (Python) / `{ fingerprintProfile: "profile.json" }` (Node).
 - **Implemented + verified (Phase 2):** the core identity — `hardwareConcurrency`, `deviceMemory`, screen geometry (w/h/avail/colorDepth/DPR), WebGL unmasked vendor+renderer and the GL/GL2 `MAX_*` limits, audio sample-rate/latency, Chrome full/major version.
 - **Implemented + verified (Phase 3a):** **speech voices** — `speechSynthesis.getVoices()` presents the persona's voices (a default Windows SAPI set, or the imported profile's exact `speech` list), closing the `getVoices()=0` headless tell.
 - **Implemented + verified (Phase 3b):** **font list** — `font_cache` reports exactly the profile's `fonts.detected` set as present (everything else hidden), so `measureText` font enumeration matches the donor machine.
 - **Implemented + verified (Phase 3c):** the full WebGL `getParameter` table (bit depths, aliased ranges, anisotropy, `getSupportedExtensions`) and CSS `@media` display characteristics (`device-width/height`, `resolution`, color depth, `color-gamut`). CSS overrides are gated on `--fingerprint` so unfingerprinted runs keep the real screen.
-- **Spec-fixed — no spoof needed:** the Web Audio AudioParam constant table and WebRTC `getCapabilities()` codec lists are hardcoded / compile-time-fixed — identical in every Chrome of the same version — so clearcote already matches real Chrome. The collector still captures them for completeness.
-- Render-dependent surfaces (canvas pixels, audio DSP output) are **not** statically replayed — they're handled by clearcote's farbling (or `--disable-fingerprint-noise` → real GPU). The profile stores their *metadata*, not a replay.
+- **Spec-fixed — no spoof needed:** the Web Audio AudioParam constant table and WebRTC `getCapabilities()` codec lists are hardcoded / compile-time-fixed — identical in every Chrome of the same version — so code-browser already matches real Chrome. The collector still captures them for completeness.
+- Render-dependent surfaces (canvas pixels, audio DSP output) are **not** statically replayed — they're handled by code-browser's farbling (or `--disable-fingerprint-noise` → real GPU). The profile stores their *metadata*, not a replay.
 
 [chrome-fingerprints]: https://github.com/Vinyzu/chrome-fingerprints

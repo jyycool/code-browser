@@ -1,5 +1,5 @@
 // src/httpcache.ts — httpCacheDir: one locked slot per concurrent launch, stale locks taken over, refused off this
-// machine. Mirrors sdk/python/tests/test_httpcache.py and sdk/dotnet/tests/Clearcote.Tests/HttpCacheTests.cs.
+// machine. Mirrors sdk/python/tests/test_httpcache.py and sdk/dotnet/tests/CodeBrowser.Tests/HttpCacheTests.cs.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -100,6 +100,6 @@ describe("httpCacheDir off this machine", () => {
     expect(() => sessionBody({ httpCacheDir: "/tmp/c" })).toThrow("httpCacheDir is not available for cloud browsers");
   });
   it("Docker refuses it", () => {
-    expect(() => containerEnv({ httpCacheDir: "/tmp/c" })).toThrow(/httpCacheDir is not available when launch\(\) runs Clearcote in Docker/);
+    expect(() => containerEnv({ httpCacheDir: "/tmp/c" })).toThrow(/httpCacheDir is not available when launch\(\) runs CodeBrowser in Docker/);
   });
 });

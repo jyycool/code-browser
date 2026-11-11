@@ -12,13 +12,13 @@
  * freshly extracted chrome_elf.dll can produce the same error for a while.
  *
  * What used to happen: three in-place launches, then a fresh ~400 MB copy of the browser in
- * %TEMP%\clearcote-recover-<random> that nothing deleted. Each failed Playwright launch also leaked
+ * %TEMP%\code-browser-recover-<random> that nothing deleted. Each failed Playwright launch also leaked
  * its two temp directories (`playwright_chromiumdev_profile-*`, `playwright-artifacts-*`): Node's
  * `spawn` throws synchronously on that error, before Playwright registers their cleanup.
  *
- * Now: the copy lives at `~/.clearcote/recovered/<build>-<hash>/browser` and is reused by every later
+ * Now: the copy lives at `~/.code-browser/recovered/<build>-<hash>/browser` and is reused by every later
  * launch of the same build (the Python SDK computes the same key, so both share it), and a failed
- * attempt has exactly its own temp directories removed. `clearcote clear-cache` deletes the
+ * attempt has exactly its own temp directories removed. `code-browser clear-cache` deletes the
  * recovered copies too.
  */
 import { createHash } from "node:crypto";
@@ -29,12 +29,12 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
-export const RECOVERED_MARKER = ".clearcote-recovered.json";
+export const RECOVERED_MARKER = ".code-browser-recovered.json";
 const STALE_PARTIAL_MS = 3_600_000; // an unfinished copy older than this was abandoned (a killed launch)
 const PROFILE_IN_LOG = /--user-data-dir=(.*?playwright_chromiumdev_profile-[A-Za-z0-9]{6})/;
 
 export function recoverRoot(): string {
-  return join(homedir(), ".clearcote", "recovered");
+  return join(homedir(), ".code-browser", "recovered");
 }
 
 /**
@@ -142,12 +142,12 @@ export function sweepRecovered(root: string, keep?: string): void {
 }
 
 /**
- * Remove `clearcote-recover-*` copies older SDK versions left in the temp directory (one ~400 MB
+ * Remove `code-browser-recover-*` copies older SDK versions left in the temp directory (one ~400 MB
  * browser per launch, never deleted). Recent ones and ones in use are left alone. Set
- * `CLEARCOTE_KEEP_RECOVER=1` to keep them for debugging.
+ * `CODE_BROWSER_KEEP_RECOVER=1` to keep them for debugging.
  */
 export function sweepTempRecoverDirs(keepMs = 60_000): void {
-  if (process.env.CLEARCOTE_KEEP_RECOVER) return;
+  if (process.env.CODE_BROWSER_KEEP_RECOVER) return;
   const tmp = tmpdir();
   let names: string[];
   try {
@@ -156,7 +156,7 @@ export function sweepTempRecoverDirs(keepMs = 60_000): void {
     return;
   }
   for (const name of names) {
-    if (!name.startsWith("clearcote-recover-")) continue;
+    if (!name.startsWith("code-browser-recover-")) continue;
     const path = join(tmp, name);
     try {
       if (statSync(path).isDirectory() && ageMs(path) > keepMs) discardCopy(path);
@@ -164,7 +164,7 @@ export function sweepTempRecoverDirs(keepMs = 60_000): void {
   }
 }
 
-/** `clearcote clear-cache`: delete every recovered copy. */
+/** `code-browser clear-cache`: delete every recovered copy. */
 export function clearRecovered(): { removed: number; bytes: number; inUse: number } {
   const root = recoverRoot();
   const result = { removed: 0, bytes: 0, inUse: 0 };

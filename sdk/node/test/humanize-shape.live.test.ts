@@ -1,6 +1,6 @@
 /**
- * LIVE path shape and engine routing against a real Clearcote build (SC 210 lane S) -- a port of
- * sdk/python/tests/test_humanize_shape_live.py. Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote
+ * LIVE path shape and engine routing against a real CodeBrowser build (SC 210 lane S) -- a port of
+ * sdk/python/tests/test_humanize_shape_live.py. Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser
  * binary (and a licence is available for a PRO build). What a PAGE sees: trusted pointer events, where
  * a press lands, how far a held drag strays from its line, and whether the pointer ever jumps.
  */
@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { Browser, Page } from "playwright-core";
 import { launch } from "../src/index.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const T = 90_000;
 
 const PAGE = `<!doctype html><html><head><style>
@@ -46,7 +46,7 @@ type E = { t: string; ts: number; x: number; y: number; b?: number; tr: boolean;
 describe.runIf(LIVE)("live path shape and engine routing", () => {
   let browser: Browser;
   let page: Page;
-  const ENV = "CLEARCOTE_HUMANIZE_ENGINE_CLICKS";
+  const ENV = "CODE_BROWSER_HUMANIZE_ENGINE_CLICKS";
   const FC_CACHE = join(tmpdir(), "cc-fc-cache");
   let fcCacheBefore = true;
   beforeAll(async () => {

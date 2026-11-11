@@ -1,5 +1,5 @@
 """Every PRO launch used to ask GET /api/v1/download/pro before looking at the cache. The answer is now kept
-for 600 s, in the process and in ~/.clearcote/pro-meta-<hash>.json, and used only while the build it names is
+for 600 s, in the process and in ~/.code-browser/pro-meta-<hash>.json, and used only while the build it names is
 installed and passes the cached-build check (which re-hashes the protected files with the kept answer's
 hashes). A download always follows a fresh answer, and an error answer is never kept. Served by the local
 fake of the download route; HOME is a temp dir."""
@@ -15,7 +15,7 @@ import pytest
 
 from _fake_build import BINARY, TAG, FakeBuildServer
 
-download = importlib.import_module("clearcote.download")  # the module: `clearcote.download` is also a function
+download = importlib.import_module("code_browser.download")  # the module: `code_browser.download` is also a function
 
 pytestmark = pytest.mark.skipif(sys.platform == "darwin", reason="the PRO route serves Windows and Linux")
 
@@ -25,13 +25,13 @@ def home(monkeypatch, tmp_path):
     h = tmp_path / "home"
     monkeypatch.setenv("HOME", str(h))
     monkeypatch.setenv("USERPROFILE", str(h))
-    monkeypatch.delenv("CLEARCOTE_RELEASE_CHANNEL", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_RELEASE_CHANNEL", raising=False)
     monkeypatch.setattr(download, "_pro_meta_memo", {})
     return h
 
 
 def kept(home):
-    d = home / ".clearcote"
+    d = home / ".code-browser"
     return sorted(d.glob("pro-meta-*.json")) if d.is_dir() else []
 
 
@@ -160,7 +160,7 @@ def test_a_kept_answer_is_never_used_to_download(home, tmp_path):
         stale = {"tag": TAG, "version": "0.0.0", "url": "http://127.0.0.1:9/expired.zip", "sha256": "0" * 64,
                  "exe_sha256": "0" * 64, "chrome_dll_sha256": "0" * 64, "asset": "fake.zip", "archive": "zip",
                  "binary": BINARY, "size": 1}
-        os.makedirs(home / ".clearcote")
-        (home / ".clearcote" / f"pro-meta-{key}.json").write_text(json.dumps({"at": time.time(), "meta": stale}))
+        os.makedirs(home / ".code-browser")
+        (home / ".code-browser" / f"pro-meta-{key}.json").write_text(json.dumps({"at": time.time(), "meta": stale}))
         path = ensure(srv, cache)
     assert os.path.isfile(path) and srv.meta_hits == 1 and srv.archive_hits == 1

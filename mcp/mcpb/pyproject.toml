@@ -1,8 +1,8 @@
 [project]
-name = "clearcote-mcp-bundle"
+name = "code-browser-mcp-bundle"
 version = "0.3.1"
-description = "MCPB bundle for the Clearcote MCP server (runs the clearcote-mcp package from PyPI)"
+description = "MCPB bundle for the CodeBrowser MCP server (runs the code-browser-mcp package from PyPI)"
 requires-python = ">=3.10"
 dependencies = [
-    "clearcote-mcp==0.3.1",
+    "code-browser-mcp==0.3.1",
 ]

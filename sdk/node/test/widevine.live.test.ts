@@ -1,8 +1,8 @@
 /**
  * Live: Widevine ON by default for a licensed (PRO) launch, against a real engine.
  *
- * Skipped unless CLEARCOTE_LIVE_ENGINE points at a PRO chrome binary (r32+, it has --widevine-cdm-path) AND a
- * licence key resolves (CLEARCOTE_LICENSE_KEY or ~/.clearcote/license.key). Downloads Google's CDM from Google
+ * Skipped unless CODE_BROWSER_LIVE_ENGINE points at a PRO chrome binary (r32+, it has --widevine-cdm-path) AND a
+ * licence key resolves (CLEARCOTE_LICENSE_KEY or ~/.code-browser/license.key). Downloads Google's CDM from Google
  * into a temp cache once, so it needs the network. Headless. These belong in the release gate. Mirrors
  * sdk/python/tests/test_widevine_live.py.
  */
@@ -15,7 +15,7 @@ import type { Page } from "playwright-core";
 import { launch, launchPersistentContext, resolveLicenseKey } from "../src/index.js";
 import * as W from "../src/widevine.js";
 
-const LIVE_EXE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE_EXE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const RUN = !!LIVE_EXE && !!resolveLicenseKey();
 
 const EME = `(async () => { try {
@@ -29,7 +29,7 @@ describe.skipIf(!RUN)("Widevine by default on a licensed launch (live)", () => {
   let url = "";
   let root = "";
   let cache = "";
-  const saved = { dir: process.env.CLEARCOTE_WIDEVINE_DIR, wv: process.env.CLEARCOTE_WIDEVINE, t: process.env.CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS };
+  const saved = { dir: process.env.CLEARCOTE_WIDEVINE_DIR, wv: process.env.CODE_BROWSER_WIDEVINE, t: process.env.CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS };
 
   beforeAll(async () => {
     // EME needs a secure context: http://127.0.0.1 is one
@@ -40,15 +40,15 @@ describe.skipIf(!RUN)("Widevine by default on a licensed launch (live)", () => {
     root = mkdtempSync(join(tmpdir(), "cc-wv-live-"));
     cache = join(root, "cache"); // EMPTY: the first default launch must download, verify and install it
     process.env.CLEARCOTE_WIDEVINE_DIR = cache;
-    delete process.env.CLEARCOTE_WIDEVINE;
-    process.env.CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS = "120"; // a first download on a slow link
+    delete process.env.CODE_BROWSER_WIDEVINE;
+    process.env.CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS = "120"; // a first download on a slow link
     W.resetWidevineDefaultState();
   });
 
   afterAll(async () => {
     await new Promise<void>((r) => server.close(() => r()));
     rmSync(root, { recursive: true, force: true, maxRetries: 5 });
-    for (const [k, v] of [["CLEARCOTE_WIDEVINE_DIR", saved.dir], ["CLEARCOTE_WIDEVINE", saved.wv], ["CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS", saved.t]] as const) {
+    for (const [k, v] of [["CLEARCOTE_WIDEVINE_DIR", saved.dir], ["CODE_BROWSER_WIDEVINE", saved.wv], ["CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS", saved.t]] as const) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
@@ -86,7 +86,7 @@ describe.skipIf(!RUN)("Widevine by default on a licensed launch (live)", () => {
   }, 120_000);
 
   it.each(["option", "env"])("opting out (%s) leaves no Widevine", async (how) => {
-    if (how === "env") process.env.CLEARCOTE_WIDEVINE = "0";
+    if (how === "env") process.env.CODE_BROWSER_WIDEVINE = "0";
     const udd = join(root, `udd-${how}`);
     try {
       const ctx = await launchPersistentContext(udd, { executablePath: LIVE_EXE, headless: true, quiet: true, ...(how === "option" ? { widevine: false } : {}) });
@@ -96,7 +96,7 @@ describe.skipIf(!RUN)("Widevine by default on a licensed launch (live)", () => {
         await ctx.close();
       }
     } finally {
-      delete process.env.CLEARCOTE_WIDEVINE;
+      delete process.env.CODE_BROWSER_WIDEVINE;
       rmSync(udd, { recursive: true, force: true, maxRetries: 5 });
     }
   }, 120_000);

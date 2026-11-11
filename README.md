@@ -1,15 +1,15 @@
 <div align="center">
 
-<img src="docs/assets/clyde.svg" alt="Clyde, the Clearcote chameleon" width="120" />
+<img src="docs/assets/clyde.svg" alt="Clyde, the CodeBrowser chameleon" width="120" />
 
-# Clearcote Browser
+# CodeBrowser Browser
 
 **Blend in. Stay clear.**
 
-[![Release](https://img.shields.io/github/v/release/clearcotelabs/clearcote-browser?include_prereleases&label=release&style=flat-square&labelColor=07080a&color=38e0d6)](https://github.com/clearcotelabs/clearcote-browser/releases)
-[![npm](https://img.shields.io/npm/v/clearcote?style=flat-square&logo=npm&logoColor=white&label=npm&labelColor=07080a&color=CB3837)](https://www.npmjs.com/package/clearcote)
-[![PyPI](https://img.shields.io/pypi/v/clearcote?style=flat-square&logo=pypi&logoColor=white&label=pip&labelColor=07080a&color=3776AB)](https://pypi.org/project/clearcote/)
-[![NuGet](https://img.shields.io/nuget/v/Clearcote?style=flat-square&logo=nuget&logoColor=white&label=nuget&labelColor=07080a&color=004880)](https://www.nuget.org/packages/Clearcote)
+[![Release](https://img.shields.io/github/v/release/jyycool/code-browser?include_prereleases&label=release&style=flat-square&labelColor=07080a&color=38e0d6)](https://github.com/jyycool/code-browser/releases)
+[![npm](https://img.shields.io/npm/v/code-browser?style=flat-square&logo=npm&logoColor=white&label=npm&labelColor=07080a&color=CB3837)](https://www.npmjs.com/package/code-browser)
+[![PyPI](https://img.shields.io/pypi/v/code-browser?style=flat-square&logo=pypi&logoColor=white&label=pip&labelColor=07080a&color=3776AB)](https://pypi.org/project/code-browser/)
+[![NuGet](https://img.shields.io/nuget/v/CodeBrowser?style=flat-square&logo=nuget&logoColor=white&label=nuget&labelColor=07080a&color=004880)](https://www.nuget.org/packages/CodeBrowser)
 [![Docker](https://img.shields.io/docker/pulls/teamflatearth/clearcote?style=flat-square&logo=docker&logoColor=white&label=docker&labelColor=07080a&color=2496ED)](https://hub.docker.com/r/teamflatearth/clearcote)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-38e0d6?style=flat-square&labelColor=07080a)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white&labelColor=07080a)](https://discord.gg/WxvCjAnXZm)
@@ -21,7 +21,7 @@
 
 </div>
 
-Clearcote is an open-source Chromium with its fingerprint controls compiled into the C++ engine. Each
+CodeBrowser is an open-source Chromium with its fingerprint controls compiled into the C++ engine. Each
 browser presents one coherent machine: the JavaScript surface, the HTTP headers and the TLS handshake
 all come from the same real Chromium, so they agree with each other. You drive it with the Playwright
 or Puppeteer code you already have.
@@ -29,11 +29,11 @@ or Puppeteer code you already have.
 ## Quickstart
 
 ```bash
-pip install clearcote
+pip install code-browser
 ```
 
 ```python
-from clearcote import launch
+from code_browser import launch
 
 browser = launch(fingerprint="user-7423")   # same seed -> same machine on every launch
 page = browser.new_page()                   # a standard Playwright Browser from here on
@@ -41,8 +41,8 @@ page.goto("https://example.com")
 browser.close()
 ```
 
-The SDK downloads the browser on first use and checks its SHA-256. Node.js: `npm install clearcote`.
-.NET: `dotnet add package Clearcote`. Docker, a CDP endpoint or hosted browsers: [choose how to run it](#choose-how-to-run-it).
+The SDK downloads the browser on first use and checks its SHA-256. Node.js: `npm install code-browser`.
+.NET: `dotnet add package CodeBrowser`. Docker, a CDP endpoint or hosted browsers: [choose how to run it](#choose-how-to-run-it).
 
 To hear about new builds, click **Watch → Custom → Releases** at the top of this page.
 
@@ -67,7 +67,7 @@ Pick the row that matches what you want to do, then jump to its section. Every p
 
 | I want to… | Use | Section |
 |---|---|---|
-| Use Clearcote from my own Playwright or Puppeteer code | The SDK | [Run it from your code](#run-it-from-your-code) |
+| Use CodeBrowser from my own Playwright or Puppeteer code | The SDK | [Run it from your code](#run-it-from-your-code) |
 | Attach a tool that already speaks CDP (browser-use, Crawl4AI, Stagehand, …) | A CDP endpoint | [Run it as a CDP endpoint](#run-it-as-a-cdp-endpoint) |
 | Run it in a container | The Docker image | [Run it in Docker](#run-it-in-docker) |
 | Run it without installing anything | Hosted browsers | [Run it in the cloud](#run-it-in-the-cloud) |
@@ -79,7 +79,7 @@ Pick the row that matches what you want to do, then jump to its section. Every p
 
 ## Switch from another tool
 
-Clearcote is a real Chromium that speaks CDP, so existing code usually moves over by changing the one
+CodeBrowser is a real Chromium that speaks CDP, so existing code usually moves over by changing the one
 line that starts or finds the browser. The code after that line stays the same.
 
 **From Playwright.** `launch()` returns the same Playwright `Browser`, so only the launch call changes:
@@ -87,21 +87,21 @@ line that starts or finds the browser. The code after that line stays the same.
 ```diff
 - from playwright.sync_api import sync_playwright
 - browser = sync_playwright().start().chromium.launch()
-+ from clearcote import launch
++ from code_browser import launch
 + browser = launch(fingerprint="user-7423")
 ```
 
 ```diff
 - import { chromium } from "playwright";
 - const browser = await chromium.launch();
-+ import { launch } from "clearcote";
++ import { launch } from "code-browser";
 + const browser = await launch({ fingerprint: "user-7423" });
 ```
 
 <details>
 <summary><b>From a CDP tool (browser-use, Crawl4AI, Stagehand, …), a hosted browser service, a stealth plugin, a closed anti-detect browser, or Selenium</b></summary>
 
-**From a tool that connects over CDP.** Start Clearcote as an endpoint (`clearcote-serve --port 9222`,
+**From a tool that connects over CDP.** Start CodeBrowser as an endpoint (`code-browser-serve --port 9222`,
 the [Docker image](#run-it-in-docker) or `serve()`), then point the tool at it:
 
 | Tool | The line that changes |
@@ -119,7 +119,7 @@ Stagehand 4 runs its own extension inside the browser, so the endpoint needs the
 Stagehand's own launcher adds. Keep the port on `127.0.0.1`:
 
 ```javascript
-import { serve } from "clearcote";
+import { serve } from "code-browser";
 import { Stagehand, localBrowser } from "@browserbasehq/stagehand";
 
 const srv = await serve({
@@ -130,11 +130,11 @@ const srv = await serve({
 const stagehand = await Stagehand.create({ browser: await localBrowser.connect({ cdpUrl: srv.cdpUrl }) });
 ```
 
-Each row was run against a Clearcote endpoint on 6 October 2026 (Playwright 1.63, Puppeteer 25,
+Each row was run against a CodeBrowser endpoint on 6 October 2026 (Playwright 1.63, Puppeteer 25,
 browser-use 0.13, Crawl4AI 0.9, nodriver 0.50, Playwright MCP 0.0.83, Stagehand 4.1).
 
 **From a hosted browser service.** If your provider gives you a CDP WebSocket URL, use the `connectUrl`
-of a Clearcote cloud session instead. Your connect call does not change. See [Run it in the cloud](#run-it-in-the-cloud).
+of a CodeBrowser cloud session instead. Your connect call does not change. See [Run it in the cloud](#run-it-in-the-cloud).
 
 **From a stealth plugin.** Remove `puppeteer-extra-plugin-stealth`, `playwright-stealth` and similar
 plugins. The persona is set in the engine, and script patches on top of it conflict with it.
@@ -144,7 +144,7 @@ script a CDP address. Replace that call with `serve(fingerprint="profile-name")`
 same seed returns the same machine every time; give `serve()` a `user_data_dir` to keep cookies and storage
 as well, or use the [Profile Manager](https://github.com/clearcotelabs/clearcote-profile-manager) desktop app.
 
-**From Selenium or WebDriver.** This is the exception. Clearcote is driven over CDP, so those scripts need
+**From Selenium or WebDriver.** This is the exception. CodeBrowser is driven over CDP, so those scripts need
 porting to Playwright, Puppeteer or nodriver.
 
 </details>
@@ -155,19 +155,19 @@ Side-by-side comparisons with other tools: [clearcotelabs.com/alternatives](http
 
 ## Run it from your code
 
-Install the SDK. It downloads the right Clearcote binary for your OS on first use, checks its SHA-256,
+Install the SDK. It downloads the right CodeBrowser binary for your OS on first use, checks its SHA-256,
 and caches it. You do not need `playwright install`.
 
 ```bash
-pip install clearcote          # Python
-npm install clearcote          # Node.js / TypeScript
-dotnet add package Clearcote   # .NET
+pip install code-browser          # Python
+npm install code-browser          # Node.js / TypeScript
+dotnet add package CodeBrowser   # .NET
 ```
 
 **Python**
 
 ```python
-from clearcote import launch          # asyncio: from clearcote.async_api import launch
+from code_browser import launch          # asyncio: from code_browser.async_api import launch
 
 browser = launch(
     fingerprint="user-7423",          # same seed -> same machine every launch; new seed -> a new, unlinked one
@@ -182,7 +182,7 @@ browser.close()
 **Node.js / TypeScript**
 
 ```javascript
-import { launch } from "clearcote";
+import { launch } from "code-browser";
 
 const browser = await launch({
   fingerprint: "user-7423",
@@ -198,9 +198,9 @@ await browser.close();
 **.NET**
 
 ```csharp
-using Clearcote;
+using CodeBrowser;
 
-var browser = await Clearcote.Clearcote.LaunchAsync(new LaunchOptions {
+var browser = await CodeBrowser.CodeBrowser.LaunchAsync(new LaunchOptions {
     Fingerprint = "user-7423", Platform = "windows", Timezone = "America/New_York",
 });
 var page = await browser.NewPageAsync();   // a standard Microsoft.Playwright IBrowser
@@ -227,7 +227,7 @@ Anything else is passed straight to Playwright (`headless`, `args`, `timeout`, �
 
 ### Using a plain binary instead of the SDK
 
-Download a signed build from [Releases](https://github.com/clearcotelabs/clearcote-browser/releases), unzip it,
+Download a signed build from [Releases](https://github.com/jyycool/code-browser/releases), unzip it,
 and point stock Playwright (or any CDP client) at it with `--fingerprint` switches:
 
 ```python
@@ -235,7 +235,7 @@ from playwright.sync_api import sync_playwright
 
 with sync_playwright() as p:
     browser = p.chromium.launch(
-        executable_path=r"C:\clearcote\chrome.exe",
+        executable_path=r"C:\code-browser\chrome.exe",
         args=["--fingerprint=seed-123", "--fingerprint-platform=windows"],
     )
     page = browser.new_page()
@@ -247,39 +247,39 @@ with sync_playwright() as p:
 
 ## Run it as a CDP endpoint
 
-`serve()` starts Clearcote directly (not through Playwright), so no automation flag is added and
+`serve()` starts CodeBrowser directly (not through Playwright), so no automation flag is added and
 `navigator.webdriver` stays `false`. Anything that can connect over CDP attaches to it unchanged.
 
 ```bash
-clearcote-serve --port 9222 --fingerprint seed-123 --platform windows   # prints http://127.0.0.1:9222
+code-browser-serve --port 9222 --fingerprint seed-123 --platform windows   # prints http://127.0.0.1:9222
 ```
 
 ```python
-from clearcote import serve
+from code_browser import serve
 from playwright.sync_api import sync_playwright
 
 with serve(fingerprint="seed-123", platform="windows") as srv:          # binds 127.0.0.1
     browser = sync_playwright().start().chromium.connect_over_cdp(srv.cdp_url)
 ```
 
-Need several identities behind one port? `clearcote serve --port 9222` starts one browser per identity,
+Need several identities behind one port? `code-browser serve --port 9222` starts one browser per identity,
 chosen in the connection URL (`http://127.0.0.1:9222?fingerprint=acct-1&timezone=Europe/Berlin`).
-See [many identities on one endpoint](sdk/python/README.md#many-identities-on-one-endpoint-serve_multiplex-clearcote-serve).
+See [many identities on one endpoint](sdk/python/README.md#many-identities-on-one-endpoint-serve_multiplex-code-browser-serve).
 
 ---
 
 ## Run it in Docker
 
-The official image is a Clearcote browser exposed as a CDP endpoint on port 9222.
+The official image is a CodeBrowser browser exposed as a CDP endpoint on port 9222.
 
 ```bash
 # the seccomp profile that lets Chrome keep its sandbox (it ships in the image)
-docker run --rm --tmpfs /opt/xdg-cache --entrypoint cat teamflatearth/clearcote /etc/clearcote/seccomp.json > clearcote-seccomp.json
-docker run -d --rm -v clearcote-cache:/opt/xdg-cache --shm-size=1g -p 127.0.0.1:9222:9222 \
-  --security-opt seccomp=clearcote-seccomp.json teamflatearth/clearcote
+docker run --rm --tmpfs /opt/xdg-cache --entrypoint cat teamflatearth/clearcote /etc/code-browser/seccomp.json > code-browser-seccomp.json
+docker run -d --rm -v code-browser-cache:/opt/xdg-cache --shm-size=1g -p 127.0.0.1:9222:9222 \
+  --security-opt seccomp=code-browser-seccomp.json teamflatearth/clearcote
 ```
 
-`-v clearcote-cache:/opt/xdg-cache` keeps the engine in a named volume. Keep it on every run: with a licence key,
+`-v code-browser-cache:/opt/xdg-cache` keeps the engine in a named volume. Keep it on every run: with a licence key,
 a container started without it downloads the licensed engine (about 164 MB) again, and each of those downloads
 counts against your key's download limit.
 
@@ -301,8 +301,8 @@ Set the persona with environment variables: `CC_PLATFORM` (`windows`, `linux`, `
 `CC_ACCEPT_LANGUAGE`, `CC_TLS_PROFILE`.
 
 ```bash
-docker run -d --rm -v clearcote-cache:/opt/xdg-cache --shm-size=1g -p 127.0.0.1:9222:9222 \
-  --security-opt seccomp=clearcote-seccomp.json \
+docker run -d --rm -v code-browser-cache:/opt/xdg-cache --shm-size=1g -p 127.0.0.1:9222:9222 \
+  --security-opt seccomp=code-browser-seccomp.json \
   -e CC_PLATFORM=windows -e CC_FINGERPRINT=user-7423 teamflatearth/clearcote
 ```
 
@@ -316,19 +316,19 @@ Details: [`docker/README.md`](docker/README.md) · [deployment guide](https://ww
 
 ## Run it in the cloud
 
-Hosted Clearcote browsers run on our servers. One API call starts one and returns a CDP WebSocket URL,
+Hosted CodeBrowser browsers run on our servers. One API call starts one and returns a CDP WebSocket URL,
 and your Playwright or Puppeteer code connects to it the same way it connects to a local browser.
 
 ```python
-from clearcote import launch
+from code_browser import launch
 
-browser = launch(cloud=True, country="us", identity="acct-1")   # needs CLEARCOTE_API_KEY=cc_live_...
+browser = launch(cloud=True, country="us", identity="acct-1")   # needs CODE_BROWSER_API_KEY=cc_live_...
 page = browser.new_page()
 page.goto("https://example.com")
 browser.close()                                                 # ends the hosted session
 ```
 
-Setting `CLEARCOTE_CLOUD=1` moves existing `launch()` code to the cloud without editing it. Without the SDK:
+Setting `CODE_BROWSER_CLOUD=1` moves existing `launch()` code to the cloud without editing it. Without the SDK:
 
 ```javascript
 import { chromium } from "playwright";
@@ -349,28 +349,28 @@ const browser = await chromium.connectOverCDP(connectUrl);
 - **The dashboard [Playground](https://www.clearcotelabs.com/dashboard/playground?utm_source=github&utm_medium=readme&utm_content=run-it-in-the-cloud)** runs a task or a script in a cloud browser and shows the live view, every step and the result.
 
 New accounts that sign in with a GitHub account at least 30 days old get a one-time welcome credit.
-API keys: [dashboard](https://www.clearcotelabs.com/dashboard/api-keys?utm_source=github&utm_medium=readme&utm_content=run-it-in-the-cloud) · Docs: [hosted browsers](https://www.clearcotelabs.com/docs/hosted-browsers?utm_source=github&utm_medium=readme&utm_content=run-it-in-the-cloud) · Site status: [Clearcote Tracker](https://github.com/clearcotelabs/clearcote-tracker).
+API keys: [dashboard](https://www.clearcotelabs.com/dashboard/api-keys?utm_source=github&utm_medium=readme&utm_content=run-it-in-the-cloud) · Docs: [hosted browsers](https://www.clearcotelabs.com/docs/hosted-browsers?utm_source=github&utm_medium=readme&utm_content=run-it-in-the-cloud) · Site status: [CodeBrowser Tracker](https://github.com/clearcotelabs/clearcote-tracker).
 
 ---
 
 ## Give an AI assistant a browser
 
-The [MCP server](mcp/) gives Claude Desktop, Cursor, Cline or any MCP client one shared Clearcote browser
+The [MCP server](mcp/) gives Claude Desktop, Cursor, Cline or any MCP client one shared CodeBrowser browser
 and about 20 tools (`read_page`, `click`, `fill_field`, `screenshot`, `save_profile`, `get_cdp_endpoint`, …).
 
 ```json
 {
   "mcpServers": {
-    "clearcote": {
+    "code-browser": {
       "command": "npx",
-      "args": ["-y", "clearcote-mcp"],
-      "env": { "CLEARCOTE_FINGERPRINT": "acct-1", "CLEARCOTE_PLATFORM": "windows" }
+      "args": ["-y", "code-browser-mcp"],
+      "env": { "CODE_BROWSER_FINGERPRINT": "acct-1", "CODE_BROWSER_PLATFORM": "windows" }
     }
   }
 }
 ```
 
-Python users can run `pip install clearcote-mcp` and `clearcote-mcp` instead of `npx`.
+Python users can run `pip install code-browser-mcp` and `code-browser-mcp` instead of `npx`.
 
 ---
 
@@ -380,7 +380,7 @@ Python users can run `pip install clearcote-mcp` and `clearcote-mcp` instead of 
 JSON that matches your schema. Secrets are referred to as `{{name}}` and never reach the model.
 
 ```python
-from clearcote.cloud import Cloud
+from code_browser.cloud import Cloud
 
 run = Cloud().runs.create(
     "Return the three newest posts with their title and link",
@@ -409,7 +409,7 @@ A replaced function can be told apart from a native one, for example:
 - its property descriptor and `hasOwnProperty` differ from a native getter's;
 - a clean `toString` taken from a new iframe or Web Worker still sees the replacement.
 
-In Clearcote the getter behind `navigator.vendor` is the C++ getter, so it is native code in every frame
+In CodeBrowser the getter behind `navigator.vendor` is the C++ getter, so it is native code in every frame
 and worker. There is no replacement to find.
 
 **One seed, one coherent machine.** A `fingerprint` seed sets the hardware, screen and GPU together,
@@ -439,7 +439,7 @@ The patches that ship: [patches/](patches/) · the design plan they were built f
 
 > 独立文档版本：[docs/zh/FINGERPRINT.md](docs/zh/FINGERPRINT.md)
 
-本节汇总 Clearcote 内核（Chromium `151.0.7922.108`，见 [`UPSTREAM_REVISION`](UPSTREAM_REVISION)）
+本节汇总 CodeBrowser 内核（Chromium `151.0.7922.108`，见 [`UPSTREAM_REVISION`](UPSTREAM_REVISION)）
 相对上游 Chromium / ungoogled-chromium **实际改过的指纹能力**，以及对应的命令行开关。
 每一项都能在 [`patches/`](patches/) 里找到对应补丁，逐补丁说明见 [`patches/README.md`](patches/README.md)。
 
@@ -460,7 +460,7 @@ The patches that ship: [patches/](patches/) · the design plan they were built f
 
 ### 1. 种子与画像模型
 
-Clearcote 不是给每个 API 单独随机，而是用一个种子推导出一台"完整的机器"，让各个接口彼此对得上。
+CodeBrowser 不是给每个 API 单独随机，而是用一个种子推导出一台"完整的机器"，让各个接口彼此对得上。
 
 - **`--fingerprint=<种子>`**：数字或任意字符串（字符串会被哈希成数字，不会崩溃）。
   同一个种子每次启动得到同一台机器；换一个种子就是一台新的、无法关联的机器。
@@ -697,7 +697,7 @@ chrome.exe ^
 更推荐通过 SDK 启动。SDK 会自动下载并校验浏览器、拼好开关，并返回标准的 Playwright `Browser`：
 
 ```python
-from clearcote import launch
+from code_browser import launch
 
 browser = launch(fingerprint="user-7423", platform="windows")
 ```
@@ -729,7 +729,7 @@ There is one open build and one licensed build. The licensed build is offered tw
 
 | | **Open build** | **Free with GitHub** | **Pro, $49/month** |
 |---|---|---|---|
-| Account | None | GitHub account at least 30 days old | Clearcote account |
+| Account | None | GitHub account at least 30 days old | CodeBrowser account |
 | Build | Open, reproducible from this repo | Latest licensed build | Latest licensed build |
 | New Chromium majors | About 2 months after release | The day they are built | The day they are built |
 | Private stealth patches, recorded human motion, profile library | No | Yes | Yes |
@@ -739,7 +739,7 @@ There is one open build and one licensed build. The licensed build is offered tw
 
 - The open build has the full identity surface: personas, render noise, TLS profiles, humanized input. No tier unlocks more spoofing.
 - The licensed build adds stealth work that is kept private, so it is **not** reproducible from public source.
-- A licence key goes in `CLEARCOTE_LICENSE_KEY=cc_lic_...`, `license_key=` / `licenseKey`, or `clearcote login`. Free with GitHub needs SDK 0.30.0 or newer.
+- A licence key goes in `CLEARCOTE_LICENSE_KEY=cc_lic_...`, `license_key=` / `licenseKey`, or `code-browser login`. Free with GitHub needs SDK 0.30.0 or newer.
 
 [Get it free with GitHub](https://www.clearcotelabs.com/pricing?utm_source=github&utm_medium=readme&utm_content=builds-and-tiers#free) · [Get Pro](https://www.clearcotelabs.com/pricing?utm_source=github&utm_medium=readme&utm_content=builds-and-tiers) · per-feature table: [Node](sdk/node/README.md#whats-in-each-tier)
 
@@ -767,7 +767,7 @@ window and screen coherence.
 
 ## Verify a release, or build it yourself
 
-Every release is SHA-256 checksummed and GPG-signed with the Clearcote release key, which does not change:
+Every release is SHA-256 checksummed and GPG-signed with the CodeBrowser release key, which does not change:
 
 ```
 CA96 F185 F96A 693A EDB3  AC1F CB00 D851 B7A8 6B0F
@@ -777,8 +777,8 @@ The open build can be rebuilt from this repo and compared with the published one
 ([docs/en/VERIFY.md](docs/en/VERIFY.md)). To build Windows (cross-compiled) or Linux (native) on a Linux host:
 
 ```bash
-git clone https://github.com/clearcotelabs/clearcote-browser.git
-cd clearcote-browser && WORK=~/clearcote-build ./build.sh
+git clone https://github.com/jyycool/code-browser.git
+cd code-browser-browser && WORK=~/code-browser-build ./build.sh
 ```
 
 Guide: [docs/en/BUILDING.md](docs/en/BUILDING.md) · patches: [`patches/`](patches/) (applied in the order of [`patches/series`](patches/series)).
@@ -787,7 +787,7 @@ Guide: [docs/en/BUILDING.md](docs/en/BUILDING.md) · patches: [`patches/`](patch
 
 ## FAQ
 
-**Is Clearcote free?**
+**Is CodeBrowser free?**
 The open build is free and open source with no account. The latest licensed build is free for one browser
 at a time with a GitHub account, and Pro ($49/month) runs up to 250 at once. Hosted browsers cost €1 per GB.
 
@@ -795,7 +795,7 @@ at a time with a GitHub account, and Pro ($49/month) runs up to 250 at once. Hos
 No. `launch()` returns a normal Playwright `Browser`. Replace `chromium.launch(...)` with `launch(...)` and keep the rest.
 
 **Does it work with Puppeteer, Selenium or other tools?**
-Puppeteer and any CDP client: yes, through the binary or a CDP endpoint. Selenium and WebDriver: no, because Clearcote is driven over CDP.
+Puppeteer and any CDP client: yes, through the binary or a CDP endpoint. Selenium and WebDriver: no, because CodeBrowser is driven over CDP.
 
 **Which operating systems are supported?**
 Windows x64, Linux x64 and **macOS arm64** (Apple Silicon), plus the Docker image. The browser can present itself as
@@ -823,13 +823,13 @@ Privacy, QA and testing, research and lawful automation. Respect site terms and 
 | **SDK references** | [Python](sdk/python/README.md) · [Node](sdk/node/README.md) · [.NET](sdk/dotnet) |
 | **Docs** | [VERIFY](docs/en/VERIFY.md) · [BUILDING](docs/en/BUILDING.md) · [PATCHES](docs/en/PATCHES.md) · [UPGRADING](docs/en/UPGRADING.md) · [CANVAS-BRIDGE](docs/en/CANVAS-BRIDGE.md) · [STEALTH-COHERENCE](docs/en/STEALTH-COHERENCE.md) |
 | **Hosted** | [Hosted browsers](https://www.clearcotelabs.com/docs/hosted-browsers?utm_source=github&utm_medium=readme&utm_content=more) · [Agent runs](https://www.clearcotelabs.com/docs/runs?utm_source=github&utm_medium=readme&utm_content=more) · [Playground](https://www.clearcotelabs.com/dashboard/playground?utm_source=github&utm_medium=readme&utm_content=more) · [Site status](https://github.com/clearcotelabs/clearcote-tracker) |
-| **Profiles** | [clearcote-profiles](https://github.com/clearcotelabs/clearcote-profiles) · [collector](tools/fingerprint-collect) · [Profile Manager app](https://github.com/clearcotelabs/clearcote-profile-manager) |
+| **Profiles** | [code-browser-profiles](https://github.com/clearcotelabs/clearcote-profiles) · [collector](tools/fingerprint-collect) · [Profile Manager app](https://github.com/clearcotelabs/clearcote-profile-manager) |
 | **For agents** | [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md) |
 | **Project** | [ROADMAP](ROADMAP.md) · [CONTRIBUTING](CONTRIBUTING.md) · [SECURITY](SECURITY.md) · [Discord](https://discord.gg/WxvCjAnXZm) |
 
 ## Credits and license
 
-Clearcote builds on [Chromium](https://www.chromium.org/) (BSD-3),
+CodeBrowser builds on [Chromium](https://www.chromium.org/) (BSD-3),
 [ungoogled-chromium](https://github.com/ungoogled-software/ungoogled-chromium) (the de-Googled base),
 [fingerprint-chromium](https://github.com/adryfish/fingerprint-chromium) (engine-level fingerprint controls),
 [Brave](https://brave.com/privacy-updates/3-fingerprint-randomization/) (the per-site "farbling" model) and

@@ -8,8 +8,8 @@ import zipfile
 
 import pytest
 
-from clearcote import _crlset
-from clearcote._crlset import (
+from code_browser import _crlset
+from code_browser._crlset import (
     apply_crlset_launch,
     fetch_crlset,
     crlset_mode,
@@ -28,8 +28,8 @@ def crlset_bytes(sequence, body=b""):
 
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_CRLSET_DIR", str(tmp_path / "cache"))
-    for name in ("CLEARCOTE_CRLSET", "CLEARCOTE_CRLSET_FILE", "CLEARCOTE_CRLSET_TIMEOUT", "CLEARCOTE_CRLSET_URL"):
+    monkeypatch.setenv("CODE_BROWSER_CRLSET_DIR", str(tmp_path / "cache"))
+    for name in ("CODE_BROWSER_CRLSET", "CODE_BROWSER_CRLSET_FILE", "CODE_BROWSER_CRLSET_TIMEOUT", "CODE_BROWSER_CRLSET_URL"):
         monkeypatch.delenv(name, raising=False)
     _crlset._WARNED.clear()
     # a stale cache starts a real background refresh (Google, and the module's urlopen) that would outlive the
@@ -63,7 +63,7 @@ def test_install_takes_a_file_or_chromes_component_directory_and_find_returns_th
 def test_find_prefers_the_explicit_path_then_the_env_file(tmp_path, monkeypatch):
     install_crlset(str(write(tmp_path / "a" / "crl-set", crlset_bytes(5))))
     env_file = write(tmp_path / "env" / "crl-set", crlset_bytes(6))
-    monkeypatch.setenv("CLEARCOTE_CRLSET_FILE", str(env_file))
+    monkeypatch.setenv("CODE_BROWSER_CRLSET_FILE", str(env_file))
     explicit = write(tmp_path / "x" / "crl-set", crlset_bytes(7))
     assert find_crlset(str(explicit)) == str(explicit)
     assert find_crlset() == str(env_file)
@@ -96,7 +96,7 @@ def test_seed_writes_the_component_layout_and_keeps_a_newer_one(tmp_path):
 ])
 def test_mode(value, env, expected, monkeypatch):
     if env is not None:
-        monkeypatch.setenv("CLEARCOTE_CRLSET", env)
+        monkeypatch.setenv("CODE_BROWSER_CRLSET", env)
     assert crlset_mode(value) == expected
 
 
@@ -177,7 +177,7 @@ def test_fetch_from_a_mirror_url(tmp_path, monkeypatch):
             return False
     seen = []
     monkeypatch.setattr(_crlset.urllib.request, "urlopen", lambda url, timeout: seen.append(url) or Resp(crlset_bytes(77)))
-    monkeypatch.setenv("CLEARCOTE_CRLSET_URL", "https://mirror.example/crl-set")
+    monkeypatch.setenv("CODE_BROWSER_CRLSET_URL", "https://mirror.example/crl-set")
     assert fetch_crlset().endswith(os.path.join("77", "crl-set"))
     assert seen == ["https://mirror.example/crl-set"]
 
@@ -193,7 +193,7 @@ def _crx(payload):
 
 @pytest.mark.parametrize("good_hash", [True, False])
 def test_download_from_google_verifies_the_package_hash(monkeypatch, good_hash):
-    from clearcote import _widevine
+    from code_browser import _widevine
     blob = _crx(crlset_bytes(10850))
     digest = hashlib.sha256(blob).hexdigest() if good_hash else "00" * 32
     bodies = []

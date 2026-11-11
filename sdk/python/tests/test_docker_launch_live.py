@@ -1,8 +1,8 @@
-"""launch()'s macOS path against the REAL Clearcote image: docker run, CDP, a page that loads, the
+"""launch()'s macOS path against the REAL CodeBrowser image: docker run, CDP, a page that loads, the
 persona options reaching the engine, and no container left after close().
 
-Off by default. Set CLEARCOTE_TEST_DOCKER_IMAGE to the image to run (and have a working docker); the test
-sets CLEARCOTE_TEST_ONLY_ASSUME_MACOS=1 so the macOS decision itself is what sends launch() to Docker.
+Off by default. Set CODE_BROWSER_TEST_DOCKER_IMAGE to the image to run (and have a working docker); the test
+sets CODE_BROWSER_TEST_ONLY_ASSUME_MACOS=1 so the macOS decision itself is what sends launch() to Docker.
 Mirrors sdk/node/test/docker-launch.live.test.ts and DockerLaunchLiveTests.cs."""
 import os
 import shutil
@@ -11,26 +11,26 @@ import time
 
 import pytest
 
-import clearcote
-from clearcote import _docker
+import code_browser
+from code_browser import _docker
 
-IMAGE = os.environ.get("CLEARCOTE_TEST_DOCKER_IMAGE")
+IMAGE = os.environ.get("CODE_BROWSER_TEST_DOCKER_IMAGE")
 pytestmark = pytest.mark.skipif(not IMAGE or not shutil.which("docker"),
-                                reason="set CLEARCOTE_TEST_DOCKER_IMAGE (and have docker) to run the image")
+                                reason="set CODE_BROWSER_TEST_DOCKER_IMAGE (and have docker) to run the image")
 
 
 @pytest.fixture(autouse=True)
 def _assume_macos(monkeypatch, tmp_path):
     monkeypatch.setenv(_docker.TEST_ONLY_ASSUME_MACOS, "1")
-    monkeypatch.setenv("CLEARCOTE_DOCKER_IMAGE", IMAGE)
+    monkeypatch.setenv("CODE_BROWSER_DOCKER_IMAGE", IMAGE)
     monkeypatch.setenv("HOME", str(tmp_path))  # no saved licence key: the image's open engine
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    for k in ("CLEARCOTE_DOCKER", "CLEARCOTE_BINARY", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_CLOUD"):
+    for k in ("CODE_BROWSER_DOCKER", "CODE_BROWSER_BINARY", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_CLOUD"):
         monkeypatch.delenv(k, raising=False)
     yield
-    if clearcote._pw is not None:
-        clearcote._pw.stop()
-        clearcote._pw = None
+    if code_browser._pw is not None:
+        code_browser._pw.stop()
+        code_browser._pw = None
 
 
 def container_exists(cid):
@@ -60,7 +60,7 @@ def probe(browser):
 
 def test_launch_on_macos_runs_the_real_image():
     # control: the image's own defaults
-    plain = clearcote.launch(quiet=True)
+    plain = code_browser.launch(quiet=True)
     try:
         cid = plain.docker_container["id"]
         assert container_exists(cid)
@@ -75,7 +75,7 @@ def test_launch_on_macos_runs_the_real_image():
     assert not any(volume_exists(v) for v in volumes)
 
     # treatment: the persona options reach the engine in the container
-    b = clearcote.launch(fingerprint="docker-e2e-seed", platform="windows", timezone="Asia/Tokyo", quiet=True)
+    b = code_browser.launch(fingerprint="docker-e2e-seed", platform="windows", timezone="Asia/Tokyo", quiet=True)
     try:
         page, got = probe(b)
         assert got["title"] == "loaded in docker"
@@ -185,9 +185,9 @@ def test_a_proxy_with_a_password_carries_the_traffic():
         proxy = {"server": server, "username": "cc-user", "password": "p@ss:w rd"}
         if image_protocol() < 2:
             with pytest.raises(RuntimeError, match="predates sdk-0.40.0 and cannot use an HTTP proxy"):
-                clearcote.launch(proxy=proxy, quiet=True)
+                code_browser.launch(proxy=proxy, quiet=True)
             return
-        b = clearcote.launch(proxy=proxy, quiet=True)
+        b = code_browser.launch(proxy=proxy, quiet=True)
         try:
             cid = b.docker_container["id"]
             page = b.new_page()
@@ -229,7 +229,7 @@ def test_chrome_runs_with_its_sandbox():
     # launch() starts the image with the seccomp profile, and its Chrome runs sandboxed: no --no-sandbox on any
     # chrome process, renderers in user namespaces of their own, and Chrome's own sandbox page agrees. An image
     # older than serve protocol 3 runs Chrome with --no-sandbox whatever it gets: there this fails.
-    b = clearcote.launch(quiet=True)
+    b = code_browser.launch(quiet=True)
     try:
         cid = b.docker_container["id"]
         procs = chrome_processes(cid)
@@ -249,7 +249,7 @@ def test_a_switch_chrome_cannot_run_its_sandbox_with_turns_it_off_and_the_browse
     # With the profile the probe passes, but Chrome refuses --no-zygote with its sandbox on (exit 1) and aborts on
     # the setuid helper the image does not have with --disable-namespace-sandbox: either way it must run without.
     # --renderer-cmd-prefix starts renderers outside the sandbox's namespaces: it runs without, and says so.
-    b = clearcote.launch(args=[switch], quiet=True)
+    b = code_browser.launch(args=[switch], quiet=True)
     try:
         cid = b.docker_container["id"]
         procs = chrome_processes(cid)
@@ -275,10 +275,10 @@ def test_without_the_profile_the_container_still_serves_without_the_sandbox():
         assert procs and all("--no-sandbox" in args for _ns, args in procs)
         if image_protocol() >= 3:
             logs = subprocess.run(["docker", "logs", cid], capture_output=True, text=True).stdout
-            [line] = [ln for ln in logs.splitlines() if ln.startswith("[clearcote] sandbox:")]
-            assert line.startswith("[clearcote] sandbox: OFF, Chrome runs with --no-sandbox: clone(CLONE_NEWUSER) failed")
+            [line] = [ln for ln in logs.splitlines() if ln.startswith("[code-browser] sandbox:")]
+            assert line.startswith("[code-browser] sandbox: OFF, Chrome runs with --no-sandbox: clone(CLONE_NEWUSER) failed")
             assert "seccomp profile blocks" in line and "--security-opt seccomp=" in line
-        pw = clearcote._playwright()
+        pw = code_browser._playwright()
         b = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
         try:
             page = b.contexts[0].new_page()
@@ -290,24 +290,24 @@ def test_without_the_profile_the_container_still_serves_without_the_sandbox():
         dk("rm", "-f", "-v", cid, check=False)
 
 
-# Licensed and proxied, against whatever image CLEARCOTE_TEST_DOCKER_IMAGE names (one from before sdk-0.40.0
+# Licensed and proxied, against whatever image CODE_BROWSER_TEST_DOCKER_IMAGE names (one from before sdk-0.40.0
 # too): launch() must come back on the licensed engine with the proxy applied -- or refuse -- never on the open
 # engine with traffic going direct. The test checks both itself: the engine from the container's process
 # list, the traffic from the test proxy's log. The proxy wants a password from an image that can log in to
-# one (sdk-0.40.0 and newer); an older image gets one without. Needs CLEARCOTE_TEST_DOCKER_KEY (a real key)
-# and, optionally, CLEARCOTE_TEST_DOCKER_CACHE_VOLUME (a scratch volume for the licensed engine).
-KEY = os.environ.get("CLEARCOTE_TEST_DOCKER_KEY")
+# one (sdk-0.40.0 and newer); an older image gets one without. Needs CODE_BROWSER_TEST_DOCKER_KEY (a real key)
+# and, optionally, CODE_BROWSER_TEST_DOCKER_CACHE_VOLUME (a scratch volume for the licensed engine).
+KEY = os.environ.get("CODE_BROWSER_TEST_DOCKER_KEY")
 
 
-@pytest.mark.skipif(not KEY, reason="set CLEARCOTE_TEST_DOCKER_KEY")
+@pytest.mark.skipif(not KEY, reason="set CODE_BROWSER_TEST_DOCKER_KEY")
 def test_licensed_and_proxied_launch_is_never_downgraded(monkeypatch):
-    if os.environ.get("CLEARCOTE_TEST_DOCKER_CACHE_VOLUME"):
-        monkeypatch.setenv("CLEARCOTE_DOCKER_CACHE_VOLUME", os.environ["CLEARCOTE_TEST_DOCKER_CACHE_VOLUME"])
+    if os.environ.get("CODE_BROWSER_TEST_DOCKER_CACHE_VOLUME"):
+        monkeypatch.setenv("CODE_BROWSER_DOCKER_CACHE_VOLUME", os.environ["CODE_BROWSER_TEST_DOCKER_CACHE_VOLUME"])
     login = ("cc-user", "p@ss:w rd") if image_protocol() >= 2 else (None, None)
     server, proxy_cid, proxy_log = start_proxy(*login)
     try:
         proxy = {"server": server, **({"username": login[0], "password": login[1]} if login[0] else {})}
-        b = clearcote.launch(license_key=KEY, proxy=proxy, quiet=True, timeout=600_000)
+        b = code_browser.launch(license_key=KEY, proxy=proxy, quiet=True, timeout=600_000)
         try:
             info = b.docker_container
             env = dk("inspect", "-f", "{{json .Config.Env}}", info["id"])

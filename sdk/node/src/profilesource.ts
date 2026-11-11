@@ -23,7 +23,7 @@ import {
 const DEFAULT_API_BASE = "https://www.clearcotelabs.com";
 
 function apiBase(base?: string): string {
-  return (base || process.env.CLEARCOTE_PROFILE_API || process.env.CLEARCOTE_LICENSE_API || DEFAULT_API_BASE)
+  return (base || process.env.CODE_BROWSER_PROFILE_API || process.env.CODE_BROWSER_LICENSE_API || DEFAULT_API_BASE)
     .replace(/\/$/, "");
 }
 
@@ -144,7 +144,7 @@ interface ProbeResult {
  *
  * `browserMajor` is a FALLBACK only. The major is read from the running browser when possible,
  * because that is the only authoritative source: the caller may have pinned `version: "149"`,
- * set CLEARCOTE_BROWSER_VERSION, or supplied their own `executablePath`, and in all of those the
+ * set CODE_BROWSER_BROWSER_VERSION, or supplied their own `executablePath`, and in all of those the
  * SDK's pinned RELEASE version describes a different binary than the one about to run. Filtering
  * profiles against the wrong major would silently produce a persona that contradicts the engine.
  */

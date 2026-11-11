@@ -4,7 +4,7 @@ Covers the decisions _apply_auto_profile makes BEFORE any browser starts, by stu
 expensive collaborators (measure_host launches a browser; resolve_auto hits the network).
 """
 
-import clearcote
+import code_browser
 import pytest
 
 HOST = {
@@ -30,29 +30,29 @@ def stubbed(monkeypatch):
         calls["select"] = kw
         return {"profile": SERVICE_PROFILE, "selection": {"entry": {"id": "svc-1"}}, "source": "service"}
 
-    monkeypatch.setattr(clearcote, "measure_host", fake_measure)
-    monkeypatch.setattr(clearcote, "resolve_auto", fake_resolve)
+    monkeypatch.setattr(code_browser, "measure_host", fake_measure)
+    monkeypatch.setattr(code_browser, "resolve_auto", fake_resolve)
     return calls
 
 
 class TestApplyAutoProfile:
     def test_sets_fingerprint_profile_from_the_resolver(self, stubbed):
         fp = {}
-        clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
+        code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
         assert fp["fingerprint_profile"] == SERVICE_PROFILE
         assert stubbed["resolve"] == 1
 
     def test_never_sets_a_seed(self, stubbed):
         # The seed is what engages farbling; "auto" exists to avoid it.
         fp = {}
-        clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
+        code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
         assert "fingerprint" not in fp
 
     def test_explicit_profile_wins_and_skips_all_work(self, stubbed):
         # If the caller already named a profile there is nothing to decide, and we must not pay
         # for a browser launch or a network call to decide it anyway.
         fp = {"fingerprint_profile": {"navigator": {"user_agent": "mine"}}}
-        clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
+        code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
         assert fp["fingerprint_profile"]["navigator"]["user_agent"] == "mine"
         assert stubbed["measure"] == 0
         assert stubbed["resolve"] == 0
@@ -61,31 +61,31 @@ class TestApplyAutoProfile:
         # A profile captured on another major contradicts the engine, so the major that gets
         # filtered on must be the one the binary actually is.
         fp = {}
-        clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
-        assert stubbed["major"] == int(str(clearcote.RELEASE["version"]).split(".")[0])
+        code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
+        assert stubbed["major"] == int(str(code_browser.RELEASE["version"]).split(".")[0])
 
     def test_forwards_selection_options(self, stubbed):
         fp = {}
-        clearcote._apply_auto_profile(fp, "/path/chrome", {"key": "acct-9", "mode": "best"}, quiet=True)
+        code_browser._apply_auto_profile(fp, "/path/chrome", {"key": "acct-9", "mode": "best"}, quiet=True)
         assert stubbed["select"]["key"] == "acct-9"
         assert stubbed["select"]["mode"] == "best"
 
     def test_warns_when_a_seed_is_also_set(self, stubbed, capsys):
         # Silently ignoring the seed, or silently keeping it, would both be worse than saying so.
         fp = {"fingerprint": "seed-1"}
-        clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=False)
+        code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=False)
         err = capsys.readouterr().err
         assert "fingerprint seed" in err
         assert "farbling" in err
 
     def test_quiet_suppresses_the_warning(self, stubbed, capsys):
         fp = {"fingerprint": "seed-1"}
-        clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
+        code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=True)
         assert capsys.readouterr().err == ""
 
     def test_license_is_forwarded_from_the_pro_tuple(self, stubbed):
         fp = {}
-        clearcote._apply_auto_profile(fp, "/path/chrome", {}, quiet=True,
+        code_browser._apply_auto_profile(fp, "/path/chrome", {}, quiet=True,
                                       pro=("cc_lic_x", "https://api.example"))
         assert stubbed["select"]["license_key"] == "cc_lic_x"
         assert stubbed["select"]["api_base"] == "https://api.example"
@@ -99,15 +99,15 @@ class TestPrepareRouting:
             raise AssertionError("resolve_profile_options must not be called for profile='auto'")
 
         routed = []
-        monkeypatch.setattr(clearcote, "resolve_profile_options", boom)
+        monkeypatch.setattr(code_browser, "resolve_profile_options", boom)
         # Hermetic. This used to run _prepare for real: on a machine with a cached engine and a
         # cold host cache it ran the real host probe (a browser launch through Playwright's SYNC
         # API, with this machine's licence), which left an event loop running on this thread and
         # broke every async test that ran after it.
-        monkeypatch.setattr(clearcote, "_resolve_binary", lambda *a, **k: "/path/chrome")
-        monkeypatch.setattr(clearcote, "_apply_auto_profile",
+        monkeypatch.setattr(code_browser, "_resolve_binary", lambda *a, **k: "/path/chrome")
+        monkeypatch.setattr(code_browser, "_apply_auto_profile",
                             lambda fp, exe, select, quiet=False, pro=None, lease=None: routed.append(exe))
-        clearcote._prepare({"profile": "auto", "quiet": True})
+        code_browser._prepare({"profile": "auto", "quiet": True})
         assert routed == ["/path/chrome"]
 
 
@@ -133,11 +133,11 @@ class TestNestedProbeLaunchIsLicensed:
             seen.update(kw)
             raise RuntimeError("stop here — the kwargs are the assertion")
 
-        monkeypatch.setattr(clearcote, "measure_host", fake_measure)
-        monkeypatch.setattr(clearcote, "launch", fake_launch)
+        monkeypatch.setattr(code_browser, "measure_host", fake_measure)
+        monkeypatch.setattr(code_browser, "launch", fake_launch)
 
         with pytest.raises(RuntimeError):
-            clearcote._apply_auto_profile({}, "/path/chrome", {}, quiet=True,
+            code_browser._apply_auto_profile({}, "/path/chrome", {}, quiet=True,
                                           pro=("cc_lic_probe", "https://api.example"))
 
         assert seen["license_key"] == "cc_lic_probe", "the gated probe launch must carry the key"
@@ -161,11 +161,11 @@ class TestNestedProbeLaunchIsLicensed:
             seen.update(kw)
             raise RuntimeError("stop here - the kwargs are the assertion")
 
-        monkeypatch.setattr(clearcote, "measure_host", fake_measure)
-        monkeypatch.setattr(clearcote, "launch", fake_launch)
+        monkeypatch.setattr(code_browser, "measure_host", fake_measure)
+        monkeypatch.setattr(code_browser, "launch", fake_launch)
 
         with pytest.raises(RuntimeError):
-            clearcote._apply_auto_profile({}, "/path/chrome", {}, quiet=True, lease=sentinel)
+            code_browser._apply_auto_profile({}, "/path/chrome", {}, quiet=True, lease=sentinel)
 
         assert seen["_cc_lease"] is sentinel
 
@@ -182,8 +182,8 @@ class TestPrivacySandboxDefault:
     SANDBOX = "BrowsingTopics"
 
     def _args(self, monkeypatch, **kwargs):
-        monkeypatch.setattr(clearcote, "_resolve_binary", lambda *a, **k: "/path/chrome")
-        _exe, args, *_rest = clearcote._prepare(dict(kwargs))
+        monkeypatch.setattr(code_browser, "_resolve_binary", lambda *a, **k: "/path/chrome")
+        _exe, args, *_rest = code_browser._prepare(dict(kwargs))
         return args
 
     def test_privacy_sandbox_is_not_disabled_by_default(self, monkeypatch):

@@ -1,4 +1,4 @@
-// `clearcote bench` and the Host section of `clearcote info`: the summary and the printed lines are a
+// `code-browser bench` and the Host section of `code-browser info`: the summary and the printed lines are a
 // contract shared with the Python SDK (tests/test_bench.py reads the same fixture and expected lines).
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -19,7 +19,7 @@ const host = (over: Partial<HostReport> = {}): HostReport => ({
   gpu: { adapters: ["NVIDIA GeForce RTX 3070"], software: false }, ...over,
 });
 
-describe("clearcote bench", () => {
+describe("code-browser bench", () => {
   it("prints the shared fixture's lines exactly (the Python SDK prints the same)", () => {
     expect(benchLines(summarizeBench(raw))).toEqual(expected);
   });
@@ -55,7 +55,7 @@ describe("clearcote bench", () => {
   });
 
   it("finds the browser by its profile directory and takes every process below it", () => {
-    const dir = "C:\\Temp\\clearcote-bench-abc";
+    const dir = "C:\\Temp\\code-browser-bench-abc";
     const table: Proc[] = [
       { pid: 1, ppid: 0, cmd: `chrome.exe --user-data-dir=${dir} --headless`, cpuMs: 10, memMB: 100 },
       { pid: 2, ppid: 1, cmd: "chrome.exe --type=renderer", cpuMs: 20, memMB: 200 },
@@ -68,7 +68,7 @@ describe("clearcote bench", () => {
   });
 });
 
-describe("clearcote info: Host", () => {
+describe("code-browser info: Host", () => {
   it("names the CPU, RAM, OS and GPU", () => {
     expect(hostLines(host())).toEqual([
       "Host            AMD Ryzen 7 5700G, 16 threads, 15.8 GB RAM (4.0 GB free)",
@@ -106,7 +106,7 @@ describe("clearcote info: Host", () => {
   });
 
   it("is documented, with bench's own flags", () => {
-    for (const s of ["clearcote bench", "BENCH FLAGS", "--concurrency", "--duration"]) expect(USAGE).toContain(s);
+    for (const s of ["code-browser bench", "BENCH FLAGS", "--concurrency", "--duration"]) expect(USAGE).toContain(s);
     expect(commandUsage("bench")).toContain("--force");
     expect(commandUsage("bench")).toContain("seats");
   });

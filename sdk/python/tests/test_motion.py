@@ -7,7 +7,7 @@ The seed->persona map is bit-identical across SDKs, so persona/determinism check
 
 import math
 
-from clearcote._motion import (
+from code_browser._motion import (
     click_point,
     drag_dwell,
     enter_from_top,
@@ -19,7 +19,7 @@ from clearcote._motion import (
     plan_ambient,
     plan_move,
 )
-from clearcote._motionscore import extract_features, score_motion, steps_to_samples
+from code_browser._motionscore import extract_features, score_motion, steps_to_samples
 
 
 def _old_glide(frm, to, rng):

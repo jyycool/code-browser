@@ -22,7 +22,7 @@
 // the native keyboard (trusted; shift handled by the engine) with human inter-key timing. No
 // special binary command required.
 //
-// Form input follows sdk/python/clearcote/_humanize.py (the reference); WHAT to press comes from
+// Form input follows sdk/python/code_browser/_humanize.py (the reference); WHAT to press comes from
 // ./forms.ts (shared test vectors with Python and .NET), HOW comes from this file. Every DOM read
 // goes through the isolated world (./isolated.ts) or Playwright's utility-world queries, never
 // page.evaluate / locator.evaluate.
@@ -90,7 +90,7 @@ import {
   type HumanizeSetting,
 } from "./hzoptions.js";
 
-export { ClearcoteStrictError } from "./hzoptions.js";
+export { CodeBrowserStrictError } from "./hzoptions.js";
 export type {
   HumanizeAmbient, HumanizeEngine, HumanizeFallbackEvent, HumanizeOptions, HumanizePreset,
   HumanizeSetting,
@@ -113,10 +113,10 @@ export interface HumanizeLaunchOptions {
 /** Overlay: a red dot that follows real mousemove events. Idempotent IIFE so it works both as
  * an addInitScript source string AND when passed to page.evaluate. */
 export const CURSOR_OVERLAY = `(() => {
-  if (window.__clearcoteCursor) return; window.__clearcoteCursor = 1;
+  if (window.__code_browserCursor) return; window.__code_browserCursor = 1;
   const make = () => {
-    if (document.getElementById('__clearcote_cursor')) return;
-    const d = document.createElement('div'); d.id = '__clearcote_cursor';
+    if (document.getElementById('__code_browser_cursor')) return;
+    const d = document.createElement('div'); d.id = '__code_browser_cursor';
     d.style.cssText = 'position:fixed;left:0;top:0;width:20px;height:20px;margin:-10px 0 0 -10px;' +
       'border-radius:50%;border:2px solid #ff3b3b;background:rgba(255,59,59,.22);' +
       'box-shadow:0 0 10px rgba(255,59,59,.6);pointer-events:none;z-index:2147483647';
@@ -124,7 +124,7 @@ export const CURSOR_OVERLAY = `(() => {
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', make); else make();
   document.addEventListener('mousemove', (e) => {
-    const d = document.getElementById('__clearcote_cursor');
+    const d = document.getElementById('__code_browser_cursor');
     if (d) { d.style.left = e.clientX + 'px'; d.style.top = e.clientY + 'px'; }
   }, true);
 })();`;
@@ -194,9 +194,9 @@ export async function sendEngineCommand(
 // headless browser's first page (r40, SC 216). A page that never draws (a hidden tab) walks after it.
 const FRAMES_WAIT_MS = 1500;
 
-/** CLEARCOTE_HUMANIZE_ENGINE_EXT=off (also 0/false/no) keeps the r43 engine extensions unused (r42 behaviour). */
+/** CODE_BROWSER_HUMANIZE_ENGINE_EXT=off (also 0/false/no) keeps the r43 engine extensions unused (r42 behaviour). */
 export function engineExtMode(): boolean {
-  const v = (process.env.CLEARCOTE_HUMANIZE_ENGINE_EXT || "").trim().toLowerCase();
+  const v = (process.env.CODE_BROWSER_HUMANIZE_ENGINE_EXT || "").trim().toLowerCase();
   return !["0", "off", "false", "no", "none"].includes(v);
 }
 // CDP's "invalid params" (-32602) and nothing else: what an r43 engine answers to an EMPTY dispatchKeySequence --
@@ -330,11 +330,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const NEARBY: Readonly<Record<string, string>> = NEARBY_LETTERS;
 
 /** @internal exported for tests. Per-character fat-finger rate: the persona's own (timingTraits, 0.5–4 %
- * per identity; the global 2 % without a persona). CLEARCOTE_HUMANIZE_TYPO_RATE overrides it when set (0
+ * per identity; the global 2 % without a persona). CODE_BROWSER_HUMANIZE_TYPO_RATE overrides it when set (0
  * disables typos; the test suites raise it to exercise the correction paths). Read at call time, like
  * Python's typo_rate(). */
 export function typoRate(persona?: Persona | null): number {
-  const v = process.env.CLEARCOTE_HUMANIZE_TYPO_RATE;
+  const v = process.env.CODE_BROWSER_HUMANIZE_TYPO_RATE;
   if (v === undefined || v === "") return persona ? timingTraits(persona).typoRate : DEFAULT_TYPO_RATE;
   const f = pyFloat(v);
   if (f === null || Number.isNaN(f)) return DEFAULT_TYPO_RATE;
@@ -355,7 +355,7 @@ export function isTimeout(err: unknown): boolean {
 const API_PREFIX = /^[A-Za-z_]+\.[A-Za-z_]+: /;
 /** Marks an error the SDK raises in Playwright's place (a trial that never passed, a checkbox that would
  * not change): it gets the caller's API prefix too. */
-const SDK_PW_ERROR = Symbol.for("clearcote.playwrightError");
+const SDK_PW_ERROR = Symbol.for("code_browser.playwrightError");
 
 /** @internal exported for tests. `err` worded as Playwright words an error of `api` ("page.click",
  * "locator.setChecked"): the inner call's "locator.waitFor: " prefix replaced (or, for an error the SDK
@@ -423,18 +423,18 @@ export function createInputLock(): <T>(fn: () => Promise<T>) => Promise<T> {
 
 /** Wrap a single page's input methods + (optionally) inject the cursor overlay. */
 /** Which clicks the engine pointer path (Browser.dispatchPointerPath) may walk, from
- * CLEARCOTE_HUMANIZE_ENGINE_CLICKS: "off" (also 0/false/no) never; "all" (also "selector") coordinate
+ * CODE_BROWSER_HUMANIZE_ENGINE_CLICKS: "off" (also 0/false/no) never; "all" (also "selector") coordinate
  * clicks AND targeted page.click(selector) / locator.click() clicks; anything else (the default)
  * coordinate clicks only, as before.
  *
  * Targeted clicks stay on the SDK planner by default (SC 210 lane S, measured on r38): the engine
  * presses 9 ms after its last move (the planner's press waits 40-130 ms), and it walks from its own last
  * position, which an SDK glide does not update. Same values as Python `_engine_clicks_mode`. */
-/** Lane A's ClearcoteStrictError (strict mode): never swallowed by a best-effort path. */
-const isStrict = (e: unknown): boolean => !!e && ((e as any).name === "ClearcoteStrictError" || (e as any).constructor?.name === "ClearcoteStrictError");
+/** Lane A's CodeBrowserStrictError (strict mode): never swallowed by a best-effort path. */
+const isStrict = (e: unknown): boolean => !!e && ((e as any).name === "CodeBrowserStrictError" || (e as any).constructor?.name === "CodeBrowserStrictError");
 
 export function engineClicksMode(): "off" | "coords" | "all" {
-  const v = (process.env.CLEARCOTE_HUMANIZE_ENGINE_CLICKS || "").trim().toLowerCase();
+  const v = (process.env.CODE_BROWSER_HUMANIZE_ENGINE_CLICKS || "").trim().toLowerCase();
   if (["0", "off", "false", "no", "none"].includes(v)) return "off";
   if (["all", "selector", "selectors"].includes(v)) return "all";
   return "coords";
@@ -454,8 +454,8 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
   //     browser.newPage()   51338 ms   2946 samples
   //     context.newPage()    2833 ms    161 samples   <- correct (planner caps at ~180)
   // i.e. an 18x blow-up on the most common entry point in the API.
-  if ((page as any).__clearcoteHumanized) return;
-  (page as any).__clearcoteHumanized = true;
+  if ((page as any).__code_browserHumanized) return;
+  (page as any).__code_browserHumanized = true;
 
   if (opts.showCursor) {
     const inject = () => page.evaluate(CURSOR_OVERLAY).catch(() => {});
@@ -467,7 +467,7 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
   // and no option draws from the persona RNG (same seed, same persona).
   const hz = resolveHumanize(opts.humanize);
   if (!hz) return;
-  (page as any)._clearcoteHz = hz;
+  (page as any)._code_browserHz = hz;
   const tempo = hz.tempo; // preset: every planned duration x1.4 / x1.0 / x0.7
   // The stock methods, for per-call { humanize: false } (wired at the end of attach).
   const stockPage: Record<string, any> = {}, stockMouse: Record<string, any> = {}, stockKb: Record<string, any> = {};
@@ -480,7 +480,7 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
   // seeded from the fingerprint so behavior is consistent within an identity and unlinkable across
   // seeds. Stored on the page so the module-level Locator.dragTo patch can reach it too.
   const persona: Persona = applyToPersona(makePersona(opts.seed), hz);
-  (page as any)._clearcotePersona = persona;
+  (page as any)._code_browserPersona = persona;
   // The typing identity (WPM, bigram factors, Tab preference, pauses) from a salted side stream
   // of the persona seed (keys.typingTraits): the persona's own draws are unchanged.
   const traits = typingTraits(persona.seed);
@@ -491,7 +491,7 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
   // A keydown->keyup hold: lane B's keyDwell (log-normal around the persona's median, preset-scaled).
   const kdwell = (): number => keyDwell(persona);
   const tabPref = (): number => (typeof (persona as any).tabPref === "number" ? (persona as any).tabPref : traits.tabPref);
-  // The slip rate: lane A's typoRate option, else lane B's typoRate(persona) (CLEARCOTE_HUMANIZE_TYPO_RATE when
+  // The slip rate: lane A's typoRate option, else lane B's typoRate(persona) (CODE_BROWSER_HUMANIZE_TYPO_RATE when
   // set, else the persona's 0.5-4 %).
   const personaTypoRate = (): number => typoRateFor(page, () => typoRate(persona));
   // One input action at a time on this page (see createInputLock). Inside the lock the outermost action
@@ -872,7 +872,7 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
 
   // Held-button drag leg with the seating jiggle (settle), reachable from the module-level
   // Locator.dragTo patch (which can't see this closure) via the page object.
-  (page as any)._clearcoteHeldGlide = async (x: number, y: number) => {
+  (page as any)._code_browserHeldGlide = async (x: number, y: number) => {
     // r43 engine (SC 232 lane H): the held leg + seating jiggle (settle) walked engine-side, buttons carried.
     if (st.held && engineModeFor(page, engineClicksMode) !== "off" && await engineExtOk()
         && await engineGlide(x, y, true, { buttons: engineHeldBits(st.heldButton), settle: true })) return;
@@ -881,12 +881,12 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
 
   // OPT-IN: no ambient burst on load by default (it interleaves with caller-driven input,
   // e.g. a slider drag). Call page.ambientMotion(ms) explicitly, or set
-  // page._clearcoteAutoAmbient = true to restore the per-load burst.
-  (page as any)._clearcoteAutoAmbient = hz.ambient === "load";
-  (page as any)._clearcoteAmbient = hz.ambient ?? "off"; // read by the attention/idle code (lane C)
+  // page._code_browserAutoAmbient = true to restore the per-load burst.
+  (page as any)._code_browserAutoAmbient = hz.ambient === "load";
+  (page as any)._code_browserAmbient = hz.ambient ?? "off"; // read by the attention/idle code (lane C)
   page.on("load", () => {
     // ambient: "load" (lane A's option, read defensively) is the same per-load burst as the flag.
-    if ((page as any)._clearcoteAutoAmbient === true || ambientMode(page) === "load") {
+    if ((page as any)._code_browserAutoAmbient === true || ambientMode(page) === "load") {
       Promise.resolve((page as any).ambientMotion(rand(450, 950))).catch(() => {});
     }
   });
@@ -937,8 +937,8 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
       const o: any = opts as any;
       const pg: any = page as any;
       // lane A's resolved options (optionsOf) first, then the stand-in seams
-      const cand = [optionsOf(page)?.inputDevice, o?.inputDevice, o?.input_device, pg._clearcoteOptions?.inputDevice,
-        pg._clearcoteInputDevice]
+      const cand = [optionsOf(page)?.inputDevice, o?.inputDevice, o?.input_device, pg._code_browserOptions?.inputDevice,
+        pg._code_browserInputDevice]
         .find((v) => typeof v === "string");
       device = inputDevice(wheelPlat, cand);
     }
@@ -2220,8 +2220,8 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
   const nativePageFocus = typeof (page as any).focus === "function" ? (page as any).focus.bind(page) : null;
 
   // A humanized route handed this call to Playwright: told to lane A's on_fallback hook when the page
-  // carries one (page._clearcoteOnFallback), else nothing (as before).
-  // Lane A's report: strict mode throws ClearcoteStrictError (nothing is sent), else onFallback hears it. Not caught.
+  // carries one (page._code_browserOnFallback), else nothing (as before).
+  // Lane A's report: strict mode throws CodeBrowserStrictError (nothing is sent), else onFallback hears it. Not caught.
   const fallback = (api: string, reason: string, selector?: string): void => { reportFallback(page, api, reason, selector); };
 
   // Give `selector` the focus before a key goes to it: a text field by Tab from the field before it
@@ -2356,8 +2356,8 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
       fallback(api, "native");
       return LOCATOR_NATIVE[name].call(page.locator(selector).first(), options);
     });
-  (page as any)._clearcoteBlur = guarded("locator.blur", blurHuman, "blur");
-  (page as any)._clearcoteSelectText = guarded("locator.selectText", selectTextHuman, "selectText");
+  (page as any)._code_browserBlur = guarded("locator.blur", blurHuman, "blur");
+  (page as any)._code_browserSelectText = guarded("locator.selectText", selectTextHuman, "selectText");
 
   // ------------------------------------------------------------------------- selectOption
   // Open the drop-down with a click, move its highlight with the planned keys, commit with Enter: one
@@ -2869,7 +2869,7 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
       }
       if (o.modifiers.length && !(nativeKbDown && nativeKbUp)) throw new NativeSignal("modifiers need keyboard.down");
       if (!noClick && !o.force && orig && engineModeFor(page, engineClicksMode) === "all") {
-        // Opt-in (engine "all" / CLEARCOTE_HUMANIZE_ENGINE_CLICKS=all): the engine walks the approach and
+        // Opt-in (engine "all" / CODE_BROWSER_HUMANIZE_ENGINE_CLICKS=all): the engine walks the approach and
         // clicks the point the hit test above proved. A plain left click takes the r42 route (while the engine
         // knows where the pointer is, engineInSync; an r43 engine re-syncs from the SDK's position, fromX/fromY);
         // a right / double / modified click takes the r43 extensions, as mouse.click does (engineExtClick,
@@ -2921,34 +2921,34 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
     return locked(() => targetedClick(nativePageHover, selector, rest, true, null, dwell));
   });
   // Locator.dragTo({ trial: true }) answers its checks here too (see the Locator patch).
-  (page as any)._clearcoteTrial = (selector: string, options: any, noClick: boolean) =>
+  (page as any)._code_browserTrial = (selector: string, options: any, noClick: boolean) =>
     locked(() => trial(selector, options, noClick));
 
   // pressAndHold (hold.ts): the hooks it reads off the page. It holds the page lock for the whole hold
-  // (one action at a time); inside it uses page.mouse (not locked) and these hooks. _clearcoteNudge is
+  // (one action at a time); inside it uses page.mouse (not locked) and these hooks. _code_browserNudge is
   // the tremor step: a native move (no glide) that keeps the tracked position where the pointer is.
-  (page as any)._clearcoteBoxOf = (loc: Locator, timeout: number | undefined, selector: string | null = null) =>
+  (page as any)._code_browserBoxOf = (loc: Locator, timeout: number | undefined, selector: string | null = null) =>
     boxOf(loc, timeout, false, selector);
-  (page as any)._clearcotePointer = (): Point => ({ x: st.x, y: st.y });
+  (page as any)._code_browserPointer = (): Point => ({ x: st.x, y: st.y });
   // ... and for its press point: a glide with the box's own Fitts width, the covered-point check (the same
   // isolated hit test as a click, retried COVER_CHECK_MS), the probe-proven point when the chosen one is
   // covered, and the border widths that make `position` padding-box relative like click's.
-  (page as any)._clearcoteAimGlide = (x: number, y: number, box: Rect) => glide(x, y, { targetW: aimW(box) });
-  (page as any)._clearcoteReachesPoint = reachesPoint;
-  (page as any)._clearcoteProvenPoint = provenClickPoint;
-  (page as any)._clearcoteBorderOf = async (box: Rect): Promise<[number, number]> => {
+  (page as any)._code_browserAimGlide = (x: number, y: number, box: Rect) => glide(x, y, { targetW: aimW(box) });
+  (page as any)._code_browserReachesPoint = reachesPoint;
+  (page as any)._code_browserProvenPoint = provenClickPoint;
+  (page as any)._code_browserBorderOf = async (box: Rect): Promise<[number, number]> => {
     const info = await describe(box, null);
     return info ? [info.bl || 0, info.bt || 0] : [0, 0];
   };
   // the frame route (frames.ts) clears a field with the same held chord as the page routes
-  (page as any)._clearcoteSelectAll = () => selectAll();
-  (page as any)._clearcoteNudge = async (x: number, y: number): Promise<void> => {
+  (page as any)._code_browserSelectAll = () => selectAll();
+  (page as any)._code_browserNudge = async (x: number, y: number): Promise<void> => {
     await nativeMove(x, y);
     st.x = x; st.y = y; st.placed = true;
   };
-  (page as any)._clearcoteHold = (loc: Locator, o?: PressAndHoldOptions) => locked(() => pressAndHold(loc, o));
+  (page as any)._code_browserHold = (loc: Locator, o?: PressAndHoldOptions) => locked(() => pressAndHold(loc, o));
   (page as any).pressAndHold = apiErrors("page.pressAndHold", (selector: string, o?: PressAndHoldOptions) =>
-    (page as any)._clearcoteHold(page.locator(selector).first(), o));
+    (page as any)._code_browserHold(page.locator(selector).first(), o));
 
   // ------------------------------------------------------------- drags (dragTo / dragAndDrop / dragBy)
   const peekBox = async (loc: Locator, selector: string | null): Promise<Rect | null> =>
@@ -3103,7 +3103,7 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
     try {
       await nativeDown();
       got = await dragByCore(p0[0], p0[1], dx, dy, read, o.tolerance ?? 2, grabMs);
-      (page as any)._clearcoteDragLegs = dragLegs;
+      (page as any)._code_browserDragLegs = dragLegs;
       await sleep(releaseMs);
     } finally {
       try { await nativeUp(); } finally { st.held = false; }
@@ -3111,8 +3111,8 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
     return { x: got[0], y: got[1] };
   };
 
-  (page as any)._clearcoteDrag = (src: Locator, dst: Locator, o: any) => locked(() => drag(src, dst, o));
-  (page as any)._clearcoteDragBy = (loc: Locator, dx: number, dy: number, o?: DragByOptions) =>
+  (page as any)._code_browserDrag = (src: Locator, dst: Locator, o: any) => locked(() => drag(src, dst, o));
+  (page as any)._code_browserDragBy = (loc: Locator, dx: number, dy: number, o?: DragByOptions) =>
     locked(() => dragBy(loc, dx, dy, o));
   const nativeDnd = typeof (page as any).dragAndDrop === "function" ? (page as any).dragAndDrop.bind(page) : null;
   if (nativeDnd) {
@@ -3155,9 +3155,9 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
   // a salted stream: every existing draw keeps its order); every per-action draw is unseeded.
   // (Function declarations: hoisted, so locked()/targetedClick above can call them.)
   // The attention model is on unless the `attention` option is false (SC 299); the page flag
-  // `page._clearcoteAttention` (true / false), when set, overrides it (attention.ts attentionEnabled).
+  // `page._code_browserAttention` (true / false), when set, overrides it (attention.ts attentionEnabled).
   // Test seam: what the after-action model did, newest last (bounded).
-  (page as any)._clearcoteAfterTrace = af.trace;
+  (page as any)._code_browserAfterTrace = af.trace;
   const wheelInner = mouse.wheel;   // the humanized wheel, before the after-action wrapper below
 
   // Wrap the UNLOCKED public entry points: mouse.move / wheel run the step first; down / up only mark
@@ -3187,7 +3187,7 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
   for (const [name, at] of [["click", 1], ["hover", 1], ["dblclick", 1], ["check", 1], ["uncheck", 1], ["setChecked", 2]] as const) {
     tag(page as any, name, (a) => ({ coords: false, after: !a[at]?.trial }));
   }
-  tag(page as any, "_clearcoteTrial", () => ({ coords: false, after: false }));
+  tag(page as any, "_code_browserTrial", () => ({ coords: false, after: false }));
   const ambientInner = (page as any).ambientMotion;
   (page as any).ambientMotion = (ms = 1200) => locked(() => ambientInner(ms));
   (page as any).settle = (): Promise<boolean> => { nextCall = { coords: false, after: false }; return locked(settleNow); };
@@ -3332,7 +3332,7 @@ export async function attachHumanize(browser: Browser | null, page: Page, opts: 
   wirePerCallOff(page, st, stockPage, stockMouse, stockKb);
 
   // Marker the Locator-class patch keys off: humanize is active for THIS page.
-  (page as any)._clearcoteHumanized = true;
+  (page as any)._code_browserHumanized = true;
   patchLocatorClass(page.locator("html"));
   patchFrameClass(page.mainFrame());
   await patchHandleClass(page);
@@ -3453,7 +3453,7 @@ function wirePerCallOff(page: any, st: { x: number; y: number; held: boolean; pl
     if (typeof page.keyboard[n] === "function") page.keyboard[n] = perCallOff(s, page.keyboard[n]);
   }
   // locator.dragBy({ humanize: false }) drags with these (there is no Playwright dragBy); page.dragBy likewise
-  page._clearcoteStockMouse = { ...stockMouse };
+  page._code_browserStockMouse = { ...stockMouse };
   if (typeof page.dragBy === "function") {
     page.dragBy = perCallOff((selector: string, dx: number, dy: number, o?: any) =>
       (page.locator(selector).first() as any).dragBy(dx, dy, { ...(o ?? {}), humanize: false }), page.dragBy);
@@ -3478,7 +3478,7 @@ export function selectWhy(values: any, options: any): string {
 function frameWhy(self: any): string | undefined {
   try {
     const pg: any = self.page();
-    if (!pg || !pg._clearcoteHumanized) return undefined;
+    if (!pg || !pg._code_browserHumanized) return undefined;
     if (String(self._selector ?? "").includes("internal:control=enter-frame")) return "frame locators go to Playwright";
     if (self._frame !== pg.mainFrame()) return "a locator in a child frame goes to Playwright";
   } catch { return undefined; }
@@ -3536,7 +3536,7 @@ function patchLocatorClass(sample: Locator): void {
   // prefilled field was never cleared ("old" + "new" = "oldnew"); frame locators stay native.
   const on = (self: any): boolean => {
     const pg: any = self.page();
-    if (!pg || !pg._clearcoteHumanized) return false;
+    if (!pg || !pg._code_browserHumanized) return false;
     try {
       if (String(self._selector ?? "").includes("internal:control=enter-frame")) return false;
       return self._frame === pg.mainFrame();
@@ -3637,7 +3637,7 @@ function patchLocatorClass(sample: Locator): void {
   }
   if (typeof oBlur === "function") {
     proto.blur = apiMethod("locator.blur", async function (this: any, kw: any = {}) {
-      const fn = this.page()?._clearcoteBlur;
+      const fn = this.page()?._code_browserBlur;
       if (typeof fn === "function") {
         const [done, r] = await route(this, () => fn(sel(this), pickOptions(kw, ["timeout"])));
         if (done) return r;
@@ -3647,7 +3647,7 @@ function patchLocatorClass(sample: Locator): void {
   }
   if (typeof oSelectText === "function") {
     proto.selectText = apiMethod("locator.selectText", async function (this: any, kw: any = {}) {
-      const fn = this.page()?._clearcoteSelectText;
+      const fn = this.page()?._code_browserSelectText;
       if (typeof fn === "function") {
         const [done, r] = await route(this, () => fn(sel(this), pickOptions(kw, ["force", "timeout"])));
         if (done) return r;
@@ -3670,7 +3670,7 @@ function patchLocatorClass(sample: Locator): void {
   proto.tap = apiMethod("locator.tap", async function (this: any, kw: any = {}) {
     if (noTouch(this)) return oTap.call(this, kw);
     // A touch context: no humanized touch sequence yet, so the tap goes out as the humanized MOUSE click. Lane A's
-    // report: strict mode throws ClearcoteStrictError and nothing is sent; otherwise onFallback hears it.
+    // report: strict mode throws CodeBrowserStrictError and nothing is sent; otherwise onFallback hears it.
     if (on(this)) reportFallback(this.page(), "locator.tap", TAP_NOT_HUMANIZED + ": sent as a humanized mouse click", sel(this));
     const [done, r] = await route(this, () => this.page().click(sel(this), pickOptions(kw, HOVER_OPTS)), false);
     return done ? r : oTap.call(this, kw);
@@ -3710,7 +3710,7 @@ function patchLocatorClass(sample: Locator): void {
   // page is humanized. Works on frame locators and non-humanized pages too: it presses at viewport
   // coordinates through page.mouse.
   proto.pressAndHold = apiMethod("locator.pressAndHold", async function (this: any, kw?: PressAndHoldOptions) {
-    const hold = this.page()._clearcoteHold;
+    const hold = this.page()._code_browserHold;
     return typeof hold === "function" ? hold(this, kw) : pressAndHold(this, kw);
   });
 
@@ -3718,7 +3718,7 @@ function patchLocatorClass(sample: Locator): void {
     if (kw?.trial && on(this) && on(target) && await strict(this) && await strict(target)) {
       // Playwright's drag trial moves the pointer onto the source and presses there (SC 209); the SDK
       // runs the checks of both ends instead: visible, stable, receives the pointer.
-      const t = this.page()._clearcoteTrial;
+      const t = this.page()._code_browserTrial;
       if (typeof t === "function") {
         for (const [loc, pos] of [[this, kw.sourcePosition], [target, kw.targetPosition]] as const) {
           const o: any = pickOptions(kw, ["force", "timeout"]);
@@ -3730,7 +3730,7 @@ function patchLocatorClass(sample: Locator): void {
     }
     if (!on(this) && !kw?.trial && frameWhy(this)) reportFallback(this.page(), "locator.dragTo", frameWhy(this)!, sel(this));
     if (!kw?.trial && on(this) && on(target) && await strict(this) && await strict(target)) {
-      const d = this.page()._clearcoteDrag;
+      const d = this.page()._code_browserDrag;
       if (typeof d === "function") {
         let why = "the humane drag cannot apply";
         try {
@@ -3751,7 +3751,7 @@ function patchLocatorClass(sample: Locator): void {
   // New, not a Playwright method: drag this element by (dx, dy) px, closed loop (glide past, read where it
   // went, correct up to twice); resolves to the achieved { x, y }. Needs a humanized page.
   proto.dragBy = apiMethod("locator.dragBy", async function (this: any, dx: number, dy: number, kw?: DragByOptions) {
-    const fn = this.page()._clearcoteDragBy;
+    const fn = this.page()._code_browserDragBy;
     if (typeof fn !== "function") throw new Error("dragBy needs humanize: true");
     return fn(this, dx, dy, kw);
   });
@@ -3760,7 +3760,7 @@ function patchLocatorClass(sample: Locator): void {
   // `position` (else the box centre), one move by (dx, dy), release -- and the asked delta is returned.
   const stockDragBy = async function (this: any, dx: number, dy: number, kw: any = {}) {
     const pg: any = this.page();
-    const m: any = pg._clearcoteStockMouse ?? {};
+    const m: any = pg._code_browserStockMouse ?? {};
     const b = await this.boundingBox(kw.timeout !== undefined ? { timeout: kw.timeout } : undefined);
     if (!b) throw new Error("dragBy: the element has no box (not rendered)");
     const x = b.x + (kw.position ? kw.position.x : b.width / 2), y = b.y + (kw.position ? kw.position.y : b.height / 2);
@@ -3831,7 +3831,7 @@ function patchFrameClass(sample: any): void {
     const routed = async function (this: any, selector: any, ...rest: any[]): Promise<any> {
       let pg: any = null;
       try { pg = this.page(); } catch { /* a detached frame: Playwright's own call raises */ }
-      if (!pg?._clearcoteHumanized || inHumanizedCall() || typeof selector !== "string") return native(this, [selector, ...rest]);
+      if (!pg?._code_browserHumanized || inHumanizedCall() || typeof selector !== "string") return native(this, [selector, ...rest]);
       return withCallerApi(api, async () => {
         const last = rest[rest.length - 1];
         let strict = false;
@@ -3869,7 +3869,7 @@ function patchHandleClass(page: any): Promise<boolean> {
         try { frame = await this.ownerFrame(); } catch { /* disposed: Playwright's own call raises */ }
         let pg: any = null;
         try { pg = frame?.page(); } catch { /* detached */ }
-        if (!pg?._clearcoteHumanized) return orig.apply(this, a);
+        if (!pg?._code_browserHumanized) return orig.apply(this, a);
         return withCallerApi(api, async () => {
           const n = HANDLE_VALUE_FIRST.has(name) ? 1 : 0;
           try {
@@ -3923,8 +3923,8 @@ export function installHumanizeOnContext(
   const b = browser ?? context.browser();
   if (opts.showCursor) { context.addInitScript(CURSOR_OVERLAY).catch(() => {}); }
   // One listener per context: a second install (browser.newPage's implicit context, hooked again) adds none.
-  if ((context as any)._clearcoteHooked !== true) {
-    (context as any)._clearcoteHooked = true;
+  if ((context as any)._code_browserHooked !== true) {
+    (context as any)._code_browserHooked = true;
     context.on("page", (p) => { attachHumanize(b, p, opts).catch(() => {}); });
   }
   for (const p of context.pages()) attachHumanize(b, p, opts).catch(() => {});

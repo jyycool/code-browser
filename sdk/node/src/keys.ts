@@ -1,5 +1,5 @@
 // Pure keyboard planning for humanized typing (lane D of SC 232): a faithful port of the Python SDK's
-// clearcote/_keys.py, mirrored in .NET Keys.cs. Nothing here touches a page: given a persona seed and an
+// code-browser/_keys.py, mirrored in .NET Keys.cs. Nothing here touches a page: given a persona seed and an
 // RNG it decides how long a hand waits between two keys (a bigram flight model on the persona's WPM), how
 // a chord splits into modifiers and key, how an OS auto-repeats a held key, and the pause before Enter or
 // Tab after typing. sdk/testdata/humanize_typing_vectors.json pins the three SDKs to identical answers.

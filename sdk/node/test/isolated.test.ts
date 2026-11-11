@@ -232,8 +232,8 @@ describe("IsolatedWorld hit test and node calls", () => {
     expect(ISO_DESCRIBE.trimStart().startsWith("function (a)")).toBe(true);
   });
 
-  // The reads are copied VERBATIM from sdk/python/clearcote/_isolated.py: one page-side contract.
-  const PY = fileURLToPath(new URL("../../python/clearcote/_isolated.py", import.meta.url));
+  // The reads are copied VERBATIM from sdk/python/code_browser/_isolated.py: one page-side contract.
+  const PY = fileURLToPath(new URL("../../python/code_browser/_isolated.py", import.meta.url));
   it.runIf(existsSync(PY))("the read sources are the Python reference's, verbatim", () => {
     const src = readFileSync(PY, "utf8").replace(/\r\n/g, "\n");
     const py = (name: string): string => {

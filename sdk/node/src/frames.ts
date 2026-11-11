@@ -1,6 +1,6 @@
 /**
  * Humanized input for elements inside child frames (FrameLocator / Frame actions). Mirrors
- * sdk/python/clearcote/_frames.py; see there for the reasoning.
+ * sdk/python/code_browser/_frames.py; see there for the reasoning.
  *
  * A locator that enters an iframe used to go straight to Playwright's own action: an untrusted `change`
  * for a select (verifier B #4), a ~0 ms click, keys with no dwell. The pointer and keyboard are the
@@ -8,7 +8,7 @@
  * frame's isolated world -- the viewport point a press inside the frame lands on, then drive the
  * humanized page.mouse / page.keyboard. A frame whose nodes the page's CDP session cannot see (a
  * cross-origin frame running out of process) is answered by its <iframe>: the action goes to Playwright
- * and the fallback is reported (lane A's hook when present, else page._clearcoteLastFallback).
+ * and the fallback is reported (lane A's hook when present, else page._code_browserLastFallback).
  */
 import type { Locator, Page } from "playwright-core";
 import { optionsOf, reportFallback } from "./hzoptions.js";
@@ -20,7 +20,7 @@ import {
 import { clickPoint, type Box, type Persona, type Point } from "./motion.js";
 
 /** What a route returns when it does not apply: the caller runs Playwright's own method. */
-export const NATIVE: unique symbol = Symbol("clearcote.frames.native");
+export const NATIVE: unique symbol = Symbol("code_browser.frames.native");
 
 export const OWNER_ORIGIN = `function () {
   const r = this.getBoundingClientRect(), cs = getComputedStyle(this);
@@ -50,15 +50,15 @@ export function frameLocatorOf(loc: any): boolean {
   } catch { return false; }
 }
 
-export const humanized = (page: any): boolean => page?._clearcoteHumanized === true;
+export const humanized = (page: any): boolean => page?._code_browserHumanized === true;
 
 /** Strict humanize mode on `page`: the page's resolved HumanizeOptions decide. */
 export function strictMode(page: any): boolean {
   return optionsOf(page)?.strict === true;
 }
 
-/** Report a native fallback: lane A's reportFallback (strict throws ClearcoteStrictError, else onFallback hears
- * it; the event is kept as page._clearcoteLastFallback). Nothing is swallowed. */
+/** Report a native fallback: lane A's reportFallback (strict throws CodeBrowserStrictError, else onFallback hears
+ * it; the event is kept as page._code_browserLastFallback). Nothing is swallowed. */
 export { reportFallback };
 
 const selectorOf = (loc: any): string | undefined => { try { return loc._selector ?? undefined; } catch { return undefined; } };
@@ -210,8 +210,8 @@ async function reaches(page: any, t: Target, x: number, y: number): Promise<bool
 async function point(page: any, t: Target, position?: { x: number; y: number }): Promise<[number, number]> {
   const b = t.box;
   if (position) return [Math.round(b.x + (t.info?.bl ?? 0) + position.x), Math.round(b.y + (t.info?.bt ?? 0) + position.y)];
-  const persona: Persona | undefined = page._clearcotePersona;
-  const pointer: (() => Point) | undefined = page._clearcotePointer;
+  const persona: Persona | undefined = page._code_browserPersona;
+  const pointer: (() => Point) | undefined = page._code_browserPointer;
   if (persona && pointer) {
     const p = clickPoint(b, pointer(), persona);
     const x = Math.round(p.x), y = Math.round(p.y);
@@ -263,7 +263,7 @@ async function doFill(page: any, loc: Locator, value: string, kw: any): Promise<
   if (t.info!.value === value) return;
   await clickInto(page, t);
   if (await valueOf(page, t)) {
-    if (typeof page._clearcoteSelectAll === "function") await page._clearcoteSelectAll();
+    if (typeof page._code_browserSelectAll === "function") await page._code_browserSelectAll();
     else await page.keyboard.press("ControlOrMeta+a");
     await sleep(rand(60, 160));
     await page.keyboard.press("Backspace");

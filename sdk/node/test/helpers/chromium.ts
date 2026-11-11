@@ -1,6 +1,6 @@
 // A real Chromium with a CDP endpoint, for the cloud tests that must talk to an actual browser (the
 // hosted API hands the SDK a CDP WebSocket URL; a local Chromium stands in for the hosted one).
-// Which binary: CLEARCOTE_TEST_BINARY (a Clearcote build), else a Chromium Playwright has downloaded.
+// Which binary: CODE_BROWSER_TEST_BINARY (a CodeBrowser build), else a Chromium Playwright has downloaded.
 // Neither -> the tests skip. Mirrors sdk/python/tests/_chromium.py.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
@@ -8,7 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 export function findChromium(): string | null {
-  const env = process.env.CLEARCOTE_TEST_BINARY;
+  const env = process.env.CODE_BROWSER_TEST_BINARY;
   if (env && existsSync(env)) return env;
   const root = process.env.PLAYWRIGHT_BROWSERS_PATH
     || (process.platform === "win32" ? join(homedir(), "AppData", "Local", "ms-playwright") : join(homedir(), ".cache", "ms-playwright"));

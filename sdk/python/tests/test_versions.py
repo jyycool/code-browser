@@ -6,9 +6,9 @@ import importlib
 
 import pytest
 
-from clearcote.release import CATALOG_FALLBACK
+from code_browser.release import CATALOG_FALLBACK
 
-dl = importlib.import_module("clearcote.download")
+dl = importlib.import_module("code_browser.download")
 
 CATALOG = {
     "schema": 1,
@@ -57,7 +57,7 @@ def test_pro_major_with_license_routes_to_pro():
 
 
 def test_unknown_version_lists_whats_available():
-    with pytest.raises(ValueError, match=r"No Clearcote build matches version '151'.*Available"):
+    with pytest.raises(ValueError, match=r"No CodeBrowser build matches version '151'.*Available"):
         dl.resolve_version("151", has_license=True)
 
 
@@ -83,21 +83,21 @@ def test_bundled_fallback_lists_only_downloadable_builds():
 
 
 # ── backwards compatibility: the version selector must NOT change existing behavior ──
-import clearcote  # noqa: E402
+import code_browser  # noqa: E402
 
 
 def test_explicit_path_wins_over_version(tmp_path):
     exe = tmp_path / "chrome"
     exe.write_bytes(b"")  # a real file: the SDK refuses a named binary that does not exist
     # an explicit executable_path short-circuits before any catalog/version resolution
-    assert clearcote._resolve_binary(str(exe), version="150") == str(exe)
+    assert code_browser._resolve_binary(str(exe), version="150") == str(exe)
 
 
 def test_env_binary_wins_over_version(monkeypatch, tmp_path):
     env = tmp_path / "env-chrome"
     env.write_bytes(b"")  # a real file: the SDK refuses a named binary that does not exist
-    monkeypatch.setenv("CLEARCOTE_BINARY", str(env))
-    assert clearcote._resolve_binary(None, version="150") == str(env)
+    monkeypatch.setenv("CODE_BROWSER_BINARY", str(env))
+    assert code_browser._resolve_binary(None, version="150") == str(env)
 
 
 def test_no_version_keeps_legacy_path_and_never_fetches_catalog(monkeypatch):
@@ -105,8 +105,8 @@ def test_no_version_keeps_legacy_path_and_never_fetches_catalog(monkeypatch):
     # NOT consult the catalog — byte-identical behavior to pre-0.16.0.
     seen = {"catalog": False}
     monkeypatch.setattr(dl, "_fetch_catalog", lambda quiet=False: seen.__setitem__("catalog", True) or CATALOG)
-    monkeypatch.setattr(clearcote, "ensure_binary", lambda **kw: "/free/chrome")
-    monkeypatch.delenv("CLEARCOTE_BROWSER_VERSION", raising=False)
-    monkeypatch.delenv("CLEARCOTE_BINARY", raising=False)
-    assert clearcote._resolve_binary(None) == "/free/chrome"
+    monkeypatch.setattr(code_browser, "ensure_binary", lambda **kw: "/free/chrome")
+    monkeypatch.delenv("CODE_BROWSER_BROWSER_VERSION", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_BINARY", raising=False)
+    assert code_browser._resolve_binary(None) == "/free/chrome"
     assert seen["catalog"] is False

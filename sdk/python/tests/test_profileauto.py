@@ -13,23 +13,23 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 ROOT = tempfile.mkdtemp(prefix="cc-pyauto-")
-os.environ["CLEARCOTE_PROFILE_DIR"] = os.path.join(ROOT, "cache")
-# Removed at interpreter exit, not module teardown: CLEARCOTE_PROFILE_DIR is read once, at import, so ROOT
+os.environ["CODE_BROWSER_PROFILE_DIR"] = os.path.join(ROOT, "cache")
+# Removed at interpreter exit, not module teardown: CODE_BROWSER_PROFILE_DIR is read once, at import, so ROOT
 # stays the profile directory for every test module that runs after this one.
 atexit.register(shutil.rmtree, ROOT, True)
 
-from clearcote._profileauto import (  # noqa: E402
+from code_browser._profileauto import (  # noqa: E402
     _reset_hint,
     local_setup_hint,
     resolve_auto,
     resolve_local,
 )
-from clearcote._profileimport import (  # noqa: E402
+from code_browser._profileimport import (  # noqa: E402
     import_directory,
     index_entry_from_profile,
     load_imported_profile,
 )
-from clearcote._profilelib import eligible, select_profile  # noqa: E402
+from code_browser._profilelib import eligible, select_profile  # noqa: E402
 
 HOST = {
     "os_family": "windows",
@@ -228,7 +228,7 @@ class TestLocalSetupHint:
     def test_offers_alternatives(self):
         h = local_setup_hint("/tmp/x")
         assert "capture your own" in h.lower()
-        assert "CLEARCOTE_PROFILE_SOURCE" in h
+        assert "CODE_BROWSER_PROFILE_SOURCE" in h
 
 
 class TestResolveLocal:
@@ -252,7 +252,7 @@ class TestHostCacheKey:
     def test_same_binary_spelled_differently_hits(self, tmp_path, monkeypatch):
         import os
 
-        from clearcote import _profilesource as PS
+        from code_browser import _profilesource as PS
 
         monkeypatch.setattr(PS, "profile_cache_dir", lambda: str(tmp_path))
         exe = tmp_path / "chrome"
@@ -271,7 +271,7 @@ class TestEngineMajor:
     that will actually run -- not whatever release this SDK happens to pin."""
 
     def test_reads_the_major_off_the_running_browser(self):
-        from clearcote._profilesource import _engine_major
+        from code_browser._profilesource import _engine_major
 
         class B:
             version = "153.0.8010.36"
@@ -279,7 +279,7 @@ class TestEngineMajor:
         assert _engine_major(B(), 149) == 153
 
     def test_falls_back_when_the_version_is_unusable(self):
-        from clearcote._profilesource import _engine_major
+        from code_browser._profilesource import _engine_major
 
         class NoVersion:
             pass

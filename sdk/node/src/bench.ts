@@ -1,5 +1,5 @@
 /**
- * `clearcote info`'s Host section and `clearcote bench`: what a support question needs to know about the
+ * `code-browser info`'s Host section and `code-browser bench`: what a support question needs to know about the
  * machine, and what N browsers cost on it.
  *
  * Why: "100 % CPU with 5 threads and pages never finish" has three usual causes -- too many browsers for
@@ -152,7 +152,7 @@ function freeMB(): number {
 const tenths = (x: number) => (Math.floor(x * 10 + 0.5) / 10).toFixed(1);
 const gb = (mb: number) => tenths(mb / 1024);
 
-/** The Host lines of `clearcote info` (and the top of `clearcote bench`). */
+/** The Host lines of `code-browser info` (and the top of `code-browser bench`). */
 export function hostLines(h: HostReport): string[] {
   const lines = [
     `Host            ${h.cpu.model}, ${h.cpu.threads} threads, ${gb(h.memory.totalMB)} GB RAM (${gb(h.memory.freeMB)} GB free)`,
@@ -295,7 +295,7 @@ export async function runBench(
   const t1 = machineTimes();
   const machineBefore = 100 * (1 - (t1.idle - t0.idle) / (t1.total - t0.total));
 
-  const dirs = Array.from({ length: n }, () => mkdtempSync(join(os.tmpdir(), "clearcote-bench-")));
+  const dirs = Array.from({ length: n }, () => mkdtempSync(join(os.tmpdir(), "code-browser-bench-")));
   const runs: BrowserRun[] = dirs.map(() => ({ dclMs: [], loadMs: [], loadTimeouts: 0, idleReached: 0, idleMissed: 0, errors: [], cpuMs: 0, peakMemMB: 0 }));
   const contexts: Array<BrowserContext | undefined> = [];
   progress(`starting ${n} browser${n === 1 ? "" : "s"}...`);
@@ -303,7 +303,7 @@ export async function runBench(
     const t = Date.now();
     try {
       contexts[i] = await launchFn(dir, {
-        headless: o.headless, quiet: true, fingerprint: `clearcote-bench-${i}`, ...(o.proxy ? { proxy: o.proxy } : {}),
+        headless: o.headless, quiet: true, fingerprint: `code-browser-bench-${i}`, ...(o.proxy ? { proxy: o.proxy } : {}),
       });
       runs[i].launchMs = Date.now() - t;
     } catch (e) {
@@ -507,7 +507,7 @@ export function summarizeBench(raw: BenchRaw): BenchReport {
 
 const secs = (ms: number | null) => (ms === null ? "-" : `${tenths(ms / 1000)} s`);
 
-/** What `clearcote bench` prints. */
+/** What `code-browser bench` prints. */
 export function benchLines(r: BenchReport): string[] {
   const lines = hostLines(r.host);
   lines.push(`Bench           ${r.concurrency} browser${r.concurrency === 1 ? "" : "s"} for ${r.durationSec} s on ${r.url} (${r.headless ? "headless" : "headed"}${r.proxy ? `, proxy ${r.proxy}` : ", no proxy"})`);

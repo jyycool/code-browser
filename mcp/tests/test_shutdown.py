@@ -1,5 +1,5 @@
 """The shared browser is closed whenever the server stops: its stdin closed, a stop signal (Ctrl+C, Ctrl+Break on
-Windows, SIGTERM, SIGHUP), or an error. Otherwise the browser clearcote.serve() started keeps running after the server
+Windows, SIGTERM, SIGHUP), or an error. Otherwise the browser code_browser.serve() started keeps running after the server
 is gone, with its profile and Playwright's folders left in the temp directory. No browser: a stand-in leaves a mark
 when it is closed."""
 import asyncio
@@ -14,7 +14,7 @@ import threading
 import anyio
 import pytest
 
-from clearcote_mcp import server as S
+from code_browser_mcp import server as S
 
 
 class Browser:
@@ -29,7 +29,7 @@ class Browser:
 @pytest.fixture
 def shared(monkeypatch):
     """A stand-in for the shared browser; nothing is launched at startup."""
-    monkeypatch.setenv("CLEARCOTE_MCP_PREWARM", "0")
+    monkeypatch.setenv("CODE_BROWSER_MCP_PREWARM", "0")
     monkeypatch.setattr(S, "_lock", None)
 
     def use(**kw):
@@ -89,7 +89,7 @@ for name in ("SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"):
 # The real server over stdio, as a client starts it, with a stand-in browser that leaves a mark when it is closed.
 STAND_IN = AS_A_CLIENT_STARTS_IT + r"""
 from pathlib import Path
-from clearcote_mcp import server
+from code_browser_mcp import server
 
 class Browser:
     async def close(self):
@@ -103,8 +103,8 @@ server.main()
 class Server:
     def __init__(self, tmp_path, ignored=(), **popen):
         self.mark = tmp_path / "closed.txt"
-        env = {k: v for k, v in os.environ.items() if k != "CLEARCOTE_API_KEY"}
-        env["CLEARCOTE_MCP_PREWARM"] = "0"
+        env = {k: v for k, v in os.environ.items() if k != "CODE_BROWSER_API_KEY"}
+        env["CODE_BROWSER_MCP_PREWARM"] = "0"
         self.log = open(tmp_path / "stderr.txt", "wb")
         self.proc = subprocess.Popen([sys.executable, "-c", STAND_IN, str(self.mark), *ignored], cwd=tmp_path, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log, **popen)
@@ -193,8 +193,8 @@ import subprocess
 import time
 from pathlib import Path
 
-import clearcote
-from clearcote_mcp import server
+import code_browser
+from code_browser_mcp import server
 
 work = Path(sys.argv[1])
 
@@ -228,7 +228,7 @@ def serve(**kwargs):
     return srv
 
 
-clearcote.serve = serve
+code_browser.serve = serve
 server.main()
 """
 
@@ -254,8 +254,8 @@ def alive(pid: int) -> bool:
 
 def test_a_stop_signal_while_the_browser_starts_still_closes_it(tmp_path):
     name, sent, received = STOP_SIGNALS[0]
-    env = {k: v for k, v in os.environ.items() if k not in ("CLEARCOTE_API_KEY", "CLEARCOTE_CLOUD")}
-    env.update(CLEARCOTE_MCP_PREWARM="1", CLEARCOTE_HEADLESS="1")
+    env = {k: v for k, v in os.environ.items() if k not in ("CODE_BROWSER_API_KEY", "CODE_BROWSER_CLOUD")}
+    env.update(CODE_BROWSER_MCP_PREWARM="1", CODE_BROWSER_HEADLESS="1")
     popen = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {}
     with open(tmp_path / "stderr.txt", "wb") as log:
         proc = subprocess.Popen([sys.executable, "-c", STARTING, str(tmp_path)], cwd=tmp_path, env=env,
@@ -336,12 +336,12 @@ def test_each_run_of_the_server_waits_for_its_own_close(shared):
 def test_the_close_time_limit_holds(shared, monkeypatch):
     """Stopping the served browser blocks (up to 10 s while it exits): the server's time limit still applies."""
     import time
-    from clearcote_mcp._facade import ClearcoteBrowser
+    from code_browser_mcp._facade import CodeBrowserBrowser
 
     class SlowServer:
         def close(self):
             time.sleep(3)
-    b = ClearcoteBrowser()
+    b = CodeBrowserBrowser()
     b._srv = SlowServer()
     monkeypatch.setattr(S, "_browser", b)
     monkeypatch.setattr(S, "_CLOSE_SECONDS", 0.5)

@@ -1,4 +1,4 @@
-// `clearcote` CLI (#6): commands present, info never downloads, reports cache/engine support/licence,
+// `code-browser` CLI (#6): commands present, info never downloads, reports cache/engine support/licence,
 // login refuses a rejected key, logout, clear-cache.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, readFileSync } from "node:fs";
@@ -18,15 +18,15 @@ const extraCleanups: Array<() => Promise<void>> = [];
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "cc-cli-home-"));
   cache = mkdtempSync(join(tmpdir(), "cc-cli-cache-"));
-  for (const k of ["HOME", "USERPROFILE", "CLEARCOTE_CACHE", "CLEARCOTE_BINARY", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_RELEASE_CHANNEL", "CLEARCOTE_LICENSE_API", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_AUTO_UPDATE"]) saved[k] = process.env[k];
+  for (const k of ["HOME", "USERPROFILE", "CODE_BROWSER_CACHE", "CODE_BROWSER_BINARY", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_RELEASE_CHANNEL", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_AUTO_UPDATE"]) saved[k] = process.env[k];
   process.env.HOME = home;
   process.env.USERPROFILE = home;
-  process.env.CLEARCOTE_CACHE = cache;
-  delete process.env.CLEARCOTE_BINARY;
+  process.env.CODE_BROWSER_CACHE = cache;
+  delete process.env.CODE_BROWSER_BINARY;
   delete process.env.CLEARCOTE_LICENSE_KEY;
-  delete process.env.CLEARCOTE_RELEASE_CHANNEL;
-  delete process.env.CLEARCOTE_BROWSER_VERSION;
-  delete process.env.CLEARCOTE_AUTO_UPDATE;
+  delete process.env.CODE_BROWSER_RELEASE_CHANNEL;
+  delete process.env.CODE_BROWSER_BROWSER_VERSION;
+  delete process.env.CODE_BROWSER_AUTO_UPDATE;
 });
 afterEach(async () => {
   for (const c of extraCleanups.splice(0)) await c();
@@ -53,7 +53,7 @@ function captureStdout(): { text: () => string } {
   return { text: () => out };
 }
 
-describe("clearcote CLI", () => {
+describe("code-browser CLI", () => {
   it("documents every command and the info flags", () => {
     for (const c of ["install", "info", "doctor", "update", "clear-cache", "login", "logout", "serve", "cloud", "--quick", "--json", "--proxy"]) {
       expect(USAGE).toContain(c);
@@ -81,12 +81,12 @@ describe("clearcote CLI", () => {
     expect(r.launch).toEqual({ tested: false, reason: "skipped (--quick)" });
   });
 
-  it("info honours CLEARCOTE_BINARY and CLEARCOTE_RELEASE_CHANNEL", async () => {
+  it("info honours CODE_BROWSER_BINARY and CODE_BROWSER_RELEASE_CHANNEL", async () => {
     const exe = fakeCachedBuild("custom", []);
-    process.env.CLEARCOTE_BINARY = exe;
-    process.env.CLEARCOTE_RELEASE_CHANNEL = "preview";
+    process.env.CODE_BROWSER_BINARY = exe;
+    process.env.CODE_BROWSER_RELEASE_CHANNEL = "preview";
     const r = await buildInfo({ quick: true });
-    expect(r.binary).toMatchObject({ source: "CLEARCOTE_BINARY", path: exe, releaseChannel: "preview" });
+    expect(r.binary).toMatchObject({ source: "CODE_BROWSER_BINARY", path: exe, releaseChannel: "preview" });
   });
 
   it("info launch-tests the build launch() would use, not the newest cached one", async () => {
@@ -109,7 +109,7 @@ describe("clearcote CLI", () => {
 
     // with a key, launch() runs a licensed build: that one is tested
     process.env.CLEARCOTE_LICENSE_KEY = "cc_lic_info_pick_test_key";
-    process.env.CLEARCOTE_LICENSE_API = "http://127.0.0.1:1"; // seats: unreachable, never a real server
+    process.env.CODE_BROWSER_LICENSE_API = "http://127.0.0.1:1"; // seats: unreachable, never a real server
     tested.length = 0;
     r = await buildInfo({ quick: false }, launchFn);
     expect(tested).toEqual([pro]);
@@ -117,8 +117,8 @@ describe("clearcote CLI", () => {
     expect(r.binary.selectedBy).toMatch(/^licensed/);
   });
 
-  it("info follows CLEARCOTE_BROWSER_VERSION as launch() does", async () => {
-    // launch() honours CLEARCOTE_BROWSER_VERSION; info must test the build it names, not the newest one.
+  it("info follows CODE_BROWSER_BROWSER_VERSION as launch() does", async () => {
+    // launch() honours CODE_BROWSER_BROWSER_VERSION; info must test the build it names, not the newest one.
     const free149 = fakeCachedBuild("v0.1.0-pre.22"); // the bundled catalog's 149 open build
     fakeCachedBuild(RELEASE.tag);
     const r7 = fakeCachedBuild("pro-150.0.7871.114-r7");
@@ -129,37 +129,37 @@ describe("clearcote CLI", () => {
       return { version: () => "1.0", close: async () => {} };
     };
     process.env.CLEARCOTE_LICENSE_KEY = "cc_lic_info_version_key";
-    process.env.CLEARCOTE_LICENSE_API = "http://127.0.0.1:1"; // seats: unreachable, never a real server
-    process.env.CLEARCOTE_BROWSER_VERSION = "r7"; // a licensed revision
+    process.env.CODE_BROWSER_LICENSE_API = "http://127.0.0.1:1"; // seats: unreachable, never a real server
+    process.env.CODE_BROWSER_BROWSER_VERSION = "r7"; // a licensed revision
     let r = await buildInfo({ quick: false }, launchFn);
     expect(tested).toEqual([r7]);
     expect(r.launch).toMatchObject({ build: "pro-150.0.7871.114-r7" });
-    expect(r.binary.selectedBy).toContain("CLEARCOTE_BROWSER_VERSION=r7");
+    expect(r.binary.selectedBy).toContain("CODE_BROWSER_BROWSER_VERSION=r7");
 
     delete process.env.CLEARCOTE_LICENSE_KEY;
-    process.env.CLEARCOTE_BROWSER_VERSION = "149"; // an open major, resolved through the catalog
+    process.env.CODE_BROWSER_BROWSER_VERSION = "149"; // an open major, resolved through the catalog
     r = await buildInfo({ quick: true }); // --quick: the bundled catalog, no network
     expect(r.binary).toMatchObject({ path: free149, tag: "v0.1.0-pre.22" });
     tested.length = 0;
     await buildInfo({ quick: false }, launchFn);
     expect(tested).toEqual([free149]);
 
-    process.env.CLEARCOTE_BROWSER_VERSION = "999";
+    process.env.CODE_BROWSER_BROWSER_VERSION = "999";
     r = await buildInfo({ quick: true });
     expect(r.binary.path).toBeUndefined();
-    expect(r.binary.selectedBy).toMatch(/^CLEARCOTE_BROWSER_VERSION=999: No Clearcote build matches/);
+    expect(r.binary.selectedBy).toMatch(/^CODE_BROWSER_BROWSER_VERSION=999: No CodeBrowser build matches/);
   });
 
   it("info, keyless, with only a licensed build cached does not launch it", async () => {
     fakeCachedBuild("pro-152.0.7977.82-r21");
     const r = await buildInfo({ quick: false }, async () => { throw new Error("launched"); });
-    expect(r.launch).toEqual({ tested: false, reason: `the open build this SDK pins (${RELEASE.tag}) is not installed — run: clearcote install` });
+    expect(r.launch).toEqual({ tested: false, reason: `the open build this SDK pins (${RELEASE.tag}) is not installed — run: code-browser install` });
   });
 
   it("info with nothing installed says how to install", async () => {
     const r = await buildInfo({ quick: false });
     expect(r.binary.source).toBe("none");
-    expect(r.launch).toEqual({ tested: false, reason: "no binary installed — run: clearcote install" });
+    expect(r.launch).toEqual({ tested: false, reason: "no binary installed — run: code-browser install" });
   });
 
   it("info --json prints parseable JSON", async () => {
@@ -175,14 +175,14 @@ describe("clearcote CLI", () => {
       ? { body: '{"used":0,"limit":5,"plan":"team"}' }
       : { status: 401, body: '{"error":"Invalid license key."}' }));
     extraCleanups.push(() => api.close());
-    process.env.CLEARCOTE_LICENSE_API = `http://127.0.0.1:${api.port}`;
+    process.env.CODE_BROWSER_LICENSE_API = `http://127.0.0.1:${api.port}`;
     const out = captureStdout();
     await main(["login", "cc_lic_valid_key_1234"]);
     expect(out.text()).toMatch(/saved to .*license\.key/);
     expect(out.text()).toMatch(/valid: 0 of 5 seats in use, plan team/);
-    expect(existsSync(join(home, ".clearcote", "license.key"))).toBe(true);
+    expect(existsSync(join(home, ".code-browser", "license.key"))).toBe(true);
     await main(["logout"]);
-    expect(existsSync(join(home, ".clearcote", "license.key"))).toBe(false);
+    expect(existsSync(join(home, ".code-browser", "license.key"))).toBe(false);
   });
 
   it("readHidden reads a line in raw mode: nothing typed or pasted is echoed", async () => {
@@ -205,7 +205,7 @@ describe("clearcote CLI", () => {
   it("login with no key asks on the terminal without echoing it", async () => {
     const api = await startOrigin(() => ({ body: '{"used":0,"limit":5,"plan":"team"}' }));
     extraCleanups.push(() => api.close());
-    process.env.CLEARCOTE_LICENSE_API = `http://127.0.0.1:${api.port}`;
+    process.env.CODE_BROWSER_LICENSE_API = `http://127.0.0.1:${api.port}`;
     const tty = Object.assign(new PassThrough(), { isTTY: true, setRawMode: vi.fn() });
     const desc = Object.getOwnPropertyDescriptor(process, "stdin")!;
     Object.defineProperty(process, "stdin", { configurable: true, enumerable: true, get: () => tty });
@@ -220,23 +220,23 @@ describe("clearcote CLI", () => {
     }
     expect(tty.setRawMode).toHaveBeenCalledWith(true); // the terminal does not echo what is pasted
     expect(tty.setRawMode).toHaveBeenLastCalledWith(false);
-    expect(readFileSync(join(home, ".clearcote", "license.key"), "utf8").trim()).toBe("cc_lic_typed_key_123456");
+    expect(readFileSync(join(home, ".code-browser", "license.key"), "utf8").trim()).toBe("cc_lic_typed_key_123456");
     expect(out.text() + errText).not.toContain("cc_lic_typed_key_123456");
   });
 
-  it("subcommand help: `clearcote login --help` lists --device and saves nothing", async () => {
-    process.env.CLEARCOTE_LICENSE_API = "http://127.0.0.1:1";
+  it("subcommand help: `code-browser login --help` lists --device and saves nothing", async () => {
+    process.env.CODE_BROWSER_LICENSE_API = "http://127.0.0.1:1";
     const out = captureStdout();
     await main(["login", "--help"]);
-    expect(out.text()).toContain("clearcote login --device");
-    expect(out.text()).toContain("clearcote login [key]");
+    expect(out.text()).toContain("code-browser login --device");
+    expect(out.text()).toContain("code-browser login [key]");
     expect(out.text()).toContain("not shown");
-    expect(existsSync(join(home, ".clearcote", "license.key"))).toBe(false); // "--help" is not a key
+    expect(existsSync(join(home, ".code-browser", "license.key"))).toBe(false); // "--help" is not a key
     for (const args of [["login", "-h"], ["logout", "--help"], ["info", "--help"], ["doctor", "-h"], ["serve", "--help"], ["install", "--help"], ["update", "--help"], ["clear-cache", "--help"]]) {
       const o = captureStdout();
       await main(args);
       const cmd = args[0] === "doctor" ? "info" : args[0];
-      expect(o.text()).toContain(`clearcote ${cmd}`);
+      expect(o.text()).toContain(`code-browser ${cmd}`);
       expect(o.text()).toContain("USAGE");
     }
   });
@@ -244,12 +244,12 @@ describe("clearcote CLI", () => {
   it("login refuses a key the server rejects and saves nothing", async () => {
     const api = await startOrigin(() => ({ status: 401, body: '{"error":"Invalid license key."}' }));
     extraCleanups.push(() => api.close());
-    process.env.CLEARCOTE_LICENSE_API = `http://127.0.0.1:${api.port}`;
+    process.env.CODE_BROWSER_LICENSE_API = `http://127.0.0.1:${api.port}`;
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => { throw new Error(`exit ${code}`); }) as never);
     vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     await expect(main(["login", "cc_lic_bad"])).rejects.toThrow("exit 1");
     expect(exit).toHaveBeenCalledWith(1);
-    expect(existsSync(join(home, ".clearcote", "license.key"))).toBe(false);
+    expect(existsSync(join(home, ".code-browser", "license.key"))).toBe(false);
   });
 
   it("clear-cache removes cached builds only, never the root or unrelated files", async () => {
@@ -271,7 +271,7 @@ describe("clearcote CLI", () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "cc-cli-fakehome-"));
     mkdirSync(join(fakeHome, "Documents"));
     writeFileSync(join(fakeHome, ".bashrc"), "x");
-    process.env.CLEARCOTE_CACHE = fakeHome;
+    process.env.CODE_BROWSER_CACHE = fakeHome;
     const out = captureStdout();
     await main(["clear-cache"]);
     expect(existsSync(join(fakeHome, "Documents"))).toBe(true);

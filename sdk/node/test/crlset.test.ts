@@ -40,17 +40,17 @@ function write(p: string, data: Buffer): string {
   return p;
 }
 
-const ENV = ["CLEARCOTE_CRLSET", "CLEARCOTE_CRLSET_FILE", "CLEARCOTE_CRLSET_TIMEOUT", "CLEARCOTE_CRLSET_URL",
-  "CLEARCOTE_CRLSET_FETCH_TIMEOUT", "CLEARCOTE_NO_WARN", "PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK"];
+const ENV = ["CODE_BROWSER_CRLSET", "CODE_BROWSER_CRLSET_FILE", "CODE_BROWSER_CRLSET_TIMEOUT", "CODE_BROWSER_CRLSET_URL",
+  "CODE_BROWSER_CRLSET_FETCH_TIMEOUT", "CODE_BROWSER_NO_WARN", "PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK"];
 let saved: Record<string, string | undefined>;
 let tmp: string;
 let stderr: string[];
 
 beforeEach(() => {
-  saved = Object.fromEntries([...ENV, "CLEARCOTE_CRLSET_DIR"].map((k) => [k, process.env[k]]));
+  saved = Object.fromEntries([...ENV, "CODE_BROWSER_CRLSET_DIR"].map((k) => [k, process.env[k]]));
   for (const k of ENV) delete process.env[k];
   tmp = tempDir("cc-crlset-");
-  process.env.CLEARCOTE_CRLSET_DIR = path.join(tmp, "cache");
+  process.env.CODE_BROWSER_CRLSET_DIR = path.join(tmp, "cache");
   resetCrlsetWarnings();
   // no test reaches the network: a stale cache's background refresh meets this unless a test stubs its own
   vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("network disabled in tests"); }));
@@ -93,7 +93,7 @@ describe("crlset files and cache", () => {
   it("find prefers the explicit path, then the env file", () => {
     installCrlset(write(path.join(tmp, "a", "crl-set"), crlsetBytes(5)));
     const envFile = write(path.join(tmp, "env", "crl-set"), crlsetBytes(6));
-    process.env.CLEARCOTE_CRLSET_FILE = envFile;
+    process.env.CODE_BROWSER_CRLSET_FILE = envFile;
     const explicit = write(path.join(tmp, "x", "crl-set"), crlsetBytes(7));
     expect(findCrlset(explicit)).toBe(explicit);
     expect(findCrlset()).toBe(envFile);
@@ -110,7 +110,7 @@ describe("crlset files and cache", () => {
     const versionDir = path.join(profile, "CertificateRevocation", "10849");
     expect(readFileSync(path.join(versionDir, "crl-set")).equals(readFileSync(src))).toBe(true);
     expect(JSON.parse(readFileSync(path.join(versionDir, "manifest.json"), "utf8")))
-      .toEqual({ manifest_version: 2, name: "crl-set-clearcote.data", version: "10849" });
+      .toEqual({ manifest_version: 2, name: "crl-set-code_browser.data", version: "10849" });
     write(path.join(profile, "CertificateRevocation", "10900", "crl-set"), crlsetBytes(10900));
     expect(seedCrlset(profile, src)).toBe(10900);
   });
@@ -126,8 +126,8 @@ describe("crlsetMode", () => {
     [false, "1", ["off", undefined]],
     ["nowait", undefined, ["nowait", undefined]],
     ["/x/crl-set", undefined, ["wait", "/x/crl-set"]],
-  ] as const)("%s with CLEARCOTE_CRLSET=%s", (value, env, expected) => {
-    if (env !== undefined) process.env.CLEARCOTE_CRLSET = env;
+  ] as const)("%s with CODE_BROWSER_CRLSET=%s", (value, env, expected) => {
+    if (env !== undefined) process.env.CODE_BROWSER_CRLSET = env;
     expect(crlsetMode(value)).toEqual(expected);
   });
 
@@ -160,10 +160,10 @@ describe("applyCrlsetLaunch", () => {
     expect(existsSync(path.join(tmp, "p", "CertificateRevocation", "42", "crl-set"))).toBe(true);
   });
 
-  it("the timeout defaults to CLEARCOTE_CRLSET_TIMEOUT, else 15", async () => {
+  it("the timeout defaults to CODE_BROWSER_CRLSET_TIMEOUT, else 15", async () => {
     installCrlset(write(path.join(tmp, "s", "crl-set"), crlsetBytes(42)));
     expect((await applyCrlsetLaunch(path.join(tmp, "p"), { crlset: true }, true))?.timeout).toBe(15);
-    process.env.CLEARCOTE_CRLSET_TIMEOUT = "2.5";
+    process.env.CODE_BROWSER_CRLSET_TIMEOUT = "2.5";
     expect((await applyCrlsetLaunch(path.join(tmp, "p"), { crlset: true }, true))?.timeout).toBe(2.5);
   });
 
@@ -187,30 +187,30 @@ describe("applyCrlsetLaunch", () => {
     vi.stubGlobal("fetch", fetchMock);
     for (let i = 0; i < 2; i++) expect(await applyCrlsetLaunch(path.join(tmp, "p"), { crlset: true })).toBeUndefined();
     expect(err().split("could not fetch a CRLSet").length - 1).toBe(1);
-    expect(err()).toMatch(/^clearcote: crlset: /);
+    expect(err()).toMatch(/^code-browser: crlset: /);
   });
 
-  it("CLEARCOTE_NO_WARN and quiet silence it", async () => {
+  it("CODE_BROWSER_NO_WARN and quiet silence it", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
     expect(await applyCrlsetLaunch(path.join(tmp, "p"), { crlset: true }, true)).toBeUndefined();
-    process.env.CLEARCOTE_NO_WARN = "1";
+    process.env.CODE_BROWSER_NO_WARN = "1";
     expect(await applyCrlsetLaunch(path.join(tmp, "p"), { crlset: true })).toBeUndefined();
     expect(err()).toBe("");
   });
 
   it("fetches into an empty cache, then seeds", async () => {
-    process.env.CLEARCOTE_CRLSET_URL = "https://mirror.example/crl-set";
+    process.env.CODE_BROWSER_CRLSET_URL = "https://mirror.example/crl-set";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(crlsetBytes(10850))));
     const plan = await applyCrlsetLaunch(path.join(tmp, "p"), { crlset: true }, true);
     expect(plan?.sequence).toBe(10850);
     expect(findCrlset()?.endsWith(path.join("10850", "crl-set"))).toBe(true);
-    const stamp = statSync(path.join(process.env.CLEARCOTE_CRLSET_DIR!, ".last-check"));
+    const stamp = statSync(path.join(process.env.CODE_BROWSER_CRLSET_DIR!, ".last-check"));
     expect(Date.now() - stamp.mtimeMs).toBeLessThan(60_000);
   });
 
-  it("a slow first fetch is not waited for past CLEARCOTE_CRLSET_FETCH_TIMEOUT", async () => {
-    process.env.CLEARCOTE_CRLSET_FETCH_TIMEOUT = "0.2";
-    process.env.CLEARCOTE_CRLSET_URL = "https://mirror.example/crl-set";
+  it("a slow first fetch is not waited for past CODE_BROWSER_CRLSET_FETCH_TIMEOUT", async () => {
+    process.env.CODE_BROWSER_CRLSET_FETCH_TIMEOUT = "0.2";
+    process.env.CODE_BROWSER_CRLSET_URL = "https://mirror.example/crl-set";
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
     vi.stubGlobal("fetch", vi.fn(async () => { await gate; return new Response(crlsetBytes(5)); }));
@@ -222,7 +222,7 @@ describe("applyCrlsetLaunch", () => {
 
   it("a stale cache is used and refreshed in the background", async () => {
     const cached = installCrlset(write(path.join(tmp, "s", "crl-set"), crlsetBytes(10849)));
-    process.env.CLEARCOTE_CRLSET_URL = "https://mirror.example/crl-set";
+    process.env.CODE_BROWSER_CRLSET_URL = "https://mirror.example/crl-set";
     const fetchMock = vi.fn(async () => new Response(crlsetBytes(10851)));
     vi.stubGlobal("fetch", fetchMock);
     expect(await resolveCrlset()).toBe(cached); // no stamp: stale, the launch uses the cache
@@ -236,7 +236,7 @@ describe("applyCrlsetLaunch", () => {
 
   it("is off with crlset: false", async () => {
     installCrlset(write(path.join(tmp, "s", "crl-set"), crlsetBytes(42)));
-    process.env.CLEARCOTE_CRLSET = "1";
+    process.env.CODE_BROWSER_CRLSET = "1";
     const opts: Record<string, unknown> = { crlset: false };
     expect(await applyCrlsetLaunch(path.join(tmp, "p"), opts)).toBeUndefined();
     expect("ignoreDefaultArgs" in opts).toBe(false);
@@ -253,7 +253,7 @@ describe("fetchCrlset", () => {
   it("from a mirror URL", async () => {
     const seen: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => { seen.push(String(url)); return new Response(crlsetBytes(77)); }));
-    process.env.CLEARCOTE_CRLSET_URL = "https://mirror.example/crl-set";
+    process.env.CODE_BROWSER_CRLSET_URL = "https://mirror.example/crl-set";
     expect((await fetchCrlset()).endsWith(path.join("77", "crl-set"))).toBe(true);
     expect(seen).toEqual(["https://mirror.example/crl-set"]);
   });

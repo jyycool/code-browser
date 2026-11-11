@@ -1,9 +1,9 @@
-// launch() on macOS runs the Clearcote Docker image (there is no native macOS build).
+// launch() on macOS runs the CodeBrowser Docker image (there is no native macOS build).
 //
 // The host platform is mocked (process.platform, only around the launch call) and the docker CLI is
 // replaced by a recorder that answers like Docker would; the "container's" CDP endpoint is a real local
 // Chromium, or a stand-in that answers /json/version, so the SDK's connect, close and the Playwright objects
-// it returns are real. The real image is exercised end to end separately (CLEARCOTE_TEST_ONLY_ASSUME_MACOS,
+// it returns are real. The real image is exercised end to end separately (CODE_BROWSER_TEST_ONLY_ASSUME_MACOS,
 // docker-launch.live.test.ts). Mirrors sdk/python/tests/test_docker_launch.py.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -39,8 +39,8 @@ vi.mock("../src/humanize.js", async (importOriginal) => {
 
 const SDK_VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version as string;
 const IMAGE = `teamflatearth/clearcote:sdk-${SDK_VERSION}`;
-const ENV = ["HOME", "USERPROFILE", "CLEARCOTE_DOCKER", "CLEARCOTE_BINARY", "CLEARCOTE_DOCKER_IMAGE", "CLEARCOTE_CLOUD", "CLEARCOTE_LICENSE_KEY",
-  "CLEARCOTE_DOCKER_IDLE_EXIT", "CLEARCOTE_DOCKER_CACHE_VOLUME", TEST_ONLY_ASSUME_MACOS];
+const ENV = ["HOME", "USERPROFILE", "CODE_BROWSER_DOCKER", "CODE_BROWSER_BINARY", "CODE_BROWSER_DOCKER_IMAGE", "CODE_BROWSER_CLOUD", "CLEARCOTE_LICENSE_KEY",
+  "CODE_BROWSER_DOCKER_IDLE_EXIT", "CODE_BROWSER_DOCKER_CACHE_VOLUME", TEST_ONLY_ASSUME_MACOS];
 const CHROMIUM = findChromium();
 const DEAD_PID = 2 ** 22 + 12345; // above any pid_max: never a live process
 const PROTOCOL = { "com.clearcotelabs.serve-protocol": "2" };
@@ -49,7 +49,7 @@ const REMOVAL = { ...removal };
 const saved: Record<string, string | undefined> = {};
 
 const serveState = (engine = "open", proxy: string | null = null, idle = 30, secrets = false, proxyAuth: string | null = null) =>
-  `[clearcote] serve-state ${JSON.stringify({ engine, idle_exit: idle, protocol: 2, proxy, proxy_auth: proxyAuth, secrets_file: secrets })}`;
+  `[code-browser] serve-state ${JSON.stringify({ engine, idle_exit: idle, protocol: 2, proxy, proxy_auth: proxyAuth, secrets_file: secrets })}`;
 
 /** Stands in for the docker CLI: records every call (argv, the environment it was given, stdin). */
 class FakeDocker {
@@ -173,7 +173,7 @@ function untar(buf: Buffer): { name: string; mode: number; uid: number; gid: num
 const KEYED = { licenseKey: "cc_lic_docker_test_key_1234", proxy: { server: "http://proxy.example:8080", username: "u", password: "p w" } };
 // what an image from before sdk-0.40.0 can still log in to: a SOCKS5 proxy, on the licensed engine
 const KEYED_SOCKS = { licenseKey: "cc_lic_docker_test_key_1234", proxy: { server: "socks5://proxy.example:1080", username: "u", password: "pw-plain" } };
-const ownersDir = () => join(homedir(), ".clearcote", "docker-owners");
+const ownersDir = () => join(homedir(), ".code-browser", "docker-owners");
 function record(token: string, fields: Record<string, unknown>): string {
   mkdirSync(ownersDir(), { recursive: true });
   const path = join(ownersDir(), `${token}.json`);
@@ -183,7 +183,7 @@ function record(token: string, fields: Record<string, unknown>): string {
 /** What a record written by this process carries besides pid and start (host, boot id, PID namespace). */
 const here = () => ({ host: hostname(), boot: hostProbe.bootId(), pidns: hostProbe.pidNamespace() });
 
-describe("launch() on macOS runs the Clearcote Docker image", () => {
+describe("launch() on macOS runs the CodeBrowser Docker image", () => {
   it("decides by platform, option, binary and environment", async () => {
     const on = (platform: string, docker?: unknown, opts: Record<string, unknown> = {}, env: Record<string, string> = {}) =>
       onPlatform(platform, () => {
@@ -197,9 +197,9 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
     expect(await on("darwin", "0")).toBe(false);
     expect(await on("linux", true)).toBe(true);
     expect(await on("darwin", undefined, { executablePath: "/opt/cc/chrome" })).toBe(false);
-    expect(await on("darwin", undefined, {}, { CLEARCOTE_DOCKER: "0" })).toBe(false);
-    expect(await on("linux", undefined, {}, { CLEARCOTE_DOCKER: "1" })).toBe(true);
-    expect(await on("darwin", undefined, {}, { CLEARCOTE_BINARY: "/opt/cc/chrome" })).toBe(false);
+    expect(await on("darwin", undefined, {}, { CODE_BROWSER_DOCKER: "0" })).toBe(false);
+    expect(await on("linux", undefined, {}, { CODE_BROWSER_DOCKER: "1" })).toBe(true);
+    expect(await on("darwin", undefined, {}, { CODE_BROWSER_BINARY: "/opt/cc/chrome" })).toBe(false);
     expect(await on("linux", undefined, {}, { [TEST_ONLY_ASSUME_MACOS]: "1" })).toBe(true);
   });
 
@@ -221,7 +221,7 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
           id: "c0ffee1234", image: IMAGE, endpoint: `http://127.0.0.1:${docker.cdpPort}`, serveProtocol: 2,
         });
         const page = await browser.newPage();
-        expect((page as unknown as { _clearcotePersona?: unknown })._clearcotePersona).toBeDefined(); // humanized, as locally
+        expect((page as unknown as { _code_browserPersona?: unknown })._code_browserPersona).toBeDefined(); // humanized, as locally
         await page.setContent("<title>in docker</title>");
         expect(await page.title()).toBe("in docker");
         expect(page.viewportSize()).toBeNull(); // no emulated viewport over the container's real window
@@ -242,7 +242,7 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
     expect(argv.slice(0, 6)).toEqual(["docker", "create", "--rm", "--platform", "linux/amd64", "--shm-size"]);
     expect(argv[argv.indexOf("-p") + 1]).toBe("127.0.0.1::9222"); // loopback only: CDP is full control
     expect(argv[argv.length - 1]).toBe(IMAGE);
-    expect(argv[argv.indexOf("-v") + 1]).toBe("clearcote-cache:/opt/xdg-cache"); // licensed engine downloads once
+    expect(argv[argv.indexOf("-v") + 1]).toBe("code-browser-cache:/opt/xdg-cache"); // licensed engine downloads once
     // owned through this process's token: the next launch removes it once this process is gone
     const lab = after(argv, "--label");
     expect(lab.slice(0, 2)).toEqual(["com.clearcotelabs.sdk-launch=1", `com.clearcotelabs.owner-host=${hostname()}`]);
@@ -255,7 +255,7 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
     expect(env).toEqual({
       CC_FINGERPRINT: "seed-1", CC_PLATFORM: "windows", CC_TIMEZONE: "Europe/Berlin",
       CC_HARDWARE_CONCURRENCY: "8", CC_CANVAS_NOISE: "0", CC_HEADLESS: "1",
-      CC_EXTRA_ARGS: "--lang=de-DE", CC_IDLE_EXIT_SECONDS: "30", CC_SECRETS_FILE: "/tmp/clearcote-secrets.json",
+      CC_EXTRA_ARGS: "--lang=de-DE", CC_IDLE_EXIT_SECONDS: "30", CC_SECRETS_FILE: "/tmp/code-browser-secrets.json",
     });
     expect([...eNames].sort()).toEqual(Object.keys(env).sort());
     // the licence key and the proxy URL go in as a file only the image's user can read
@@ -263,25 +263,25 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
     expect(cp.argv.slice(2)).toEqual(["-", "c0ffee1234:/tmp"]);
     expect(cp.env).toEqual({});
     const file = untar(cp.input!);
-    expect([file.name, file.uid, file.gid, file.mode]).toEqual(["clearcote-secrets.json", 10001, 10001, 0o600]);
+    expect([file.name, file.uid, file.gid, file.mode]).toEqual(["code-browser-secrets.json", 10001, 10001, 0o600]);
     expect(JSON.parse(file.data)).toEqual({ CLEARCOTE_LICENSE_KEY: "cc_lic_docker_test_key_1234", CC_PROXY: "http://u:p%20w@proxy.example:8080" });
     expect(docker.stopsAndRms()).toEqual([["--time", "10", "c0ffee1234"], ["-f", "-v", "c0ffee1234"]]); // -v: the anonymous VOLUME too
   }, 60_000); // a real Chromium starts and is connected to: well past the 5 s default on a loaded machine
 
   it.skipIf(!CHROMIUM)("nothing asked for: the image's own defaults, no cache volume, no file; dockerImage picks the image", async () => {
-    process.env.CLEARCOTE_DOCKER_IDLE_EXIT = "0"; // 0: never stops on its own
+    process.env.CODE_BROWSER_DOCKER_IDLE_EXIT = "0"; // 0: never stops on its own
     docker.marks = [serveState("open", null, 0)];
     const local = await new LocalChromium().start(CHROMIUM!);
     try {
       docker.cdpPort = Number(/:(\d+)$/.exec(local.httpUrl)![1]);
-      const browser = await onMac(() => launch({ dockerImage: "example/clearcote:test" }));
+      const browser = await onMac(() => launch({ dockerImage: "example/code-browser:test" }));
       docker.lingering = 2;
       await browser.close();
       expect(docker.listed()).toBe(false);
     } finally {
       await local.stop();
     }
-    expect(docker.call("create").argv.at(-1)).toBe("example/clearcote:test");
+    expect(docker.call("create").argv.at(-1)).toBe("example/code-browser:test");
     expect(docker.call("create").env).toEqual({});
     expect(docker.call("create").argv).not.toContain("-v");
     expect(docker.commands()).not.toContain("cp");
@@ -298,7 +298,7 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
     try {
       docker.cdpPort = stub.port;
       docker.labels = {};
-      docker.marks = ["[clearcote] engine: /opt/xdg-cache/clearcote/pro-154.0.8037.57-r30/browser/chrome (licensed)", "[clearcote] proxy: socks5://proxy.example:1080"];
+      docker.marks = ["[code-browser] engine: /opt/xdg-cache/code-browser/pro-154.0.8037.57-r30/browser/chrome (licensed)", "[code-browser] proxy: socks5://proxy.example:1080"];
       const c = await startContainer({ ...KEYED_SOCKS });
       expect(c.serveProtocol).toBe(0);
     } finally {
@@ -322,9 +322,9 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
     [2, [], "did not report what it applied"],
     // the proxy needs a password and the container did not say it can log in to it: every request would fail
     [2, [serveState("licensed", "http://proxy.example:8080", 30, true)], "did not say it can log in"],
-    [0, ["[clearcote] engine: /opt/xdg-cache/clearcote/v0.1.0-pre.23/browser/chrome (free)", "[clearcote] proxy: socks5://proxy.example:1080"], "it runs the open engine"],
-    [0, ["[clearcote] engine: /opt/xdg-cache/clearcote/pro-154.0.8037.57-r30/browser/chrome (licensed)"], "did not apply it"],
-    [0, ["[clearcote] engine: /opt/xdg-cache/clearcote/pro-154.0.8037.57-r30/browser/chrome (licensed)", "[clearcote] proxy: socks5://other.example:3128"], "a different proxy"],
+    [0, ["[code-browser] engine: /opt/xdg-cache/code-browser/v0.1.0-pre.23/browser/chrome (free)", "[code-browser] proxy: socks5://proxy.example:1080"], "it runs the open engine"],
+    [0, ["[code-browser] engine: /opt/xdg-cache/code-browser/pro-154.0.8037.57-r30/browser/chrome (licensed)"], "did not apply it"],
+    [0, ["[code-browser] engine: /opt/xdg-cache/code-browser/pro-154.0.8037.57-r30/browser/chrome (licensed)", "[code-browser] proxy: socks5://other.example:3128"], "a different proxy"],
   ] as Array<[number, string[], string]>) {
     it(`a container that did not apply the key or proxy is refused and removed (protocol ${protocol}: ${problem})`, async () => {
       const stub = await cdpStub();
@@ -362,7 +362,7 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
     docker.labels = null;
     docker.pullError = `Error response from daemon: failed to resolve reference "docker.io/${IMAGE}": docker.io/${IMAGE}: not found\n`;
     const err = await onMac(() => launch().then(() => null, (e) => e as Error));
-    expect(err!.message).toContain(`the Clearcote image ${IMAGE} is not available`);
+    expect(err!.message).toContain(`the CodeBrowser image ${IMAGE} is not available`);
     expect(err!.message).toContain("published a few minutes after its SDK release");
     expect(err!.message).toContain("older than sdk-0.40.0 still works, but"); // the trade-off, said
     expect(docker.commands()).not.toContain("create");
@@ -591,15 +591,15 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
   });
 
   it("the idle exit and the cache volume can be tuned", async () => {
-    process.env.CLEARCOTE_DOCKER_IDLE_EXIT = "7";
-    process.env.CLEARCOTE_DOCKER_CACHE_VOLUME = "my-cc-cache";
+    process.env.CODE_BROWSER_DOCKER_IDLE_EXIT = "7";
+    process.env.CODE_BROWSER_DOCKER_CACHE_VOLUME = "my-cc-cache";
     docker.running = false;
     await expect(onMac(() => launch({ licenseKey: "cc_lic_x" }))).rejects.toThrow();
     const { argv, env } = docker.call("create");
     expect(env.CC_IDLE_EXIT_SECONDS).toBe("7");
     expect(argv[argv.indexOf("-v") + 1]).toBe("my-cc-cache:/opt/xdg-cache");
-    process.env.CLEARCOTE_DOCKER_IDLE_EXIT = "soon";
-    await expect(onMac(() => launch())).rejects.toThrow(/CLEARCOTE_DOCKER_IDLE_EXIT/);
+    process.env.CODE_BROWSER_DOCKER_IDLE_EXIT = "soon";
+    await expect(onMac(() => launch())).rejects.toThrow(/CODE_BROWSER_DOCKER_IDLE_EXIT/);
   });
 
   it("Docker not installed: says so, and how to turn this off", async () => {
@@ -610,7 +610,7 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
     expect(err!.message).toContain("`docker` command was not found");
     expect(err!.message).toContain("Install Docker Desktop");
     expect(err!.message).toContain("docker: false");
-    expect(err!.message).toContain("CLEARCOTE_DOCKER=0");
+    expect(err!.message).toContain("CODE_BROWSER_DOCKER=0");
     expect(docker.calls).toEqual([]);
   });
 
@@ -625,26 +625,26 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
   });
 
   it("an option the image cannot take is refused before docker runs", async () => {
-    await expect(onMac(() => launch({ userDataDir: "/tmp/profile" }))).rejects.toThrow(/^userDataDir is not available when launch\(\) runs Clearcote in Docker/);
+    await expect(onMac(() => launch({ userDataDir: "/tmp/profile" }))).rejects.toThrow(/^userDataDir is not available when launch\(\) runs CodeBrowser in Docker/);
     await expect(onMac(() => launch({ extensions: ["/tmp/ext"] }))).rejects.toThrow(/^extensions is not available/);
     await expect(onMac(() => launch({ args: ["--window-name=two words"] }))).rejects.toThrow(/whitespace/);
     expect(docker.calls).toEqual([]);
   });
 
-  it("docker: false, a named binary, or CLEARCOTE_DOCKER=0 keeps the local launch", async () => {
+  it("docker: false, a named binary, or CODE_BROWSER_DOCKER=0 keeps the local launch", async () => {
     const missing = join(tempDir("cc-docker-nobin-"), "no-such-chrome");
     for (const o of [{ docker: false, executablePath: missing }, { executablePath: missing }]) {
-      await expect(onMac(() => launch(o))).rejects.toThrow("Clearcote binary not found");
+      await expect(onMac(() => launch(o))).rejects.toThrow("CodeBrowser binary not found");
     }
-    process.env.CLEARCOTE_DOCKER = "0";
-    process.env.CLEARCOTE_BINARY = missing;
-    await expect(onMac(() => launch())).rejects.toThrow("Clearcote binary not found");
+    process.env.CODE_BROWSER_DOCKER = "0";
+    process.env.CODE_BROWSER_BINARY = missing;
+    await expect(onMac(() => launch())).rejects.toThrow("CodeBrowser binary not found");
     expect(docker.calls).toEqual([]); // the local path, untouched
   });
 
   it("a container that stops early reports its logs and is removed", async () => {
     docker.running = false;
-    docker.logs = "[clearcote] ERROR: could not lease a run token (LicenseError: Invalid license key.).\n";
+    docker.logs = "[code-browser] ERROR: could not lease a run token (LicenseError: Invalid license key.).\n";
     const err = await onMac(() => launch({ licenseKey: "cc_lic_bad" }).then(() => null, (e) => e as Error));
     expect(err!.message).toContain("stopped before its browser came up");
     expect(err!.message).toContain("could not lease a run token");
@@ -652,7 +652,7 @@ describe("launch() on macOS runs the Clearcote Docker image", () => {
   });
 
   it("a failed create names the image", async () => {
-    process.env.CLEARCOTE_DOCKER_IMAGE = "example/other:tag";
+    process.env.CODE_BROWSER_DOCKER_IMAGE = "example/other:tag";
     docker.createError = "docker: Error response from daemon: Conflict. The container name is already in use.\n";
     await expect(onMac(() => launch())).rejects.toThrow(/`docker create example\/other:tag` failed: docker: Error response/);
   });
@@ -703,7 +703,7 @@ describe("Chrome's sandbox: the seccomp profile", () => {
     expect(argv.indexOf("--security-opt")).toBeLessThan(argv.indexOf(IMAGE));
     expect(after(argv, "--security-opt")).toEqual([`seccomp=${SECCOMP_PROFILE}`]);
     const added = (JSON.parse(readFileSync(SECCOMP_PROFILE, "utf8")).syscalls as Array<{ names: string[]; comment?: string }>)
-      .filter((s) => (s.comment ?? "").startsWith("clearcote:")).map((s) => s.names);
+      .filter((s) => (s.comment ?? "").startsWith("code-browser:")).map((s) => s.names);
     expect(added).toEqual([["clone"], ["unshare"]]);
   });
 
@@ -758,7 +758,7 @@ describe("Chrome's sandbox: the seccomp profile", () => {
     docker.startErrors = [START_REFUSED];
     docker.marks = [KEYED_STATE];
     // the first create works; the one without the profile meets the race once
-    docker.createErrors = [null, "Error response from daemon: failed to mkdir /var/lib/docker/volumes/clearcote-cache/_data/x: file exists"];
+    docker.createErrors = [null, "Error response from daemon: failed to mkdir /var/lib/docker/volumes/code-browser-cache/_data/x: file exists"];
     await withStub(() => startContainer({ ...KEYED, quiet: true }));
     const creates = docker.calls.filter((x) => x.argv[1] === "create").map((x) => x.argv);
     expect(creates).toHaveLength(3);

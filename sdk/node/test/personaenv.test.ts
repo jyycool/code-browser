@@ -14,7 +14,7 @@ import { join } from "node:path";
 const stub = vi.hoisted(() => ({
   // PROFILE_DIR is read once, at import: point it somewhere empty before the SDK loads, so no saved
   // profile on this machine can change what these tests see.
-  savedProfileDir: ((prev) => { process.env.CLEARCOTE_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CLEARCOTE_PROFILE_DIR),
+  savedProfileDir: ((prev) => { process.env.CODE_BROWSER_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CODE_BROWSER_PROFILE_DIR),
   launches: [] as Array<{ kind: "persistent" | "incognito"; userDataDir?: string; opts: Record<string, unknown> }>,
   spawns: [] as Array<{ args: string[]; env: Record<string, string | undefined> | undefined }>,
 }));
@@ -76,14 +76,14 @@ const ON = () => true; // probe stubs
 const OFF = () => false;
 
 afterAll(() => {
-  if (stub.savedProfileDir === undefined) delete process.env.CLEARCOTE_PROFILE_DIR;
-  else process.env.CLEARCOTE_PROFILE_DIR = stub.savedProfileDir;
+  if (stub.savedProfileDir === undefined) delete process.env.CODE_BROWSER_PROFILE_DIR;
+  else process.env.CODE_BROWSER_PROFILE_DIR = stub.savedProfileDir;
 });
 
 // No licence (a key would select a lease), no opt-out or leftover payload from the environment, and a
 // TEMP of our own: everything a test or the code under test creates goes under `root`, removed after.
-const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY",
-  "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_WIDEVINE_DIR",
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY",
+  "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CLEARCOTE_WIDEVINE_DIR",
   P.OPT_OUT_ENV, P.ENV_VAR, "CC_TEST_MARKER"] as const;
 let savedEnv: Record<string, string | undefined>;
 let root: string;
@@ -99,9 +99,9 @@ beforeEach(() => {
   process.env.TEMP = temp;
   process.env.TMP = temp;
   process.env.TMPDIR = temp;
-  process.env.CLEARCOTE_NO_WARN = "1";
-  for (const k of ["CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD",
-    "CLEARCOTE_DOCKER", "CLEARCOTE_WIDEVINE_DIR", P.OPT_OUT_ENV, P.ENV_VAR, "CC_TEST_MARKER"]) delete process.env[k];
+  process.env.CODE_BROWSER_NO_WARN = "1";
+  for (const k of ["CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD",
+    "CODE_BROWSER_DOCKER", "CLEARCOTE_WIDEVINE_DIR", P.OPT_OUT_ENV, P.ENV_VAR, "CC_TEST_MARKER"]) delete process.env[k];
   stub.launches.length = 0;
   stub.spawns.length = 0;
 });

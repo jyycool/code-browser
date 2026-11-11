@@ -1,7 +1,7 @@
 import pytest
 
-from clearcote import _shaderdialect
-from clearcote._shaderdialect import ENV_VAR, apply_shader_dialect
+from code_browser import _shaderdialect
+from code_browser._shaderdialect import ENV_VAR, apply_shader_dialect
 
 
 def test_absent_by_default_leaves_env_untouched():
@@ -61,7 +61,7 @@ def test_env_var_name_is_the_one_the_engine_reads():
 
 
 # ---------------------------------------------------- default for a Windows claim (2026-10-06)
-from clearcote._shaderdialect import default_shader_dialect, shader_dialect_env  # noqa: E402
+from code_browser._shaderdialect import default_shader_dialect, shader_dialect_env  # noqa: E402
 
 WIN = ["--fingerprint=s", "--fingerprint-platform=windows"]
 LINUX = ["--fingerprint=s", "--fingerprint-platform=linux"]

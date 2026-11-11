@@ -3,23 +3,23 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "clearcote-fingerprint"
+name = "code-browser-fingerprint"
 version = "0.1.0"
-description = "Convert the open chrome-fingerprints dataset into clearcote-profile JSON (the clearcote browser's --fingerprint-profile format)."
+description = "Convert the open chrome-fingerprints dataset into code-browser-profile JSON (the code-browser browser's --fingerprint-profile format)."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "BSD-3-Clause" }
 dependencies = ["chrome-fingerprints"]
 
 [project.urls]
-Homepage = "https://github.com/clearcotelabs/clearcote-browser"
+Homepage = "https://github.com/jyycool/code-browser"
 
 # convert_dataset.py exposes importable helpers — convert(rec, tables), load_tables(pkg),
-# load_records(pkg), find_dataset(path) — so other tools (e.g. the clearcote-profiles library)
+# load_records(pkg), find_dataset(path) — so other tools (e.g. the code-browser-profiles library)
 # can reuse this canonical converter instead of forking it:
-#   pip install "clearcote-fingerprint @ git+https://github.com/clearcotelabs/clearcote-browser#subdirectory=tools/fingerprint-collect"
+#   pip install "code-browser-fingerprint @ git+https://github.com/jyycool/code-browser#subdirectory=tools/fingerprint-collect"
 [tool.setuptools]
 py-modules = ["convert_dataset"]
 
 [project.scripts]
-clearcote-convert-dataset = "convert_dataset:main"
+code-browser-convert-dataset = "convert_dataset:main"

@@ -1,7 +1,7 @@
 // Keep the persona off the browser's own command line (engine patch 1021, "env mode").
 //
 // A browser's command line is readable by any local user (/proc/<pid>/cmdline on Linux, the process
-// environment block on Windows), and Clearcote's carries the seed, every persona override, proxy
+// environment block on Windows), and CodeBrowser's carries the seed, every persona override, proxy
 // credentials (--proxy-auth, --socks5-credentials) and the canvas-bridge token. An engine with patch
 // 1021 already moves those switches off every CHILD process's command line: they travel in the
 // CLEARCOTE_PERSONA_ARGS environment variable, which the children inherit. With --persona-from-env the
@@ -18,7 +18,7 @@
 // adopts the FIRST matching entry of the payload, so each name goes in once, with its last value.
 //
 // Turn it off with `personaEnv: false` (launch options) or CLEARCOTE_PERSONA_ENV=0. Mirrors
-// sdk/python/clearcote/_personaenv.py.
+// sdk/python/code_browser/_personaenv.py.
 
 import { engineSupportsSwitch } from "./launchopts.js";
 

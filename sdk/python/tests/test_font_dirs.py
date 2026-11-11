@@ -1,12 +1,12 @@
-"""Your own fonts (font_dirs / CLEARCOTE_FONT_DIRS), fallback fonts (CLEARCOTE_FALLBACK_FONT_DIRS) and
-the font lines of `clearcote info` on Linux (mirrors sdk/node/test/font-dirs.test.ts)."""
+"""Your own fonts (font_dirs / CODE_BROWSER_FONT_DIRS), fallback fonts (CLEARCOTE_FALLBACK_FONT_DIRS) and
+the font lines of `code-browser info` on Linux (mirrors sdk/node/test/font-dirs.test.ts)."""
 import os
 import shutil
 import tempfile
 
 import pytest
 
-from clearcote import _commands, _fonts
+from code_browser import _commands, _fonts
 
 from _fontfiles import make_collection, make_font
 
@@ -198,7 +198,7 @@ def test_linux_font_env_uses_the_user_cache_when_the_bundle_dir_is_not_writable(
     # and the browser then drew with every font on the host instead of the bundle.
     exe, fonts = _bundle(tmp_path)
     _block(fonts / "fonts.generated.conf")
-    monkeypatch.setenv("CLEARCOTE_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("CODE_BROWSER_CACHE", str(tmp_path / "cache"))
     path = _fonts.linux_font_env(exe)["FONTCONFIG_FILE"]
     assert os.path.dirname(path) == str(tmp_path / "cache" / "fontconfig")
     assert os.path.basename(path).startswith("fonts.generated-") and path.endswith(".conf")
@@ -208,9 +208,9 @@ def test_linux_font_env_uses_the_user_cache_when_the_bundle_dir_is_not_writable(
 
 
 def test_linux_font_env_user_cache_follows_xdg(linux, monkeypatch, tmp_path):
-    monkeypatch.delenv("CLEARCOTE_CACHE", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_CACHE", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
-    assert _fonts._user_conf_dir() == str(tmp_path / "xdg" / "clearcote" / "fontconfig")
+    assert _fonts._user_conf_dir() == str(tmp_path / "xdg" / "code-browser" / "fontconfig")
 
 
 def test_linux_font_env_last_resort_is_a_private_temp_dir(linux, monkeypatch, tmp_path):
@@ -218,7 +218,7 @@ def test_linux_font_env_last_resort_is_a_private_temp_dir(linux, monkeypatch, tm
     _block(fonts / "fonts.generated.conf")
     blocker = tmp_path / "a-file"
     blocker.write_text("")
-    monkeypatch.setenv("CLEARCOTE_CACHE", str(blocker))  # nothing can be created under a file
+    monkeypatch.setenv("CODE_BROWSER_CACHE", str(blocker))  # nothing can be created under a file
     monkeypatch.setattr(_fonts, "_PRIVATE_TMP", [])
     path = _fonts.linux_font_env(exe)["FONTCONFIG_FILE"]
     directory = os.path.dirname(path)
@@ -235,15 +235,15 @@ def test_linux_font_env_warns_once_when_nothing_is_writable(linux, monkeypatch, 
     _block(fonts / "fonts.generated.conf")
     blocker = tmp_path / "a-file"
     blocker.write_text("")
-    monkeypatch.setenv("CLEARCOTE_CACHE", str(blocker))
+    monkeypatch.setenv("CODE_BROWSER_CACHE", str(blocker))
     monkeypatch.setattr(_fonts, "_private_tmp_conf_dir", lambda: str(blocker / "tmp"))
     monkeypatch.setattr(_fonts, "_WARNED_NO_CONF", set())
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
     assert _fonts.linux_font_env(exe) == {}
     assert _fonts.linux_font_env(exe) == {}  # still launches, without the bundle's font config
     err = capsys.readouterr().err
     assert err.count("could not write the font configuration") == 1
-    assert str(fonts) in err and str(blocker) in err and "CLEARCOTE_CACHE" in err
+    assert str(fonts) in err and str(blocker) in err and "CODE_BROWSER_CACHE" in err
 
 
 def test_linux_font_env_warning_respects_no_warn(linux, monkeypatch, tmp_path, capsys):
@@ -251,10 +251,10 @@ def test_linux_font_env_warning_respects_no_warn(linux, monkeypatch, tmp_path, c
     _block(fonts / "fonts.generated.conf")
     blocker = tmp_path / "a-file"
     blocker.write_text("")
-    monkeypatch.setenv("CLEARCOTE_CACHE", str(blocker))
+    monkeypatch.setenv("CODE_BROWSER_CACHE", str(blocker))
     monkeypatch.setattr(_fonts, "_private_tmp_conf_dir", lambda: str(blocker / "tmp"))
     monkeypatch.setattr(_fonts, "_WARNED_NO_CONF", set())
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     assert _fonts.linux_font_env(exe) == {}
     assert capsys.readouterr().err == ""
 
@@ -342,7 +342,7 @@ def test_apply_font_env_passes_font_dirs(linux, tmp_path):
     assert f"<dir>{win}</dir>" in _read(pw["env"]["FONTCONFIG_FILE"])
 
 
-# --- `clearcote info` -------------------------------------------------------------------------------
+# --- `code-browser info` -------------------------------------------------------------------------------
 
 def _report_bundle(tmp_path):
     exe, fonts = _bundle(tmp_path)
@@ -389,7 +389,7 @@ def test_info_font_lines():
     lines = _commands.font_lines({
         "bundled": True, "note": "metric-compatible Windows font clones are bundled with this build",
         "scripts": {"covered": ["Latin", "Greek"], "missing": ["Khmer", "Ethiopic"]},
-        "fontDirs": ["/srv/winfonts"], "fallbackFontDirs": ["/usr/local/share/clearcote/fonts"],
+        "fontDirs": ["/srv/winfonts"], "fallbackFontDirs": ["/usr/local/share/code-browser/fonts"],
         "ignoredFontDirs": ["/nope"],
         "genuineWindowsFamilies": ["Arial", "Segoe UI"], "lookalikeWindowsFamilies": ["Calibri"],
         "genuineFacesSupported": False})
@@ -400,7 +400,7 @@ def test_info_font_lines():
         "                real: Arial, Segoe UI",
         "                lookalike: Calibri",
         "                this engine still draws its lookalikes for them (real faces need PRO r32 or newer)",
-        "Fallback fonts  /usr/local/share/clearcote/fonts",
+        "Fallback fonts  /usr/local/share/code-browser/fonts",
         "Ignored         /nope (not a directory)",
     ]
     assert _commands.font_lines({"note": "n", "scripts": {"covered": ["Latin"], "missing": []}, "fontDirs": []}) == [
@@ -412,17 +412,17 @@ def test_info_reports_fonts_on_linux(linux, monkeypatch, tmp_path):
     from test_parity_cli import fake_cached_build  # the same fake cache the other info tests use
     cache = tmp_path / "cache"
     cache.mkdir()
-    for k in ("CLEARCOTE_BINARY", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_AUTO_UPDATE"):
+    for k in ("CODE_BROWSER_BINARY", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_AUTO_UPDATE"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("CLEARCOTE_CACHE", str(cache))
+    monkeypatch.setenv("CODE_BROWSER_CACHE", str(cache))
     exe = fake_cached_build(cache, "custom")
     fonts = os.path.join(os.path.dirname(exe), "fonts")
     os.mkdir(fonts)
     with open(os.path.join(fonts, "fonts.conf.template"), "w", encoding="utf-8") as fh:
         fh.write(_template())
     make_font(tmp_path / "cache" / "custom" / "browser" / "sub" / "fonts" / "a.ttf", ["Arimo"], [0x41])
-    monkeypatch.setenv("CLEARCOTE_BINARY", exe)
+    monkeypatch.setenv("CODE_BROWSER_BINARY", exe)
     monkeypatch.setattr(_commands.sys, "platform", "linux")
     r = _commands.build_info(quick=True)
     assert r["fonts"]["bundled"] is True and r["fonts"]["scripts"]["covered"] == ["Latin"]
@@ -438,49 +438,49 @@ class _Stop(Exception):
 def stubbed_launch(linux, monkeypatch, tmp_path):
     """launch() up to the font wiring: _prepare records what reaches Playwright, apply_font_env records
     the directories, and the browser start itself stops the test."""
-    import clearcote
+    import code_browser
     seen = {}
-    monkeypatch.setattr(clearcote, "_acquire_lease_from_kwargs", lambda kwargs: seen.setdefault("lease", None))
+    monkeypatch.setattr(code_browser, "_acquire_lease_from_kwargs", lambda kwargs: seen.setdefault("lease", None))
 
     def prepare(kwargs):
         seen["prepare_kwargs"] = dict(kwargs)
         return "exe", [], {}, None, False, None
 
-    monkeypatch.setattr(clearcote, "_prepare", prepare)
-    monkeypatch.setattr(clearcote, "apply_font_env",
+    monkeypatch.setattr(code_browser, "_prepare", prepare)
+    monkeypatch.setattr(code_browser, "apply_font_env",
                         lambda exe, kw, args=(), font_dirs=None: seen.__setitem__("font_dirs", font_dirs))
-    monkeypatch.setattr(clearcote, "apply_shader_dialect", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "_headless_geometry_kwargs", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "_win_av_retry", lambda *a, **k: (_ for _ in ()).throw(_Stop()))
-    return clearcote, seen
+    monkeypatch.setattr(code_browser, "apply_shader_dialect", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_headless_geometry_kwargs", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_win_av_retry", lambda *a, **k: (_ for _ in ()).throw(_Stop()))
+    return code_browser, seen
 
 
 def test_launch_hands_font_dirs_to_the_font_wiring(stubbed_launch, tmp_path):
-    clearcote, seen = stubbed_launch
+    code_browser, seen = stubbed_launch
     with pytest.raises(_Stop):
-        clearcote.launch(ephemeral_profile=False, headless=True, font_dirs=str(tmp_path))
+        code_browser.launch(ephemeral_profile=False, headless=True, font_dirs=str(tmp_path))
     assert seen["font_dirs"] == [str(tmp_path)]
     assert "font_dirs" not in seen["prepare_kwargs"]  # not a Playwright option
 
 
 def test_launch_persistent_context_hands_font_dirs_to_the_font_wiring(stubbed_launch, tmp_path):
-    clearcote, seen = stubbed_launch
+    code_browser, seen = stubbed_launch
     with pytest.raises(_Stop):
-        clearcote.launch_persistent_context(str(tmp_path / "profile"), headless=True, font_dirs=[str(tmp_path)])
+        code_browser.launch_persistent_context(str(tmp_path / "profile"), headless=True, font_dirs=[str(tmp_path)])
     assert seen["font_dirs"] == [str(tmp_path)] and "font_dirs" not in seen["prepare_kwargs"]
 
 
 def test_a_mistyped_font_dir_fails_before_the_lease(stubbed_launch, monkeypatch, tmp_path):
-    clearcote, seen = stubbed_launch
-    monkeypatch.setattr(clearcote, "_acquire_lease_from_kwargs", lambda kwargs: pytest.fail("lease taken"))
+    code_browser, seen = stubbed_launch
+    monkeypatch.setattr(code_browser, "_acquire_lease_from_kwargs", lambda kwargs: pytest.fail("lease taken"))
     with pytest.raises(ValueError, match="not a directory"):
-        clearcote.launch(ephemeral_profile=False, headless=True, font_dirs=str(tmp_path / "typo"))
+        code_browser.launch(ephemeral_profile=False, headless=True, font_dirs=str(tmp_path / "typo"))
     with pytest.raises(ValueError, match="not a directory"):
-        clearcote.launch_persistent_context(str(tmp_path / "p"), headless=True, font_dirs=str(tmp_path / "typo"))
+        code_browser.launch_persistent_context(str(tmp_path / "p"), headless=True, font_dirs=str(tmp_path / "typo"))
 
 
 async def test_async_launch_hands_font_dirs_to_the_font_wiring(linux, monkeypatch, tmp_path):
-    from clearcote import async_api
+    from code_browser import async_api
     seen = {}
     monkeypatch.setattr(async_api, "_acquire_lease_from_kwargs", lambda kwargs: None)
 
@@ -501,5 +501,5 @@ async def test_async_launch_hands_font_dirs_to_the_font_wiring(linux, monkeypatc
 
 
 def test_cloud_treats_font_dirs_as_a_local_option():
-    from clearcote import cloud
+    from code_browser import cloud
     assert "font_dirs" in cloud.LOCAL_ONLY_OPTIONS

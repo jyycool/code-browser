@@ -2,7 +2,7 @@
 
 在一块**真实的远程 GPU** 上渲染 canvas 和 WebGL，让页面读回的像素与你的配置所声称的 GPU 一致。
 
-> **状态：** 实验性，`v0.1.0-pre.12`。需要主动开启：不传 `--canvas-bridge-url` 时，clearcote 完全在本地渲染，与以前完全一样。
+> **状态：** 实验性，`v0.1.0-pre.12`。需要主动开启：不传 `--canvas-bridge-url` 时，code-browser 完全在本地渲染，与以前完全一样。
 > Canvas2D（含 `measureText`）和 **WebGL** 都会被转发：几何、着色器、uniform、绘制调用、**程序生成的纹理**
 > （从像素数组 `texImage2D`）、`readPixels` **以及** `toDataURL`。如果某个 WebGL canvas 的纹理来自图片 / 2D canvas / 视频，
 > 或使用了 3D 纹理，该 canvas 会自动**回退到本地渲染**，所以永远不会返回渲染了一半的结果。
@@ -14,7 +14,7 @@
 
 ## 为什么
 
-clearcote 在宿主机实际拥有的 GPU 上渲染 canvas/WebGL。如果配置声称的 GPU 与宿主机*不同*，严格的反检测 / 浏览器篡改检查
+code-browser 在宿主机实际拥有的 GPU 上渲染 canvas/WebGL。如果配置声称的 GPU 与宿主机*不同*，严格的反检测 / 浏览器篡改检查
 可以通过比较渲染像素与所声称的硬件来发现这种不一致（你无法在软件中让一块 GPU 输出另一块 GPU 的精确像素，见
 [docs/zh/RESEARCH.md](RESEARCH.md)）。渲染桥消除了这种不一致：它不是在本地渲染、只伪装 GPU *字符串*，而是
 **把 canvas/WebGL 操作转发到一个拥有你想要呈现的 GPU 的远程浏览器**，并返回那个浏览器的真实像素。
@@ -24,7 +24,7 @@ clearcote 在宿主机实际拥有的 GPU 上渲染 canvas/WebGL。如果配置�
 ## 工作原理
 
 ```
-   clearcote (your automation host)          render browser (real GPU)
+   code_browser (your automation host)          render browser (real GPU)
    +-----------------------------+           +------------------------+
    | page: getImageData /        |  ops  --> | a real browser renders |
    |   toDataURL / readPixels /  |           |  the ops on its real   |
@@ -39,7 +39,7 @@ clearcote 在宿主机实际拥有的 GPU 上渲染 canvas/WebGL。如果配置�
 渲染浏览器可以是：
 
 - **一个你通过 Chrome DevTools Protocol 连接的浏览器**（`--backend cdp`）：推荐的方式，因为你可以选择一台 GPU 恰好是你想呈现的消费级 GPU 的主机；或者
-- **一个本地的无头 clearcote**（`--backend local`）：最简单，但 canvas 身份就是你自己机器的 GPU。
+- **一个本地的无头 code-browser**（`--backend local`）：最简单，但 canvas 身份就是你自己机器的 GPU。
 
 参考实现的渲染服务器位于 [`tools/canvas-bridge-server/`](../../tools/canvas-bridge-server/)。
 
@@ -54,7 +54,7 @@ clearcote 在宿主机实际拥有的 GPU 上渲染 canvas/WebGL。如果配置�
    如果需要许多*不可关联*的身份，请**每个身份组使用一个渲染主机（GPU）**。
 
 渲染主机需要**你自己提供**。任何能向浏览器暴露 CDP/WebSocket 端点的东西都可以：浏览器托管服务商，或者你自己在一台闲置机器上运行的浏览器。
-clearcote 不提供也不背书任何服务商；请选择满足上述条件的。
+code-browser 不提供也不背书任何服务商；请选择满足上述条件的。
 
 ## 教程：在远程真实 GPU 浏览器上渲染（推荐）
 
@@ -88,13 +88,13 @@ python tools/canvas-bridge-server/server.py \
 
 确认它是真实的消费级 GPU（不是软件渲染器或数据中心显卡）。复制 vendor 和 renderer 字符串，下一步要让客户端与它们一致。
 
-### 4. 启动 clearcote，带上渲染桥**以及匹配的 GPU**（一致性）
+### 4. 启动 code-browser，带上渲染桥**以及匹配的 GPU**（一致性）
 
-渲染桥让 canvas *像素*与渲染 GPU 一致；你还必须让 clearcote 的 WebGL `getParameter(UNMASKED_*)` *字符串*也与之一致，
+渲染桥让 canvas *像素*与渲染 GPU 一致；你还必须让 code-browser 的 WebGL `getParameter(UNMASKED_*)` *字符串*也与之一致，
 否则字符串和像素会对不上。传入第 3 步中的确切字符串：
 
 ```bash
-clearcote \
+code-browser \
   --canvas-bridge-url=ws://127.0.0.1:9099 \
   --no-sandbox \
   --fingerprint=<seed> \
@@ -125,7 +125,7 @@ clearcote \
 
 ```bash
 python tools/canvas-bridge-server/server.py \
-    --backend local --chrome /path/to/clearcote/chrome.exe --port 9099
+    --backend local --chrome /path/to/code-browser/chrome.exe --port 9099
 ```
 
 此时 canvas 身份就是那台机器的 GPU。
@@ -135,8 +135,8 @@ python tools/canvas-bridge-server/server.py \
 使用一等公民的 `canvasBridge` 选项：它会生成相应开关，并自动加上必需的 `--no-sandbox`：
 
 ```python
-import clearcote
-browser = clearcote.launch(
+import code_browser
+browser = code_browser.launch(
     fingerprint="user-1",
     gpu_vendor="Google Inc. (Intel)",
     gpu_renderer="ANGLE (Intel, Intel(R) UHD Graphics ... D3D11)",
@@ -151,7 +151,7 @@ browser = clearcote.launch(
 
 ```js
 // Node
-const browser = await clearcote.launch({
+const browser = await code_browser.launch({
   fingerprint: "user-1",
   gpuVendor: "Google Inc. (Intel)",
   gpuRenderer: "ANGLE (Intel, Intel(R) UHD Graphics ... D3D11)",
@@ -186,7 +186,7 @@ const browser = await clearcote.launch({
 
 经过渲染桥的同步 canvas 读回（`getImageData`/`toDataURL`/`readPixels`/`measureText`）是渲染线程上的一次网络往返。
 面对*感知延迟*的检测方，这次往返本身就是一个信号，与渲染桥所修正的静态 canvas/WebGL 哈希是两回事。
-clearcote 在引擎层面缓解了这个问题；请针对你的目标进行调整：
+code-browser 在引擎层面缓解了这个问题；请针对你的目标进行调整：
 
 - **预取 + 缓存（自动）。** 每次绘制后，引擎会在后台推测性地获取该画面并缓存。任何与上次绘制之间隔着*任何*异步边界的读取
   （动画帧、延后读取、重复读取）都直接从缓存返回，**没有往返**（`performance.now()` 也是真实、快速的）。
@@ -194,7 +194,7 @@ clearcote 在引擎层面缓解了这个问题；请针对你的目标进行调�
 - **`--canvas-bridge-fallback=local`（永不阻塞）。** 缓存冷未命中时，返回快速的本地渲染结果，而不是等待渲染桥。
   已预热的一致缓存仍然服务大多数读取；只有罕见的冷读取是本地的。适合既要一致性、又绝不能出现读回停顿的场景。
 - **`--canvas-bridge-mode`（按源）。** 只在真正会对 canvas 一致性打分的源上使用渲染桥；其它一切在本地服务（快速，并使用一致的画像 GPU 字符串）。
-  在不走渲染桥的源上，clearcote 的行为与未配置渲染桥时完全相同。
+  在不走渲染桥的源上，code-browser 的行为与未配置渲染桥时完全相同。
 - **压缩 RTT。** 要既保持一致性、又完全消除计时差异，唯一的办法是把渲染主机放在同一个局域网/数据中心，
   使 RTT 落在本地 GPU 读回的波动范围之内。远处的住宅 GPU 与零延迟读回不可兼得：按目标选择。
   （住宅 *IP* 是代理层面的问题，与像素在哪里渲染无关。）
@@ -205,7 +205,7 @@ clearcote 在引擎层面缓解了这个问题；请针对你的目标进行调�
   来源于图片/canvas/视频的 WebGL 纹理会回退到本地渲染，而不是走渲染桥。
 - 客户端**必须使用 `--no-sandbox`**。
 - 紧跟在绘制之后的第一次同步读取仍要付出一次往返，见 **延迟与计时** 中的预取 / `fallback=local` / 按源等缓解措施。
-- 平滑回退：如果渲染桥不可达，clearcote 会记录一条警告并**在本地渲染**：配置错误的渲染桥只会平滑降级，不会让页面坏掉。
+- 平滑回退：如果渲染桥不可达，code-browser 会记录一条警告并**在本地渲染**：配置错误的渲染桥只会平滑降级，不会让页面坏掉。
 
 ## 故障排查
 

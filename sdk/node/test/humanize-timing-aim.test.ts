@@ -48,7 +48,7 @@ describe("per-persona timing", () => {
     });
   }
 
-  const ENV = "CLEARCOTE_HUMANIZE_TYPO_RATE";
+  const ENV = "CODE_BROWSER_HUMANIZE_TYPO_RATE";
   const saved = process.env[ENV];
   afterEach(() => { if (saved === undefined) delete process.env[ENV]; else process.env[ENV] = saved; });
 

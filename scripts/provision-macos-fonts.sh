@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# clearcote-956: put the metric-compatible font clones where chrome/BUILD.gn's
-# bundle_data("clearcote_persona_fonts") expects them, for a macOS build.
+# code-browser-956: put the metric-compatible font clones where chrome/BUILD.gn's
+# bundle_data("code_browser_persona_fonts") expects them, for a macOS build.
 #
 # These are the same files the Linux release bundles (see assets/fonts/ATTRIBUTION.md).
 # On Linux the SDK points FONTCONFIG_FILE at fonts.conf.template; macOS has no fontconfig,
@@ -35,4 +35,4 @@ cp -f "$ASSETS/ATTRIBUTION.md" "$DEST/"
   || { echo "FATAL: assets/fonts does not match assets/fonts/SHA256SUMS" >&2; exit 1; }
 
 n=$(find "$DEST" -type f \( -name '*.ttf' -o -name '*.otf' \) | wc -l | tr -d ' ')
-echo "clearcote: provisioned $n font clones into $DEST"
+echo "code-browser: provisioned $n font clones into $DEST"

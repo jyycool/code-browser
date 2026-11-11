@@ -6,9 +6,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-import clearcote
-from clearcote import _offline
-from clearcote._license import inject_run_token
+import code_browser
+from code_browser import _offline
+from code_browser._license import inject_run_token
 
 NOW = datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc)
 
@@ -28,7 +28,7 @@ def write_key(tmp_path, **over):
 
 
 def test_no_key_means_online_mode(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_OFFLINE_KEY", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_OFFLINE_KEY", raising=False)
     assert _offline.offline_lease(None) is None
 
 
@@ -41,7 +41,7 @@ def test_a_valid_key_gives_its_token_and_no_network(tmp_path):
 
 
 def test_env_var_is_used(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_OFFLINE_KEY", write_key(tmp_path))
+    monkeypatch.setenv("CODE_BROWSER_OFFLINE_KEY", write_key(tmp_path))
     assert _offline.offline_key_path() is not None
 
 
@@ -49,22 +49,22 @@ def test_env_var_is_used(tmp_path, monkeypatch):
     "over,msg",
     [
         ({"expires_at": (NOW - timedelta(days=1)).isoformat()}, "expired"),
-        ({"format": "something-else"}, "not a Clearcote offline key"),
+        ({"format": "something-else"}, "not a CodeBrowser offline key"),
         ({"token": "no-dot"}, "no valid token"),
         ({"expires_at": "soon"}, "no valid expires_at"),
     ],
 )
 def test_bad_keys_fail_clearly(tmp_path, over, msg):
-    with pytest.raises(clearcote.OfflineKeyError, match=msg):
+    with pytest.raises(code_browser.OfflineKeyError, match=msg):
         _offline.offline_lease(write_key(tmp_path, **over), now=NOW)
 
 
 def test_missing_and_unreadable_files(tmp_path):
-    with pytest.raises(clearcote.OfflineKeyError, match="not found"):
+    with pytest.raises(code_browser.OfflineKeyError, match="not found"):
         _offline.offline_lease(str(tmp_path / "nope.json"), now=NOW)
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
-    with pytest.raises(clearcote.OfflineKeyError, match="JSON"):
+    with pytest.raises(code_browser.OfflineKeyError, match="JSON"):
         _offline.offline_lease(str(bad), now=NOW)
 
 
@@ -79,16 +79,16 @@ def test_launch_path_takes_no_lease_and_needs_a_binary(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise AssertionError("offline mode must not contact the licence server")
 
-    monkeypatch.setattr(clearcote, "acquire_lease", boom)
-    monkeypatch.delenv("CLEARCOTE_BINARY", raising=False)
+    monkeypatch.setattr(code_browser, "acquire_lease", boom)
+    monkeypatch.delenv("CODE_BROWSER_BINARY", raising=False)
     key = write_key(tmp_path, expires_at=(datetime.now(timezone.utc) + timedelta(days=40)).isoformat())
 
     kwargs = {"offline_key": key, "license_key": "cc_lic_x", "license_through_proxy": True}
-    with pytest.raises(clearcote.OfflineKeyError, match="executable_path"):
-        clearcote._acquire_lease_from_kwargs(kwargs)
+    with pytest.raises(code_browser.OfflineKeyError, match="executable_path"):
+        code_browser._acquire_lease_from_kwargs(kwargs)
 
-    kwargs = {"offline_key": key, "license_key": "cc_lic_x", "executable_path": "/opt/clearcote/chrome"}
-    lease = clearcote._acquire_lease_from_kwargs(kwargs)
+    kwargs = {"offline_key": key, "license_key": "cc_lic_x", "executable_path": "/opt/code-browser/chrome"}
+    lease = code_browser._acquire_lease_from_kwargs(kwargs)
     assert lease.token == "eyJwYXlsb2FkIjoxfQ.c2ln"
     assert "offline_key" not in kwargs and "license_key" not in kwargs
     assert kwargs["_cc_pro"] is None  # never selects/downloads the PRO build
@@ -101,7 +101,7 @@ def test_launch_path_takes_no_lease_and_needs_a_binary(tmp_path, monkeypatch):
 
 
 def test_binary_from_env_is_enough(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_BINARY", "/opt/clearcote/chrome")
+    monkeypatch.setenv("CODE_BROWSER_BINARY", "/opt/code-browser/chrome")
     key = write_key(tmp_path, expires_at=(datetime.now(timezone.utc) + timedelta(days=40)).isoformat())
-    lease = clearcote._acquire_lease_from_kwargs({"offline_key": key})
+    lease = code_browser._acquire_lease_from_kwargs({"offline_key": key})
     assert lease.token

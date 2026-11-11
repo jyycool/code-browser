@@ -4,7 +4,7 @@ import socket
 import threading
 import warnings
 
-from clearcote._launchopts import socks5_udp_refused, udp_relay_or_fallback
+from code_browser._launchopts import socks5_udp_refused, udp_relay_or_fallback
 
 
 def fake_socks5(rep, login=False):

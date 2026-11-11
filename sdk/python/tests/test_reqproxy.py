@@ -14,8 +14,8 @@ import time
 
 import pytest
 
-from clearcote._launchopts import resolve_proxy
-from clearcote._reqproxy import (
+from code_browser._launchopts import resolve_proxy
+from code_browser._reqproxy import (
     Upstream, ipv6_bytes, is_loopback, parse_host_port, request_proxy_args, request_proxy_upstream,
     route_request_api, start_request_proxy,
 )
@@ -291,7 +291,7 @@ def test_answers_502_naming_the_cause_when_the_upstream_refuses_the_credentials(
     rp = forwarder(Upstream("http", "127.0.0.1", port, "u1", "wrong"), cleanups)
     res = _get(pw, cleanups, rp.playwright_proxy, "http://origin.test:%d/x" % o)
     assert res.status == 502
-    assert "407" in res.headers["x-clearcote-proxy-error"]
+    assert "407" in res.headers["x-code-browser-proxy-error"]
     assert log == ["origin.test:%d auth=bad" % o]
 
 
@@ -404,7 +404,7 @@ def _check_launch_kwargs(cap):
 
 
 def _patch_sync(monkeypatch, cap, fail=False):
-    import clearcote
+    import code_browser
 
     class _Chromium:
         def _go(self, kw):
@@ -423,9 +423,9 @@ def _patch_sync(monkeypatch, cap, fail=False):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
 
 
 @pytest.mark.parametrize("entry,extra,event", [
@@ -434,37 +434,37 @@ def _patch_sync(monkeypatch, cap, fail=False):
     ("launch_persistent_context", {}, "close"),
 ])
 def test_sync_launches_route_the_request_api_and_stop_with_the_browser(monkeypatch, tmp_path, entry, extra, event):
-    import clearcote
+    import code_browser
     cap = {}
     _patch_sync(monkeypatch, cap)
     args = (str(tmp_path / "prof"),) if entry == "launch_persistent_context" else ()
-    getattr(clearcote, entry)(*args, executable_path=_fake_exe(tmp_path), proxy=dict(SOCKS), quiet=True, **extra)
+    getattr(code_browser, entry)(*args, executable_path=_fake_exe(tmp_path), proxy=dict(SOCKS), quiet=True, **extra)
     proxy = _check_launch_kwargs(cap)
     cap["obj"].emit(event)
     assert not _accepts(proxy)
 
 
 def test_sync_launch_failure_stops_the_forwarder(monkeypatch, tmp_path):
-    import clearcote
+    import code_browser
     cap = {}
     _patch_sync(monkeypatch, cap, fail=True)
     with pytest.raises(RuntimeError):
-        clearcote.launch(executable_path=_fake_exe(tmp_path), proxy=dict(SOCKS), quiet=True, ephemeral_profile=False)
+        code_browser.launch(executable_path=_fake_exe(tmp_path), proxy=dict(SOCKS), quiet=True, ephemeral_profile=False)
     assert not _accepts(cap["kw"]["proxy"])
 
 
 def test_no_forwarder_without_credentials(monkeypatch, tmp_path):
-    import clearcote
+    import code_browser
     cap = {}
     _patch_sync(monkeypatch, cap)
-    clearcote.launch(executable_path=_fake_exe(tmp_path), proxy={"server": "socks5://proxy.example:1080"},
+    code_browser.launch(executable_path=_fake_exe(tmp_path), proxy={"server": "socks5://proxy.example:1080"},
                      quiet=True, ephemeral_profile=False)
     assert cap["kw"]["proxy"] == {"server": "socks5://proxy.example:1080"}
     assert "--proxy-bypass-list=" not in cap["kw"]["args"]
 
 
 def _patch_async(monkeypatch, cap, fail=False):
-    from clearcote import async_api
+    from code_browser import async_api
 
     class _Chromium:
         async def _go(self, kw):
@@ -500,7 +500,7 @@ def _patch_async(monkeypatch, cap, fail=False):
 
 @pytest.mark.parametrize("entry,event", [("launch", "disconnected"), ("launch_persistent_context", "close")])
 async def test_async_launches_route_the_request_api_and_stop_with_the_browser(monkeypatch, tmp_path, entry, event):
-    from clearcote import async_api
+    from code_browser import async_api
     cap = {}
     _patch_async(monkeypatch, cap)
     args = (str(tmp_path / "prof"),) if entry == "launch_persistent_context" else ()
@@ -511,7 +511,7 @@ async def test_async_launches_route_the_request_api_and_stop_with_the_browser(mo
 
 
 async def test_async_launch_failure_stops_the_forwarder(monkeypatch, tmp_path):
-    from clearcote import async_api
+    from code_browser import async_api
     cap = {}
     _patch_async(monkeypatch, cap, fail=True)
     with pytest.raises(RuntimeError):
@@ -521,10 +521,10 @@ async def test_async_launch_failure_stops_the_forwarder(monkeypatch, tmp_path):
 
 @pytest.mark.filterwarnings("ignore:.*cannot authenticate to a SOCKS5 proxy")
 def test_serve_path_warns_instead_of_routing(monkeypatch, tmp_path):
-    import clearcote
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
+    import code_browser
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
     with pytest.warns(UserWarning, match="attached over CDP"):
-        _exe, args, pw_kwargs, *_ = clearcote._prepare(
+        _exe, args, pw_kwargs, *_ = code_browser._prepare(
             {"executable_path": _fake_exe(tmp_path), "proxy": dict(SOCKS), "_cc_direct": True})
     assert "_cc_request_route" not in pw_kwargs
     assert "--proxy-bypass-list=" not in args  # serve() starts Chromium itself: no Playwright <-loopback>

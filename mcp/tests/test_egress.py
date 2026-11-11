@@ -6,10 +6,10 @@ import socket
 
 import pytest
 
-from clearcote_mcp import server as S
+from code_browser_mcp import server as S
 
 try:
-    from clearcote_mcp import _egress
+    from code_browser_mcp import _egress
 except ImportError:  # before the guard had its own module
     _egress = None
 
@@ -20,7 +20,7 @@ RESOLVES = {"example.com": ["93.184.215.14", "2606:2800:21f:cb07:6820:80da:af6b:
 
 @pytest.fixture(autouse=True)
 def offline_dns(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_ALLOW_PRIVATE_EGRESS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_ALLOW_PRIVATE_EGRESS", raising=False)
 
     def fake(host, port, *args, **kwargs):
         if host not in RESOLVES:
@@ -71,7 +71,7 @@ async def test_allowed(url):
 
 @pytest.mark.asyncio
 async def test_opting_in_allows_private_addresses(monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_ALLOW_PRIVATE_EGRESS", "1")
+    monkeypatch.setenv("CODE_BROWSER_ALLOW_PRIVATE_EGRESS", "1")
     for url in (f"http://2130706433:{P}/", "http://localhost/", "http://inside.example/", "http://[::1]:8080/"):
         await S._check_url(url)
 
@@ -88,7 +88,7 @@ NOT_WEB = ["file:///tmp/page.html", "file:///C:/Windows/win.ini", "FILE:///etc/p
 @pytest.mark.parametrize("opt_in", [False, True])
 async def test_only_web_urls_are_opened_even_with_private_addresses_allowed(monkeypatch, url, opt_in):
     if opt_in:
-        monkeypatch.setenv("CLEARCOTE_ALLOW_PRIVATE_EGRESS", "1")
+        monkeypatch.setenv("CODE_BROWSER_ALLOW_PRIVATE_EGRESS", "1")
     with pytest.raises(ValueError, match=r"^refused url scheme '[a-z-]+': only http and https urls are opened$"):
         await S._check_url(url)
 
@@ -96,7 +96,7 @@ async def test_only_web_urls_are_opened_even_with_private_addresses_allowed(monk
 @pytest.mark.asyncio
 @pytest.mark.parametrize("url", ["file:///etc/passwd", "chrome://settings", "view-source:http://127.0.0.1/"])
 async def test_a_tool_refuses_a_local_scheme_before_using_the_browser(monkeypatch, url):
-    monkeypatch.setenv("CLEARCOTE_ALLOW_PRIVATE_EGRESS", "1")
+    monkeypatch.setenv("CODE_BROWSER_ALLOW_PRIVATE_EGRESS", "1")
 
     async def no_browser():
         raise AssertionError("the browser was used")
@@ -115,7 +115,7 @@ def test_ip_ranges(ip, blocked):
 
 
 def test_the_guard_has_its_own_module():
-    assert _egress is not None, "the url guard moved to clearcote_mcp._egress"
+    assert _egress is not None, "the url guard moved to code_browser_mcp._egress"
 
 
 class Route:

@@ -168,7 +168,7 @@ const fakePage = () => {
   return { page, ev, get value() { return value; }, set value(v: string) { value = v; }, setType: (t: string) => { fieldType = t; } };
 };
 
-const ENV = "CLEARCOTE_HUMANIZE_TYPO_RATE";
+const ENV = "CODE_BROWSER_HUMANIZE_TYPO_RATE";
 
 /** Run `fn` on a fake clock: every sleep resolves at once, Date.now() moves by what was slept. */
 const onFakeClock = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -400,7 +400,7 @@ describe("humanized keyboard (Node wrapper, fake clock)", () => {
         const f = fakePage();
         await onFakeClock(async () => {
           await attachHumanize({} as never, f.page, { humanize: true, seed: "ha-2" });
-          f.page._clearcotePersona.tempo = tempo;
+          f.page._code_browserPersona.tempo = tempo;
           await f.page.keyboard.type((VEC.ks_text as string).slice(0, 200));
         });
         const p = charPresses(f);

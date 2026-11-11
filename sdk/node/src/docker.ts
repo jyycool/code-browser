@@ -1,20 +1,20 @@
-// launch() on an Intel Mac: run the Clearcote Docker image and connect to it.
+// launch() on an Intel Mac: run the CodeBrowser Docker image and connect to it.
 //
 // The native macOS builds (the PRO build and the open macOS pin) are Apple Silicon only. Rather than
 // fail on an Intel Mac, launch() starts the published
-// Clearcote image (teamflatearth/clearcote:sdk-<this SDK's version>, a linux/amd64 image Docker Desktop
+// CodeBrowser image (teamflatearth/clearcote:sdk-<this SDK's version>, a linux/amd64 image Docker Desktop
 // runs on Intel and Apple silicon alike), waits for its CDP endpoint, connects with Playwright and
 // resolves to the same Playwright Browser a local launch does. close() disconnects and stops the
 // container; nothing is left running.
 //
 // When it applies:
-//   - `docker: false` (or CLEARCOTE_DOCKER=0) turns it off: launch() runs a local binary, which on macOS
+//   - `docker: false` (or CODE_BROWSER_DOCKER=0) turns it off: launch() runs a local binary, which on macOS
 //     means the native build (Apple Silicon: PRO with a licence key, the open pin without) or `executablePath`.
-//   - `docker: true` (or CLEARCOTE_DOCKER=1) turns it on on any OS that has Docker.
-//   - Unset: on for an Intel Mac, unless the caller named a binary (executablePath / CLEARCOTE_BINARY). An
+//   - `docker: true` (or CODE_BROWSER_DOCKER=1) turns it on on any OS that has Docker.
+//   - Unset: on for an Intel Mac, unless the caller named a binary (executablePath / CODE_BROWSER_BINARY). An
 //     Apple Silicon Mac runs a native build instead: PRO with a licence key, the open macOS pin (Chromium
 //     150, v0.1.0-pre.24) without.
-//   - CLEARCOTE_TEST_ONLY_ASSUME_MACOS=1 makes this module treat the host as macOS, so the real Docker
+//   - CODE_BROWSER_TEST_ONLY_ASSUME_MACOS=1 makes this module treat the host as macOS, so the real Docker
 //     path can be exercised end to end on a Linux or Windows machine. It is not an option.
 //
 // The container is configured through the image's own CC_* variables (docker/serve.py), so only the
@@ -30,7 +30,7 @@
 // container -- unless it runs the licensed engine when a key was given and the proxy when one was given.
 //
 // Nothing outlives its owner: the container is created with --rm, stops itself once no CDP client has been
-// connected for 30 s after its CDP first answers (CLEARCOTE_DOCKER_IDLE_EXIT), and the next launch removes
+// connected for 30 s after its CDP first answers (CODE_BROWSER_DOCKER_IDLE_EXIT), and the next launch removes
 // any whose owner process is certainly gone (sweepStale). close() stops it at once and resolves once Docker
 // has removed it (waiting up to 15 s for that).
 //
@@ -60,7 +60,7 @@ import { resolveLicenseKey } from "./license.js";
 import { nativeMacosSupported } from "./release.js";
 
 export const DEFAULT_REPOSITORY = "teamflatearth/clearcote";
-export const TEST_ONLY_ASSUME_MACOS = "CLEARCOTE_TEST_ONLY_ASSUME_MACOS";
+export const TEST_ONLY_ASSUME_MACOS = "CODE_BROWSER_TEST_ONLY_ASSUME_MACOS";
 const LABEL = "com.clearcotelabs.sdk-launch=1";
 // Who started a container: sweepStale() removes the ones whose owner process is gone.
 const OWNER_HOST_LABEL = "com.clearcotelabs.owner-host";
@@ -74,13 +74,13 @@ const PROTOCOL_LABEL = "com.clearcotelabs.serve-protocol";
 export const SERVE_PROTOCOL = 2;
 const FIRST_PROTOCOL_TAG = "sdk-0.40.0"; // the first published image that speaks it
 // A container stops itself once no CDP client has been connected for this long (serve.py's
-// CC_IDLE_EXIT_SECONDS). CLEARCOTE_DOCKER_IDLE_EXIT overrides it; 0 turns it off.
+// CC_IDLE_EXIT_SECONDS). CODE_BROWSER_DOCKER_IDLE_EXIT overrides it; 0 turns it off.
 const DEFAULT_IDLE_EXIT_S = 30;
-const DEFAULT_CACHE_VOLUME = "clearcote-cache";
+const DEFAULT_CACHE_VOLUME = "code-browser-cache";
 // The licence key and the proxy URL (it may carry a password) reach the container as this file, copied in
 // with `docker cp` and deleted by serve.py once read, not as -e variables `docker inspect` would show.
 const SECRET_ENV = ["CLEARCOTE_LICENSE_KEY", "CC_PROXY"];
-const SECRETS_FILE = "/tmp/clearcote-secrets.json";
+const SECRETS_FILE = "/tmp/code-browser-secrets.json";
 const IMAGE_UID = 10001; // the image's user (cc)
 // An image of this serve protocol runs Chrome's sandbox when the container allows it, so it is started with this
 // seccomp profile: Docker's default plus the namespace calls the sandbox makes (docker/seccomp.json).
@@ -99,7 +99,7 @@ const FALSY = ["0", "false", "no", "off"];
 const READY_TIMEOUT_MS = 180_000;
 const CONNECT_TIMEOUT_MS = 120_000;
 const INSTALL_URL = "https://docs.docker.com/desktop/setup/install/mac-install/";
-const OFF_HINT = "To launch without Docker, pass docker: false (or set CLEARCOTE_DOCKER=0) and executablePath to a compatible Clearcote binary.";
+const OFF_HINT = "To launch without Docker, pass docker: false (or set CODE_BROWSER_DOCKER=0) and executablePath to a compatible CodeBrowser binary.";
 
 const SDK_VERSION: string = (() => {
   try {
@@ -119,11 +119,11 @@ export class DockerUnavailableError extends Error {
 
 /** The Docker options of launch(). */
 export interface DockerOption {
-  /** Run Clearcote in its Docker image. Unset: on macOS, unless executablePath / CLEARCOTE_BINARY names a
-   * binary or a licence key on an Apple Silicon Mac selects the native PRO build. false (or CLEARCOTE_DOCKER=0) turns it off;
+  /** Run CodeBrowser in its Docker image. Unset: on macOS, unless executablePath / CODE_BROWSER_BINARY names a
+   * binary or a licence key on an Apple Silicon Mac selects the native PRO build. false (or CODE_BROWSER_DOCKER=0) turns it off;
    * true uses the image on any OS. */
   docker?: boolean;
-  /** The image to run. Default CLEARCOTE_DOCKER_IMAGE, else teamflatearth/clearcote:sdk-<SDK version>. */
+  /** The image to run. Default CODE_BROWSER_DOCKER_IMAGE, else teamflatearth/clearcote:sdk-<SDK version>. */
   dockerImage?: string;
 }
 
@@ -154,17 +154,17 @@ export function hostIsMacos(): boolean {
   return process.platform === "darwin" || (process.env[TEST_ONLY_ASSUME_MACOS] ?? "").trim() === "1";
 }
 
-/** Whether this launch runs in the Clearcote Docker image (see the header). */
+/** Whether this launch runs in the CodeBrowser Docker image (see the header). */
 export function dockerRequested(docker: unknown, options: Record<string, unknown> = {}): boolean {
   if (docker !== undefined && docker !== null) {
     if (typeof docker === "string") return TRUTHY.includes(docker.trim().toLowerCase()); // "0" from a config file is off
     return !!docker;
   }
   if (options.executablePath) return false; // the caller named a binary: theirs to run
-  const env = (process.env.CLEARCOTE_DOCKER ?? "").trim().toLowerCase();
+  const env = (process.env.CODE_BROWSER_DOCKER ?? "").trim().toLowerCase();
   if (FALSY.includes(env)) return false;
   if (TRUTHY.includes(env)) return true;
-  if (process.env.CLEARCOTE_BINARY) return false;
+  if (process.env.CODE_BROWSER_BINARY) return false;
   if (!hostIsMacos()) return false;
   // An Apple Silicon Mac runs a native build: the PRO one with a licence key, the open macOS pin
   // (release.ts MACOS) without. Neither has an Intel build, so an Intel Mac keeps the image.
@@ -180,7 +180,7 @@ export function nativeMacosHost(): boolean {
 }
 
 export function defaultImage(): string {
-  return process.env.CLEARCOTE_DOCKER_IMAGE || `${DEFAULT_REPOSITORY}:sdk-${SDK_VERSION}`;
+  return process.env.CODE_BROWSER_DOCKER_IMAGE || `${DEFAULT_REPOSITORY}:sdk-${SDK_VERSION}`;
 }
 
 /** A proxy's username or password escaped for its URL as the Python and .NET SDKs do it (quote(safe="") and
@@ -217,13 +217,13 @@ export function containerEnv(options: Record<string, unknown>): Record<string, s
     .sort();
   if (unknown.length) {
     const takes = DOCKER_ACCEPTED.filter((k) => !SDK_SIDE.includes(k)).sort().join(", ");
-    throw new TypeError(`${unknown[0]} is not available when launch() runs Clearcote in Docker (there is no native macOS build here). The container takes: ${takes}. ${OFF_HINT}`);
+    throw new TypeError(`${unknown[0]} is not available when launch() runs CodeBrowser in Docker (there is no native macOS build here). The container takes: ${takes}. ${OFF_HINT}`);
   }
   const env: Record<string, string> = {};
   const has = (k: string) => options[k] !== undefined && options[k] !== null;
   for (const [k, name] of Object.entries(STR_ENV)) {
     if (!has(k)) continue;
-    if (typeof options[k] === "boolean") throw new TypeError(`${k}: ${options[k]} is not available when launch() runs Clearcote in Docker`);
+    if (typeof options[k] === "boolean") throw new TypeError(`${k}: ${options[k]} is not available when launch() runs CodeBrowser in Docker`);
     env[name] = String(options[k]);
   }
   for (const [k, name] of Object.entries(INT_ENV)) if (has(k)) env[name] = String(Math.trunc(Number(options[k])));
@@ -249,7 +249,7 @@ export function containerEnv(options: Record<string, unknown>): Record<string, s
   if (args.length) env.CC_EXTRA_ARGS = args.join(" ");
   const key = resolveLicenseKey(options.licenseKey as string | undefined); // as a local launch: option > env > saved key
   if (key) env.CLEARCOTE_LICENSE_KEY = key;
-  if (options.licenseApiBase) env.CLEARCOTE_LICENSE_API = String(options.licenseApiBase);
+  if (options.licenseApiBase) env.CODE_BROWSER_LICENSE_API = String(options.licenseApiBase);
   // Engine patch 1021 (personaenv.ts): the image's entrypoint takes the persona off its chrome's command line by
   // itself, on an engine that has the switch, and reads the same opt-out a launch here does.
   if (has("personaEnv")) env.CLEARCOTE_PERSONA_ENV = options.personaEnv ? "1" : "0";
@@ -265,7 +265,7 @@ export interface CliResult { code: number; stdout: string; stderr: string }
  * Chrome logs after them. */
 export interface LogTail { text(waitMs?: number): Promise<string>; waitMarks(pattern: RegExp, waitMs?: number): Promise<string[]>; stop(): void }
 
-const MARK = /\[clearcote\] (serve-state |engine: |proxy: )/;
+const MARK = /\[code-browser\] (serve-state |engine: |proxy: )/;
 
 function findOnPath(name: string): string | null {
   const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
@@ -340,12 +340,12 @@ export async function dockerInfo(): Promise<{ exe: string; arch: string }> {
   const exe = dockerCli.which();
   if (!exe) {
     throw new DockerUnavailableError(
-      `Clearcote has no native macOS build here (that needs a licence key and an Apple Silicon Mac), so on macOS launch() runs it in Docker, but the \`docker\` command was not found. Install Docker Desktop (${INSTALL_URL}), start it, and try again. ${OFF_HINT}`);
+      `CodeBrowser has no native macOS build here (that needs a licence key and an Apple Silicon Mac), so on macOS launch() runs it in Docker, but the \`docker\` command was not found. Install Docker Desktop (${INSTALL_URL}), start it, and try again. ${OFF_HINT}`);
   }
   const r = await dockerCli.run([exe, "info", "--format", "{{.ServerVersion}} {{.Architecture}}"], undefined, 30_000);
   if (r.code !== 0) {
     throw new DockerUnavailableError(
-      `Clearcote has no native macOS build here (that needs a licence key and an Apple Silicon Mac), so on macOS launch() runs it in Docker, but Docker is not running (\`docker info\`: ${firstLine(r.stderr) || `exit ${r.code}`}). Start Docker Desktop and try again. ${OFF_HINT}`);
+      `CodeBrowser has no native macOS build here (that needs a licence key and an Apple Silicon Mac), so on macOS launch() runs it in Docker, but Docker is not running (\`docker info\`: ${firstLine(r.stderr) || `exit ${r.code}`}). Start Docker Desktop and try again. ${OFF_HINT}`);
   }
   return { exe, arch: r.stdout.trim().split(/\s+/)[1] ?? "" };
 }
@@ -364,19 +364,19 @@ function warnOnce(key: string, message: string, quiet: boolean): void {
 /** Forget the warnings given once (for tests). */
 export function resetWarnings(): void { warned.clear(); }
 
-/** How long a launched container waits with no CDP client before it stops itself: CLEARCOTE_DOCKER_IDLE_EXIT
+/** How long a launched container waits with no CDP client before it stops itself: CODE_BROWSER_DOCKER_IDLE_EXIT
  * (seconds, 0 = never), default 30. */
 export function idleExitSeconds(): number {
-  const raw = (process.env.CLEARCOTE_DOCKER_IDLE_EXIT ?? "").trim();
+  const raw = (process.env.CODE_BROWSER_DOCKER_IDLE_EXIT ?? "").trim();
   if (!raw) return DEFAULT_IDLE_EXIT_S;
-  if (!/^\d+$/.test(raw)) throw new TypeError(`CLEARCOTE_DOCKER_IDLE_EXIT=${JSON.stringify(raw)} is not a whole number of seconds`);
+  if (!/^\d+$/.test(raw)) throw new TypeError(`CODE_BROWSER_DOCKER_IDLE_EXIT=${JSON.stringify(raw)} is not a whole number of seconds`);
   return Number(raw);
 }
 
 /** The named volume a licensed container keeps its engine in (shared, so it downloads once):
- * CLEARCOTE_DOCKER_CACHE_VOLUME, default clearcote-cache. */
+ * CODE_BROWSER_DOCKER_CACHE_VOLUME, default code-browser-cache. */
 export function cacheVolume(): string {
-  return (process.env.CLEARCOTE_DOCKER_CACHE_VOLUME ?? "").trim() || DEFAULT_CACHE_VOLUME;
+  return (process.env.CODE_BROWSER_DOCKER_CACHE_VOLUME ?? "").trim() || DEFAULT_CACHE_VOLUME;
 }
 
 export function pidAlive(pid: number): boolean {
@@ -391,7 +391,7 @@ export function pidAlive(pid: number): boolean {
 
 // ── who owns a container ───────────────────────────────────────────────────────────────────────────
 // A container carries a random per-process token (OWNER_TOKEN_LABEL); the owner writes a record under
-// ~/.clearcote/docker-owners/<token>.json saying which process it is: pid, a start marker that changes when
+// ~/.code-browser/docker-owners/<token>.json saying which process it is: pid, a start marker that changes when
 // the pid is reused, its host name and (Linux) its PID namespace and boot id. A sweeper only judges a record it
 // can verify completely: one in its own home, written on this host, from this boot and PID namespace -- every
 // one of those fields as this process would write it, so a record written on another OS into a shared home (no
@@ -442,10 +442,10 @@ export function processStart(pid: number): string | null {
   }
 }
 
-const ownersDir = () => join(homedir(), ".clearcote", "docker-owners");
+const ownersDir = () => join(homedir(), ".code-browser", "docker-owners");
 let ownerTokenValue: string | null = null;
 
-/** This process's owner token, recording it (once) under ~/.clearcote/docker-owners/. */
+/** This process's owner token, recording it (once) under ~/.code-browser/docker-owners/. */
 export function ownerToken(): string {
   if (ownerTokenValue) return ownerTokenValue;
   const token = randomBytes(16).toString("hex");
@@ -603,9 +603,9 @@ async function waitReady(exe: string, id: string, port: number, budgetMs: number
     if (await cdpReady(port)) return;
     const st = await dockerCli.run([exe, "inspect", "-f", "{{.State.Running}}", id], undefined, 30_000);
     if (st.code !== 0 || st.stdout.trim() !== "true") { // stopped (and, with --rm, already gone)
-      throw new Error(`the Clearcote container stopped before its browser came up:\n${(await logs.text()).trim() || "(it left no log)"}`);
+      throw new Error(`the CodeBrowser container stopped before its browser came up:\n${(await logs.text()).trim() || "(it left no log)"}`);
     }
-    if (Date.now() >= deadline) throw new Error(`the Clearcote container's CDP endpoint did not answer within ${Math.round(budgetMs / 1000)} s`);
+    if (Date.now() >= deadline) throw new Error(`the CodeBrowser container's CDP endpoint did not answer within ${Math.round(budgetMs / 1000)} s`);
     await new Promise((r) => setTimeout(r, 250));
   }
 }
@@ -621,15 +621,15 @@ const REGISTRY_UNREACHABLE = /dial tcp|no such host|i\/o timeout|connection refu
 function imageFailed(image: string, code: number, stderr: string, what = "docker pull"): Error {
   const detail = stderr.trim() || `exit ${code}`;
   if (REGISTRY_UNREACHABLE.test(detail)) {
-    return new Error(`could not download the Clearcote image ${image}: the registry did not answer (${firstLine(detail)}). Check this machine's network (and any proxy Docker itself needs), or set CLEARCOTE_DOCKER_IMAGE / dockerImage to an image that is already here (\`docker images ${DEFAULT_REPOSITORY}\`).`);
+    return new Error(`could not download the CodeBrowser image ${image}: the registry did not answer (${firstLine(detail)}). Check this machine's network (and any proxy Docker itself needs), or set CODE_BROWSER_DOCKER_IMAGE / dockerImage to an image that is already here (\`docker images ${DEFAULT_REPOSITORY}\`).`);
   }
   if (NOT_PUBLISHED.test(detail)) {
     const why = image === `${DEFAULT_REPOSITORY}:sdk-${SDK_VERSION}`
-      ? `Each image is published a few minutes after its SDK release (it is built from the PyPI package of the same version), so a brand-new SDK can be ahead of its image: try again in a few minutes. To launch meanwhile, set CLEARCOTE_DOCKER_IMAGE to an earlier tag of ${DEFAULT_REPOSITORY} (${DEFAULT_REPOSITORY}:latest is the newest published one). An image older than ${FIRST_PROTOCOL_TAG} still works, but the licence key and the proxy reach it as container variables that \`docker inspect\` shows, and it does not stop on its own if this program dies; launch() says so when that happens.`
-      : "Check the name, or unset CLEARCOTE_DOCKER_IMAGE / dockerImage to use the default.";
-    return new Error(`the Clearcote image ${image} is not available (${firstLine(detail)}). ${why}`);
+      ? `Each image is published a few minutes after its SDK release (it is built from the PyPI package of the same version), so a brand-new SDK can be ahead of its image: try again in a few minutes. To launch meanwhile, set CODE_BROWSER_DOCKER_IMAGE to an earlier tag of ${DEFAULT_REPOSITORY} (${DEFAULT_REPOSITORY}:latest is the newest published one). An image older than ${FIRST_PROTOCOL_TAG} still works, but the licence key and the proxy reach it as container variables that \`docker inspect\` shows, and it does not stop on its own if this program dies; launch() says so when that happens.`
+      : "Check the name, or unset CODE_BROWSER_DOCKER_IMAGE / dockerImage to use the default.";
+    return new Error(`the CodeBrowser image ${image} is not available (${firstLine(detail)}). ${why}`);
   }
-  return new Error(`\`${what} ${image}\` failed: ${detail}\n(set CLEARCOTE_DOCKER_IMAGE or dockerImage to use another image)`);
+  return new Error(`\`${what} ${image}\` failed: ${detail}\n(set CODE_BROWSER_DOCKER_IMAGE or dockerImage to use another image)`);
 }
 
 /** The serve protocol `image` speaks (its PROTOCOL_LABEL; 0 for an image without it), pulling the image first
@@ -639,7 +639,7 @@ export async function imageProtocol(exe: string, image: string, quiet = false): 
   const fmt = "{{json .Config.Labels}}";
   let r = await dockerCli.run([exe, "image", "inspect", "--format", fmt, image], undefined, 60_000);
   if (r.code !== 0) {
-    if (!quiet) process.stderr.write(`[clearcote] downloading the Clearcote Docker image ${image}\n`);
+    if (!quiet) process.stderr.write(`[code-browser] downloading the CodeBrowser Docker image ${image}\n`);
     const pull = await dockerCli.run([exe, "pull", "--platform", "linux/amd64", image], undefined, 1_800_000);
     if (pull.code !== 0) throw imageFailed(image, pull.code, pull.stderr);
     r = await dockerCli.run([exe, "image", "inspect", "--format", fmt, image], undefined, 60_000);
@@ -687,7 +687,7 @@ export function legacyProxyRefusal(image: string, proxyUrlValue: string | null |
   const what = scheme.startsWith("http") ? "an HTTP proxy that needs a password"
     : !licensed ? "a SOCKS5 proxy that needs a password without a licence key (its open engine cannot log in)"
       : "a SOCKS5 proxy that needs a password with characters a URL has to escape (it would send them escaped)";
-  return `the Clearcote image ${image} predates ${FIRST_PROTOCOL_TAG} and cannot use ${what}: every request through it would fail. Use ${DEFAULT_REPOSITORY}:${FIRST_PROTOCOL_TAG} or newer (the default image is), or a proxy that does not need a password.`;
+  return `the CodeBrowser image ${image} predates ${FIRST_PROTOCOL_TAG} and cannot use ${what}: every request through it would fail. Use ${DEFAULT_REPOSITORY}:${FIRST_PROTOCOL_TAG} or newer (the default image is), or a proxy that does not need a password.`;
 }
 
 /** What the container did not apply that was asked for (empty when all is well), from the lines its
@@ -862,7 +862,7 @@ export async function startContainer(options: Record<string, unknown>): Promise<
     const refusal = legacyProxyRefusal(image, expect.proxy, expect.licensed);
     if (refusal) throw new Error(refusal);
     if (!options.quiet) {
-      process.stderr.write(`[clearcote] warning: the image ${image} predates ${FIRST_PROTOCOL_TAG}: `
+      process.stderr.write(`[code-browser] warning: the image ${image} predates ${FIRST_PROTOCOL_TAG}: `
         + (Object.keys(secrets).length ? "its licence key and proxy are passed as container variables, which `docker inspect` shows, and " : "")
         + `it will not stop on its own if this program dies (close() still stops it). Use ${DEFAULT_REPOSITORY}:${FIRST_PROTOCOL_TAG} or newer.\n`);
     }
@@ -873,13 +873,13 @@ export async function startContainer(options: Record<string, unknown>): Promise<
     "--label", LABEL, "--label", `${OWNER_HOST_LABEL}=${hostname()}`, "--label", `${OWNER_TOKEN_LABEL}=${ownerToken()}`];
   const seccomp = seccompArgs(protocol, arch);
   if (protocol >= SANDBOX_PROTOCOL && !arch) {
-    warnOnce("arch", "[clearcote] warning: `docker info` did not say which CPU Docker runs on, so the container runs Chrome without its sandbox.", !!options.quiet);
+    warnOnce("arch", "[code-browser] warning: `docker info` did not say which CPU Docker runs on, so the container runs Chrome without its sandbox.", !!options.quiet);
   }
   argv.push(...seccomp);
   for (const name of Object.keys(env).sort()) argv.push("-e", name); // the value comes from the CLI's environment
   if (expect.licensed) argv.push("-v", `${cacheVolume()}:/opt/xdg-cache`); // the licensed engine downloads once
   argv.push(image);
-  if (!options.quiet) process.stderr.write(`[clearcote] no native macOS build here (it needs a licence key and Apple Silicon): starting the Clearcote Docker image ${image}\n`);
+  if (!options.quiet) process.stderr.write(`[code-browser] no native macOS build here (it needs a licence key and Apple Silicon): starting the CodeBrowser Docker image ${image}\n`);
   let id: string;
   try {
     id = await createStarted(exe, argv, env, secrets, image, seccomp);
@@ -887,7 +887,7 @@ export async function startContainer(options: Record<string, unknown>): Promise<
     if (!(e instanceof ProfileRefused)) throw e;
     // A Docker that cannot use the seccomp profile: the container again, without it. Its Chrome then runs with
     // --no-sandbox, as it did before the profile existed.
-    if (!options.quiet) process.stderr.write(`[clearcote] warning: Docker refused the seccomp profile (${e.message}); the container runs Chrome without its sandbox.\n`);
+    if (!options.quiet) process.stderr.write(`[code-browser] warning: Docker refused the seccomp profile (${e.message}); the container runs Chrome without its sandbox.\n`);
     id = await createStarted(exe, argv.filter((a) => !seccomp.includes(a)), env, secrets, image, []);
   }
   let logs: LogTail | null = null;
@@ -900,7 +900,7 @@ export async function startContainer(options: Record<string, unknown>): Promise<
       const wanted = protocol >= SERVE_PROTOCOL ? /serve-state / : expect.proxy ? /\] proxy: / : /\] engine: /;
       const problems = verifyApplied(await logs.waitMarks(wanted), protocol, expect);
       if (problems.length) {
-        throw new Error(`the Clearcote container (${image}) did not apply what launch() asked for: ${problems.join("; ")}. It was stopped and removed.`);
+        throw new Error(`the CodeBrowser container (${image}) did not apply what launch() asked for: ${problems.join("; ")}. It was stopped and removed.`);
       }
     }
     return { id, image, endpoint: `http://127.0.0.1:${port}`, serveProtocol: protocol, exe };
@@ -921,14 +921,14 @@ function defaultNoViewport(browser: Browser): void {
     origNewContext(("viewport" in o ? o : { ...o, viewport: null }) as Parameters<typeof origNewContext>[0]);
 }
 
-/** `launch()` on macOS (see the header): the Playwright Browser of a Clearcote container, which also
+/** `launch()` on macOS (see the header): the Playwright Browser of a CodeBrowser container, which also
  * carries `dockerContainer` ({ id, image, endpoint }). close() disconnects and stops the container. */
 export async function launchDocker(options: Record<string, unknown>): Promise<Browser> {
   const container = await startContainer(options);
   // The browser in the container uses the proxy; Playwright's request API runs here, over CDP, with no
   // proxy of its own (./reqproxy.ts), so it connects from this machine.
-  if (options.proxy && !options.quiet && !process.env.CLEARCOTE_NO_WARN)
-    console.warn("clearcote: with docker, context.request / page.request do not use the proxy and connect from this machine's IP; make API calls inside the page (page.evaluate(() => fetch(...))) instead.");
+  if (options.proxy && !options.quiet && !process.env.CODE_BROWSER_NO_WARN)
+    console.warn("code-browser: with docker, context.request / page.request do not use the proxy and connect from this machine's IP; make API calls inside the page (page.evaluate(() => fetch(...))) instead.");
   let disconnect: (() => Promise<void>) | null = null;
   try {
     const connect: Record<string, unknown> = { timeout: CONNECT_TIMEOUT_MS };

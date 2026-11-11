@@ -1,4 +1,4 @@
-"""Humanized form input planning (clearcote._forms) against the SHARED vectors in
+"""Humanized form input planning (code_browser._forms) against the SHARED vectors in
 sdk/testdata/humanize_forms_vectors.json -- the same file the Node and .NET suites read, so the three
 SDKs cannot drift apart -- plus property checks the vectors cannot express."""
 import json
@@ -7,7 +7,7 @@ import random
 
 import pytest
 
-from clearcote import _forms as F
+from code_browser import _forms as F
 
 VEC = json.load(open(os.path.join(os.path.dirname(__file__), "..", "..", "testdata",
                                   "humanize_forms_vectors.json"), encoding="utf-8"))
@@ -306,13 +306,13 @@ def test_pre_press_center(c):
 
 @pytest.mark.parametrize("c", VEC["pre_press_ms"], ids=_ids(VEC["pre_press_ms"]))
 def test_pre_press_ms(c):
-    from clearcote._motion import mulberry32
+    from code_browser._motion import mulberry32
     r = mulberry32(c["rng_seed"])
     assert [F.pre_press_ms(c["seed"], r) for _ in c["ms"]] == pytest.approx(c["ms"], abs=1e-6)
 
 
 def test_pre_press_pause_is_40_to_250_ms_right_skewed_and_per_identity():
-    from clearcote._motion import hash_seed, mulberry32
+    from code_browser._motion import hash_seed, mulberry32
     centres = set()
     for name in ("ha-1", "ha-2", "ha-3", "ha-4", "ha-5", "ha-6"):
         seed = hash_seed(name)

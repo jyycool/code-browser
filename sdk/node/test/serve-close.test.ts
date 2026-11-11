@@ -10,7 +10,7 @@
  * The stand-in browser does what Chrome does there: links its pid and socket from the profile, keeps
  * the socket in a temp directory of its own, goes on writing the profile for half a second after
  * SIGTERM, and leaves the socket directory behind. The last block runs a real engine
- * (CLEARCOTE_TEST_BINARY or CLEARCOTE_LIVE_ENGINE).
+ * (CODE_BROWSER_TEST_BINARY or CODE_BROWSER_LIVE_ENGINE).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
@@ -23,8 +23,8 @@ import { resolveLicenseKey } from "../src/license.js";
 import { runServeChild } from "./helpers/serve-child.js";
 
 const POSIX = process.platform !== "win32";
-// A Clearcote build (serve() checks the install, so not just any Chromium), as the serve smoke test uses.
-const ENGINE = process.env.CLEARCOTE_TEST_BINARY || process.env.CLEARCOTE_LIVE_ENGINE;
+// A CodeBrowser build (serve() checks the install, so not just any Chromium), as the serve smoke test uses.
+const ENGINE = process.env.CODE_BROWSER_TEST_BINARY || process.env.CODE_BROWSER_LIVE_ENGINE;
 
 const STANDIN = [
   "#!/bin/sh",
@@ -39,8 +39,8 @@ const STANDIN = [
   "while :; do sleep 0.05; done",
 ].join("\n") + "\n";
 
-const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY",
-  "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY",
+  "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"] as const;
 let savedEnv: Record<string, string | undefined>;
 let root: string;
 let temp: string; // the temp directory serve() and its browser see: anything left in it leaked
@@ -63,8 +63,8 @@ beforeEach(() => {
   process.env.TEMP = temp;
   process.env.TMP = temp;
   process.env.TMPDIR = temp;
-  process.env.CLEARCOTE_NO_WARN = "1";
-  for (const k of ["CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"]) delete process.env[k];
+  process.env.CODE_BROWSER_NO_WARN = "1";
+  for (const k of ["CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"]) delete process.env[k];
 });
 
 afterEach(() => {
@@ -108,7 +108,7 @@ async function goneAfterChild(pid: number, ms = 5_000): Promise<boolean> {
  * answers once the browser is up, its singleton included: the profile has a SingletonLock link.
  */
 async function cdpEndpoint(profile?: string): Promise<{ port: number; close: () => Promise<void> }> {
-  const up = () => (profile ? [profile] : readdirSync(temp).filter((n) => n.startsWith("clearcote-serve-")).map((n) => join(temp, n)))
+  const up = () => (profile ? [profile] : readdirSync(temp).filter((n) => n.startsWith("code-browser-serve-")).map((n) => join(temp, n)))
     .some((d) => { try { return !!readlinkSync(join(d, "SingletonLock")); } catch { return false; } });
   const server = createServer(async (_req, res) => {
     for (let i = 0; i < 500 && !up(); i++) await sleep(10);
@@ -133,7 +133,7 @@ describe.skipIf(!POSIX)("serve(): close() against a browser that behaves like Ch
       const pid = srv.pid!;
       // the harness: a profile and the browser's socket directory, both in this test's temp directory
       expect(readdirSync(temp).map((n) => n.replace(/[^-.]+$/, "*")).sort())
-        .toEqual(["clearcote-serve-*", "org.chromium.Chromium.*"]);
+        .toEqual(["code-browser-serve-*", "org.chromium.Chromium.*"]);
       await srv.close();
       expect(alive(pid)).toBe(false);
       await sleep(700); // a browser still shutting down would have written its profile back by now

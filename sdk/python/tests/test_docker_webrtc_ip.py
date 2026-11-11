@@ -47,7 +47,7 @@ def test_off_or_an_explicit_empty_value_keeps_todays_behaviour(wip, raw):
     calls = []
     ip, source, line = wip.resolve(raw, PROXY, True, lookup=lambda *a: calls.append(a) or "203.0.113.7")
     assert ip is None and source == "off" and calls == []  # no lookup at all
-    assert line.startswith("[clearcote] WebRTC IP: none")
+    assert line.startswith("[code-browser] WebRTC IP: none")
 
 
 @pytest.mark.parametrize("proxy, licensed", [(None, True), (PROXY, True), (PROXY, False)])
@@ -55,7 +55,7 @@ def test_an_explicit_address_is_used_as_given_without_a_lookup(wip, proxy, licen
     calls = []
     ip, source, line = wip.resolve(" 198.51.100.9 ", proxy, licensed, lookup=lambda *a: calls.append(a))
     assert (ip, source, calls) == ("198.51.100.9", "env", [])
-    assert line == "[clearcote] WebRTC IP: 198.51.100.9 (CC_WEBRTC_IP)"
+    assert line == "[code-browser] WebRTC IP: 198.51.100.9 (CC_WEBRTC_IP)"
 
 
 def test_unset_with_a_proxy_is_the_proxys_exit(wip):
@@ -64,7 +64,7 @@ def test_unset_with_a_proxy_is_the_proxys_exit(wip):
                                    environ={})
     assert (ip, source) == ("203.0.113.7", "proxy exit")
     assert calls == [(PROXY, wip.DEFAULT_TIMEOUT_S)]  # through the proxy, login included
-    assert line.startswith("[clearcote] WebRTC IP: 203.0.113.7 (the proxy's exit")
+    assert line.startswith("[code-browser] WebRTC IP: 203.0.113.7 (the proxy's exit")
 
 
 def test_unset_without_a_proxy_is_the_containers_own_address(wip):
@@ -78,7 +78,7 @@ def test_unset_without_a_proxy_is_the_containers_own_address(wip):
 def test_a_failed_lookup_warns_and_starts_without_it(wip, proxy, what):
     ip, source, line = wip.resolve(None, proxy, True, lookup=lambda p, t: None, environ={})
     assert ip is None and source == "lookup failed"
-    assert line.startswith("[clearcote] WARNING: WebRTC IP: could not look up the " + what)
+    assert line.startswith("[code-browser] WARNING: WebRTC IP: could not look up the " + what)
 
 
 def test_the_lookup_budget_follows_the_sdks_variable(wip):

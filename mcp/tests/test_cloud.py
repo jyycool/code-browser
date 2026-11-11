@@ -1,4 +1,4 @@
-"""Cloud mode (CLEARCOTE_CLOUD=1) and the run_task tool, against a fake hosted API. No browser and no
+"""Cloud mode (CODE_BROWSER_CLOUD=1) and the run_task tool, against a fake hosted API. No browser and no
 network: the SDK's cloud launch is stood in for, and run_task talks to a local HTTP server that
 answers the two runs endpoints it calls (POST /api/v1/runs, GET /api/v1/runs/{id})."""
 import importlib
@@ -8,11 +8,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-# Cloud mode needs clearcote 0.34+; the CI floor job (clearcote 0.30) runs without these tests.
-pytest.importorskip("clearcote.cloud", reason="cloud mode needs clearcote 0.34+")
+# Cloud mode needs code-browser 0.34+; the CI floor job (code-browser 0.30) runs without these tests.
+pytest.importorskip("code_browser.cloud", reason="cloud mode needs code-browser 0.34+")
 
-from clearcote_mcp import _facade
-from clearcote_mcp import server as S
+from code_browser_mcp import _facade
+from code_browser_mcp import server as S
 
 KEY = "cc_live_mcp_test"
 
@@ -56,8 +56,8 @@ def fake_api(monkeypatch):
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
-    monkeypatch.setenv("CLEARCOTE_API_KEY", KEY)
-    monkeypatch.setenv("CLEARCOTE_API_URL", f"http://127.0.0.1:{srv.server_address[1]}")
+    monkeypatch.setenv("CODE_BROWSER_API_KEY", KEY)
+    monkeypatch.setenv("CODE_BROWSER_API_URL", f"http://127.0.0.1:{srv.server_address[1]}")
     yield state
     srv.shutdown()
     srv.server_close()
@@ -65,27 +65,27 @@ def fake_api(monkeypatch):
 
 def test_cloud_mode_follows_the_env(monkeypatch):
     for value, expected in (("1", True), ("true", True), ("YES", True), ("0", False), ("", False)):
-        monkeypatch.setenv("CLEARCOTE_CLOUD", value)
+        monkeypatch.setenv("CODE_BROWSER_CLOUD", value)
         assert S._cloud_mode() is expected
-    monkeypatch.delenv("CLEARCOTE_CLOUD")
+    monkeypatch.delenv("CODE_BROWSER_CLOUD")
     assert S._cloud_mode() is False
 
 
 def test_cloud_persona_from_env(monkeypatch):
     for k in ("FINGERPRINT", "PLATFORM", "BRAND", "TIMEZONE", "ACCEPT_LANGUAGE", "GEOIP", "HEADLESS", "PROXY",
               "BINARY", "SERVE_PORT"):
-        monkeypatch.delenv("CLEARCOTE_" + k, raising=False)
-    monkeypatch.setenv("CLEARCOTE_FINGERPRINT", "seed-9")
-    monkeypatch.setenv("CLEARCOTE_PLATFORM", "windows")
-    monkeypatch.setenv("CLEARCOTE_PROXY", "http://u:p@h:8080")
-    monkeypatch.setenv("CLEARCOTE_GEOIP", "1")
-    monkeypatch.setenv("CLEARCOTE_BINARY", "/opt/chrome")     # local-only: not a cloud option
-    monkeypatch.setenv("CLEARCOTE_SERVE_PORT", "9222")        # local-only: not a cloud option
+        monkeypatch.delenv("CODE_BROWSER_" + k, raising=False)
+    monkeypatch.setenv("CODE_BROWSER_FINGERPRINT", "seed-9")
+    monkeypatch.setenv("CODE_BROWSER_PLATFORM", "windows")
+    monkeypatch.setenv("CODE_BROWSER_PROXY", "http://u:p@h:8080")
+    monkeypatch.setenv("CODE_BROWSER_GEOIP", "1")
+    monkeypatch.setenv("CODE_BROWSER_BINARY", "/opt/chrome")     # local-only: not a cloud option
+    monkeypatch.setenv("CODE_BROWSER_SERVE_PORT", "9222")        # local-only: not a cloud option
     p = S._cloud_persona_from_env()
     assert p == {"fingerprint": "seed-9", "platform": "windows", "proxy": "http://u:p@h:8080",
                  "geoip": True, "headless": True}
     # every key is one a cloud launch accepts
-    from clearcote.cloud import session_body
+    from code_browser.cloud import session_body
     assert session_body(dict(p))["proxy"] == {"server": "http://h:8080", "username": "u", "password": "p"}
 
 
@@ -112,9 +112,9 @@ async def test_facade_cloud_mode_uses_the_sdk_cloud_launch(monkeypatch):
         seen.update(kw)
         return _FakeCloudBrowser()
 
-    import clearcote.async_api
-    monkeypatch.setattr(clearcote.async_api, "launch", fake_launch)
-    b = _facade.ClearcoteBrowser({"fingerprint": "seed-1", "headless": True}, cloud=True)
+    import code_browser.async_api
+    monkeypatch.setattr(code_browser.async_api, "launch", fake_launch)
+    b = _facade.CodeBrowserBrowser({"fingerprint": "seed-1", "headless": True}, cloud=True)
     await b.start()
     assert seen == {"cloud": True, "fingerprint": "seed-1", "headless": True}
     assert b.is_healthy() and b.cloud and b.cloud_session["id"] == "bs_42" and b.cdp_url == ""
@@ -141,9 +141,9 @@ async def test_facade_cloud_start_failure_ends_the_session(monkeypatch):
         browsers.append(NoTabs())
         return browsers[-1]
 
-    import clearcote.async_api
-    monkeypatch.setattr(clearcote.async_api, "launch", fake_launch)
-    b = _facade.ClearcoteBrowser({}, cloud=True)
+    import code_browser.async_api
+    monkeypatch.setattr(code_browser.async_api, "launch", fake_launch)
+    b = _facade.CodeBrowserBrowser({}, cloud=True)
     with pytest.raises(RuntimeError, match="target closed"):
         await b.start()
     assert browsers[0].closed and b._browser is None
@@ -157,9 +157,9 @@ async def test_shared_browser_is_cloud_with_the_env(monkeypatch):
         built.append((self.cloud, dict(self._persona)))
         self._browser = _FakeCloudBrowser()
 
-    monkeypatch.setattr(_facade.ClearcoteBrowser, "start", fake_start)
-    monkeypatch.setenv("CLEARCOTE_CLOUD", "1")
-    monkeypatch.setenv("CLEARCOTE_BINARY", "/opt/chrome")
+    monkeypatch.setattr(_facade.CodeBrowserBrowser, "start", fake_start)
+    monkeypatch.setenv("CODE_BROWSER_CLOUD", "1")
+    monkeypatch.setenv("CODE_BROWSER_BINARY", "/opt/chrome")
     monkeypatch.setattr(S, "_browser", None)
     monkeypatch.setattr(S, "_lock", None)
     b = await S._b()
@@ -176,15 +176,15 @@ async def _tool_names():
 @pytest.mark.asyncio
 async def test_run_task_is_registered_only_with_an_api_key(monkeypatch):
     try:
-        monkeypatch.delenv("CLEARCOTE_API_KEY", raising=False)
+        monkeypatch.delenv("CODE_BROWSER_API_KEY", raising=False)
         importlib.reload(S)
         assert "run_task" not in await _tool_names()
-        monkeypatch.setenv("CLEARCOTE_API_KEY", KEY)
+        monkeypatch.setenv("CODE_BROWSER_API_KEY", KEY)
         importlib.reload(S)
         names = await _tool_names()
         assert "run_task" in names and {"navigate", "get_cdp_endpoint"} <= names
     finally:
-        monkeypatch.delenv("CLEARCOTE_API_KEY", raising=False)
+        monkeypatch.delenv("CODE_BROWSER_API_KEY", raising=False)
         importlib.reload(S)
 
 
@@ -216,7 +216,7 @@ async def test_run_task_through_the_mcp_server(fake_api, monkeypatch):
         body = json.loads(getattr(res, "content", res)[0].text)
         assert body["status"] == "ok" and body["result"]["output"] == {"price": "9.99"}
     finally:
-        monkeypatch.delenv("CLEARCOTE_API_KEY", raising=False)
+        monkeypatch.delenv("CODE_BROWSER_API_KEY", raising=False)
         importlib.reload(S)
 
 
@@ -243,9 +243,9 @@ async def test_run_task_poll_error_still_returns_the_run_id(fake_api, monkeypatc
 async def test_run_task_errors_are_structured(fake_api, monkeypatch):
     r = await S._safe(S.run_task)("t", schema_json="{not json")
     assert r["status"] == "error" and "schema_json is not valid JSON" in r["error"]
-    monkeypatch.delenv("CLEARCOTE_ALLOW_PRIVATE_EGRESS", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_ALLOW_PRIVATE_EGRESS", raising=False)
     r = await S._safe(S.run_task)("t", url="http://localhost/admin")
     assert r["status"] == "error" and "refused" in r["error"]
-    monkeypatch.setenv("CLEARCOTE_API_KEY", "wrong")
+    monkeypatch.setenv("CODE_BROWSER_API_KEY", "wrong")
     r = await S._safe(S.run_task)("t")
     assert r["status"] == "error" and "CloudError" in r["error"]

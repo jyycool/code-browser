@@ -34,8 +34,8 @@ describe("egress drift", () => {
   it("prints one warning, and nothing when quiet or sticky", async () => {
     const state = { ip: "203.0.113.99" };
     const { spec } = await setup(state);
-    const savedNoWarn = process.env.CLEARCOTE_NO_WARN;
-    delete process.env.CLEARCOTE_NO_WARN;
+    const savedNoWarn = process.env.CODE_BROWSER_NO_WARN;
+    delete process.env.CODE_BROWSER_NO_WARN;
     const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       await startEgressDriftCheck(spec, "203.0.113.7", true);
@@ -48,7 +48,7 @@ describe("egress drift", () => {
       await startEgressDriftCheck(spec, "203.0.113.7");
       expect(spy).not.toHaveBeenCalled();
     } finally {
-      if (savedNoWarn !== undefined) process.env.CLEARCOTE_NO_WARN = savedNoWarn;
+      if (savedNoWarn !== undefined) process.env.CODE_BROWSER_NO_WARN = savedNoWarn;
     }
   });
 });

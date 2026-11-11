@@ -1,4 +1,4 @@
-"""``clearcote connect``: the helper pin, the code format, and the download -> SHA-256 check ->
+"""``code-browser connect``: the helper pin, the code format, and the download -> SHA-256 check ->
 unpack -> cache path against a local server with a fake helper archive (mirrors
 sdk/node/test/connect.test.ts, which also checks the two pins agree)."""
 import hashlib
@@ -11,8 +11,8 @@ import zipfile
 
 import pytest
 
-from clearcote import _commands
-from clearcote._connect import HELPER, ensure_helper, helper_files, helper_platform, normalize_pair_code
+from code_browser import _commands
+from code_browser._connect import HELPER, ensure_helper, helper_files, helper_platform, normalize_pair_code
 
 FILES = {}
 HITS = []
@@ -46,7 +46,7 @@ def base():
 
 @pytest.fixture(autouse=True)
 def _no_own_dir(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_HELPER_DIR", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HELPER_DIR", raising=False)
     HITS.clear()
 
 
@@ -143,16 +143,16 @@ def test_own_helper_dir(tmp_path, monkeypatch):
     plat = "linux-x64"
     (tmp_path / "lib").mkdir()
     (tmp_path / "lib" / "clearcote-helper.js").write_text("")
-    monkeypatch.setenv("CLEARCOTE_HELPER_DIR", str(tmp_path))
+    monkeypatch.setenv("CODE_BROWSER_HELPER_DIR", str(tmp_path))
     assert ensure_helper(plat=plat) == helper_files(str(tmp_path), plat)
     assert HITS == []
-    monkeypatch.setenv("CLEARCOTE_HELPER_DIR", str(tmp_path / "nothing-here"))
+    monkeypatch.setenv("CODE_BROWSER_HELPER_DIR", str(tmp_path / "nothing-here"))
     with pytest.raises(RuntimeError, match="no lib/clearcote-helper.js"):
         ensure_helper(plat=plat)
 
 
 def test_cli_usage_and_help():
-    assert "clearcote connect [<code>] [--port <n>] [--allow-origin <origin>]... [--no-open]" in _commands.usage()
+    assert "code-browser connect [<code>] [--port <n>] [--allow-origin <origin>]... [--no-open]" in _commands.usage()
     help_text = _commands.command_usage("connect")
     assert "https://app.clearcotelabs.com" in help_text
     assert help_text == _commands.command_usage("connect")

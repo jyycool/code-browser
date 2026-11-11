@@ -2,7 +2,7 @@
   "_comment": "Per-patch witnesses for scripts/verify_patches.py. markers=strings validated present in a real built binary; runtime=Layer-3 behavioral witness. See docs/en/PATCH-INTEGRITY.md.",
   "patches": {
     "000-fingerprint-switches.patch": {
-      "surface": "Defines the clearcote fingerprint / canvas-bridge / TLS command-line switch value strings and forwards them from the browser process into the renderer process so downstream spoofing patches can read them.",
+      "surface": "Defines the code-browser fingerprint / canvas-bridge / TLS command-line switch value strings and forwards them from the browser process into the renderer process so downstream spoofing patches can read them.",
       "windows_only": false,
       "markers": [
         "canvas-bridge-fallback",
@@ -139,14 +139,14 @@
       "surface": "Real-GPU canvas/WebGL render bridge: a renderer-process singleton that forwards canvas 2D / WebGL readbacks and text metrics over an RFC6455 WebSocket to a remote real-GPU host and returns its authentic pixels, keeping the spoofed GPU persona coherent with what a page actually pixel-hashes.",
       "windows_only": false,
       "markers": [
-        "clearcote-canvas-bridge/1",
+        "code-browser-canvas-bridge/1",
         "CanvasBridge",
         "canvas-bridge: connect failed; rendering stays local"
       ],
       "runtime": {
         "surface": "Outbound WebSocket connection + Hello handshake from the renderer to the --canvas-bridge-url endpoint (canvas bridge client, warmed up at blink init)",
         "probe": "Start a TCP listener on a local port, e.g. python -c \"import socket; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(('127.0.0.1',9099)); s.listen(); c,_=s.accept(); print(c.recv(65536))\" ; then launch the build with --fingerprint=seed --fingerprint-platform=windows --canvas-bridge-url=ws://127.0.0.1:9099 --no-sandbox and open any page so a renderer spawns.",
-        "expect": "Correctly patched: the renderer connects to 127.0.0.1:9099 and the listener receives an RFC6455 client handshake (GET / HTTP/1.1 ... Upgrade: websocket ... Sec-WebSocket-Key:); after a 101 reply it sends a binary frame whose payload contains the ASCII string clearcote-canvas-bridge/1 (the Hello client_version). Patch lost/unpatched: no inbound connection to the port ever arrives (Get() returns nullptr, rendering stays fully local)."
+        "expect": "Correctly patched: the renderer connects to 127.0.0.1:9099 and the listener receives an RFC6455 client handshake (GET / HTTP/1.1 ... Upgrade: websocket ... Sec-WebSocket-Key:); after a 101 reply it sends a binary frame whose payload contains the ASCII string code-browser-canvas-bridge/1 (the Hello client_version). Patch lost/unpatched: no inbound connection to the port ever arrives (Get() returns nullptr, rendering stays fully local)."
       }
     },
     "070-webgl-gpu.patch": {
@@ -371,7 +371,7 @@
         "agent-tool-mode",
         "agent-log-file",
         "agent-model",
-        "Clearcote Agent",
+        "CodeBrowser Agent",
         "[ai_agent]",
         "autonomous web-browsing agent operating directly inside the",
         "__cf_rip_kf"
@@ -484,7 +484,7 @@
       "windows_only": false,
       "markers": [
         "profile-encryption-key",
-        "clearcote-portable-profile"
+        "code-browser-portable-profile"
       ],
       "runtime": {
         "surface": "cookies in a copied profile",
@@ -590,7 +590,7 @@
       "surface": "Persona coherence validator: --clearcote-validate-persona=<N|a,b,c|current> derives the personas a command line would serve, checks cross-surface invariants, prints a report and exits (0 clean, 3 contradictions).",
       "windows_only": false,
       "markers": [
-        "clearcote-validate-persona"
+        "code-browser-validate-persona"
       ],
       "runtime": {
         "surface": "validator CLI",

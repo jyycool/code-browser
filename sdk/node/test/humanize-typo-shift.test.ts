@@ -13,7 +13,7 @@ vi.mock("../src/forms.js", async (importOriginal) => ({
 }));
 import { SLOW, attached, type Fake } from "./helpers/humanize-fake.js";
 
-const ENV = "CLEARCOTE_HUMANIZE_TYPO_RATE";
+const ENV = "CODE_BROWSER_HUMANIZE_TYPO_RATE";
 type K = [string, string];
 const keysOf = (f: Fake): K[] =>
   f.events.filter((e) => ["kdown", "kup", "press"].includes(e.t)).map((e) => [e.t, e.t === "press" ? e.a.k : e.a] as K);

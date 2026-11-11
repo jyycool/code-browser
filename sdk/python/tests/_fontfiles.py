@@ -1,5 +1,5 @@
 """Tiny synthetic font files for the font tests: a name table, a cmap (format 4 for the BMP, format 12
-beyond it) and optionally a colour table -- just what clearcote._fonts reads. No real fonts needed."""
+beyond it) and optionally a colour table -- just what code_browser._fonts reads. No real fonts needed."""
 import struct
 
 

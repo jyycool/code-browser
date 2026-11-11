@@ -6,7 +6,7 @@
 //
 // Every place where the humanized route hands an action to Playwright's own (stock, untimed) call reports
 // it through reportFallback: by default `onFallback({ api, reason, selector })` is called; with
-// `strict: true` a ClearcoteStrictError is thrown instead and the stock call does not run. Same options,
+// `strict: true` a CodeBrowserStrictError is thrown instead and the stock call does not run. Same options,
 // same meaning, in the Python (`_hzoptions.py`) and .NET (`Humanize.cs`) SDKs.
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -29,18 +29,18 @@ export interface HumanizeOptions {
   /** Every planned duration (glides, presses, key dwell and gaps) x1.4 / x1.0 / x0.7, and the rate of
    * thinking pauses scaled the same way. Default "default". */
   preset?: HumanizePreset;
-  /** Throw ClearcoteStrictError instead of falling back to a stock Playwright call. */
+  /** Throw CodeBrowserStrictError instead of falling back to a stock Playwright call. */
   strict?: boolean;
-  /** Which clicks the engine's pointer path walks: "auto" (CLEARCOTE_HUMANIZE_ENGINE_CLICKS, else
+  /** Which clicks the engine's pointer path walks: "auto" (CODE_BROWSER_HUMANIZE_ENGINE_CLICKS, else
    * "coords"), "all", "coords", "off". Replaces the environment variable when not "auto". */
   engine?: HumanizeEngine;
-  /** "load": a short ambient burst on every page load (the old `page._clearcoteAutoAmbient`); "idle":
+  /** "load": a short ambient burst on every page load (the old `page._code_browserAutoAmbient`); "idle":
    * idle drifts between actions; "off" (default). */
   ambient?: HumanizeAmbient;
   /** The reading pause after a page load (0.8-4 s, longer on a page with more text) and the idle drifts between
    * actions (SC 232 lane C). On unless `false` (unset = on, since 0.68.0); `ambient: "idle"` turns it on as well. */
   attention?: boolean;
-  /** Per-character slip rate 0..1; unset = CLEARCOTE_HUMANIZE_TYPO_RATE, else 0.02. */
+  /** Per-character slip rate 0..1; unset = CODE_BROWSER_HUMANIZE_TYPO_RATE, else 0.02. */
   typoRate?: number;
   /** "left" | "right"; unset = the persona's. */
   handedness?: "left" | "right";
@@ -76,21 +76,21 @@ export interface ResolvedHumanize {
 const KEYS = ["preset", "strict", "engine", "ambient", "attention", "typoRate", "handedness", "deviceHz", "inputDevice", "onFallback"];
 // snake_case spellings accepted too, so one options object works in every SDK and in the cloud API
 const ALIASES: Record<string, string> = { typo_rate: "typoRate", device_hz: "deviceHz", input_device: "inputDevice", on_fallback: "onFallback" };
-const RESOLVED = Symbol.for("clearcote.humanizeResolved");
+const RESOLVED = Symbol.for("code_browser.humanizeResolved");
 
 /** Thrown in strict mode where the humanized route would have handed the action to Playwright's own call. */
-export class ClearcoteStrictError extends Error {
+export class CodeBrowserStrictError extends Error {
   readonly api: string;
   readonly reason: string;
   readonly selector?: string;
   constructor(api: string, reason: string, selector?: string) {
     super(`humanize strict: ${selector ? JSON.stringify(selector) : "the action"} would fall back to a stock Playwright call (${reason})`);
-    this.name = "ClearcoteStrictError";
+    this.name = "CodeBrowserStrictError";
     this.api = api;
     this.reason = reason;
     this.selector = selector;
     // worded by the caller's API like Playwright's own errors (humanize.ts asApiError)
-    (this as any)[Symbol.for("clearcote.playwrightError")] = true;
+    (this as any)[Symbol.for("code_browser.playwrightError")] = true;
   }
 }
 
@@ -181,19 +181,19 @@ export function callerApi(): string | undefined {
 }
 
 export function optionsOf(page: unknown): ResolvedHumanize | null {
-  const o = (page as any)?._clearcoteHz;
+  const o = (page as any)?._code_browserHz;
   return o && o[RESOLVED] ? (o as ResolvedHumanize) : null;
 }
 
 /** One humanized action is about to be handed to Playwright's own call: tell onFallback (its error
- * propagates and stops the stock call), or, in strict mode, throw ClearcoteStrictError instead. */
+ * propagates and stops the stock call), or, in strict mode, throw CodeBrowserStrictError instead. */
 export function reportFallback(page: unknown, api: string, reason: string, selector?: string): HumanizeFallbackEvent {
   const ev: HumanizeFallbackEvent = { api: caller.getStore() ?? api, reason, ...(selector !== undefined ? { selector } : {}) };
   // the newest event is kept on the page either way (a test and hook-less caller seam)
-  try { (page as any)._clearcoteLastFallback = ev; } catch { /* a frozen or non-object page */ }
+  try { (page as any)._code_browserLastFallback = ev; } catch { /* a frozen or non-object page */ }
   const o = optionsOf(page);
   if (!o) return ev;
-  if (o.strict) throw new ClearcoteStrictError(ev.api, reason, selector);
+  if (o.strict) throw new CodeBrowserStrictError(ev.api, reason, selector);
   if (o.onFallback) o.onFallback(ev);
   return ev;
 }

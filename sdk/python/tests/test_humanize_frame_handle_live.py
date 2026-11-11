@@ -1,7 +1,7 @@
 """Live: the Frame API (incl. the main frame) and ElementHandle actions on a humanized page are humanized. Before,
 ElementHandle actions and page.main_frame.* went straight to Playwright (a ~0 ms press, one teleporting move) and
 strict mode said nothing (measured 2026-10-28, SC 295). A cross-origin frame's handle falls back to Playwright,
-reported. Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary. Mirrors humanize-frame-handle.live.test.ts.
+reported. Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary. Mirrors humanize-frame-handle.live.test.ts.
 """
 import http.server
 import os
@@ -10,8 +10,8 @@ import threading
 
 import pytest
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 REC = """<script>
 window.__ev = [];
@@ -32,7 +32,7 @@ def _main(cross):
 
 @pytest.fixture(scope="module")
 def page():
-    import clearcote
+    import code_browser
     pages = {}
 
     class H(http.server.BaseHTTPRequestHandler):
@@ -54,7 +54,7 @@ def page():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     port = srv.server_address[1]
     pages.update({"/main.html": _main("http://localhost:%d" % port), "/child.html": CHILD})
-    b = clearcote.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="frame-handle-live-py",
+    b = code_browser.launch(executable_path=LIVE, headless=True, humanize=True, fingerprint="frame-handle-live-py",
                          quiet=True, args=["--no-sandbox"])
     try:
         p = b.new_page()
@@ -114,7 +114,7 @@ def test_child_frame_handle_fill_types_keys(page):
 
 def test_cross_origin_frame_handle_falls_back_and_reports(page):
     cross = next(f for f in page.frames if f.url.startswith("http://localhost"))
-    page._clearcote_last_fallback = None
+    page._code_browser_last_fallback = None
     cross.query_selector("#fb").click()
-    fb = page._clearcote_last_fallback
+    fb = page._code_browser_last_fallback
     assert fb is not None and fb["api"] == "ElementHandle.click" and "cross-origin" in str(fb["reason"]), fb

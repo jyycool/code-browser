@@ -1,4 +1,4 @@
-"""The cloud client (clearcote.cloud) against an in-memory hosted API: option mapping, local-only
+"""The cloud client (code_browser.cloud) against an in-memory hosted API: option mapping, local-only
 option rejection, env switching, CloudError mapping, every resource, run polling, webhook
 signatures and cookie selection. Offline: the only server is tests/_fake_cloud.py.
 Mirrors sdk/node/test/cloud.test.ts."""
@@ -9,13 +9,13 @@ import json
 import os
 import socket
 
-import clearcote
+import code_browser
 import pytest
 from _fake_cloud import API_KEY, LIVE, RECORDING, start_fake_cloud, stop_fake_cloud
-from clearcote import async_api, cloud
-from clearcote._agent import AGENT_KEYS
-from clearcote._fingerprint import FINGERPRINT_KEYS
-from clearcote.cloud import (
+from code_browser import async_api, cloud
+from code_browser._agent import AGENT_KEYS
+from code_browser._fingerprint import FINGERPRINT_KEYS
+from code_browser.cloud import (
     AsyncCloud,
     Cloud,
     CloudError,
@@ -30,9 +30,9 @@ from clearcote.cloud import (
 @pytest.fixture
 def api(monkeypatch):
     a = start_fake_cloud()
-    monkeypatch.setenv("CLEARCOTE_API_KEY", API_KEY)
-    monkeypatch.setenv("CLEARCOTE_API_URL", a.url)
-    monkeypatch.delenv("CLEARCOTE_CLOUD", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_API_KEY", API_KEY)
+    monkeypatch.setenv("CODE_BROWSER_API_URL", a.url)
+    monkeypatch.delenv("CODE_BROWSER_CLOUD", raising=False)
     yield a
     stop_fake_cloud(a)
 
@@ -47,35 +47,35 @@ def client(api):
 @pytest.mark.parametrize("value,expected", [("1", True), ("true", True), ("YES", True), (" yes ", True),
                                             ("0", False), ("", False), ("no", False), ("cloud", False)])
 def test_env_switch(monkeypatch, value, expected):
-    monkeypatch.setenv("CLEARCOTE_CLOUD", value)
+    monkeypatch.setenv("CODE_BROWSER_CLOUD", value)
     assert cloud.cloud_requested(None) is expected
 
 
 def test_explicit_flag_beats_env(monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_CLOUD", "1")
+    monkeypatch.setenv("CODE_BROWSER_CLOUD", "1")
     assert cloud.cloud_requested(False) is False
     assert cloud.cloud_requested("false") is False
-    monkeypatch.delenv("CLEARCOTE_CLOUD")
+    monkeypatch.delenv("CODE_BROWSER_CLOUD")
     assert cloud.cloud_requested(True) is True
 
 
 def test_launch_routes_on_the_env(monkeypatch):
     seen = []
-    monkeypatch.setattr(clearcote, "launch_cloud", lambda c, kw, **k: seen.append(("cloud", c, dict(kw))) or "B")
-    monkeypatch.setattr(clearcote, "_launch_on_throwaway_profile", lambda p, kw: seen.append(("local", dict(kw))) or "L")
-    monkeypatch.setattr(clearcote, "_install_persistent_as_browser", lambda c: c)
-    monkeypatch.setenv("CLEARCOTE_CLOUD", "1")
-    assert clearcote.launch(country="us") == "B"
+    monkeypatch.setattr(code_browser, "launch_cloud", lambda c, kw, **k: seen.append(("cloud", c, dict(kw))) or "B")
+    monkeypatch.setattr(code_browser, "_launch_on_throwaway_profile", lambda p, kw: seen.append(("local", dict(kw))) or "L")
+    monkeypatch.setattr(code_browser, "_install_persistent_as_browser", lambda c: c)
+    monkeypatch.setenv("CODE_BROWSER_CLOUD", "1")
+    assert code_browser.launch(country="us") == "B"
     assert seen[-1] == ("cloud", None, {"country": "us"})
-    assert clearcote.launch(cloud=False, headless=True, api_key="k", api_url="u") == "L"
+    assert code_browser.launch(cloud=False, headless=True, api_key="k", api_url="u") == "L"
     # api_key/api_url only choose the cloud account; a local launch drops them instead of failing
     assert seen[-1] == ("local", {"headless": True})
-    monkeypatch.delenv("CLEARCOTE_CLOUD")
-    assert clearcote.launch() == "L"
+    monkeypatch.delenv("CODE_BROWSER_CLOUD")
+    assert code_browser.launch() == "L"
 
 
 def test_nested_local_launches_ignore_the_env(monkeypatch, tmp_path):
-    """CLEARCOTE_CLOUD=1 with cloud=False: the inner launch_persistent_context the local path makes
+    """CODE_BROWSER_CLOUD=1 with cloud=False: the inner launch_persistent_context the local path makes
     must stay local, not read the environment again."""
     calls = []
 
@@ -101,27 +101,27 @@ def test_nested_local_launches_ignore_the_env(monkeypatch, tmp_path):
 
     exe = tmp_path / ("chrome.exe" if os.name == "nt" else "chrome")
     exe.write_bytes(b"\x00")
-    monkeypatch.setenv("CLEARCOTE_CLOUD", "1")
-    monkeypatch.setattr(clearcote, "launch_cloud", lambda *a, **k: pytest.fail("went to the cloud"))
-    monkeypatch.setattr(clearcote, "_playwright", lambda: PW())
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "_acquire_lease_from_kwargs", lambda kw: None)  # no licence lookups
-    clearcote.launch(cloud=False, executable_path=str(exe), headless=False, quiet=True)
+    monkeypatch.setenv("CODE_BROWSER_CLOUD", "1")
+    monkeypatch.setattr(code_browser, "launch_cloud", lambda *a, **k: pytest.fail("went to the cloud"))
+    monkeypatch.setattr(code_browser, "_playwright", lambda: PW())
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_acquire_lease_from_kwargs", lambda kw: None)  # no licence lookups
+    code_browser.launch(cloud=False, executable_path=str(exe), headless=False, quiet=True)
     assert len(calls) == 1
 
 
 def test_api_key_is_required(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="CLEARCOTE_API_KEY"):
+    monkeypatch.delenv("CODE_BROWSER_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="CODE_BROWSER_API_KEY"):
         Cloud()
-    with pytest.raises(ValueError, match="CLEARCOTE_API_KEY"):
-        clearcote.launch(cloud=True, country="us")
+    with pytest.raises(ValueError, match="CODE_BROWSER_API_KEY"):
+        code_browser.launch(cloud=True, country="us")
 
 
 def test_base_url_default_env_and_arg(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_API_URL", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_API_URL", raising=False)
     assert Cloud(api_key="k").base_url == "https://www.clearcotelabs.com"
-    monkeypatch.setenv("CLEARCOTE_API_URL", "http://127.0.0.1:8480/")
+    monkeypatch.setenv("CODE_BROWSER_API_URL", "http://127.0.0.1:8480/")
     assert Cloud(api_key="k").base_url == "http://127.0.0.1:8480"
     assert Cloud(api_key="k", base_url="https://staging.example").base_url == "https://staging.example"
     assert "cc_live_secret" not in repr(Cloud(api_key="cc_live_secret"))
@@ -138,9 +138,9 @@ def test_base_url_accepted(url):
 def test_plain_http_is_refused_off_this_machine(url, monkeypatch):
     with pytest.raises(ValueError, match="unencrypted"):
         Cloud(api_key="k", base_url=url)
-    monkeypatch.setenv("CLEARCOTE_API_URL", url)
+    monkeypatch.setenv("CODE_BROWSER_API_URL", url)
     with pytest.raises(ValueError, match="unencrypted"):
-        clearcote.launch(cloud=True, api_key="k")
+        code_browser.launch(cloud=True, api_key="k")
 
 
 @pytest.mark.parametrize("url", ["ftp://example.com", "www.clearcotelabs.com", "https://", "https:example.com"])
@@ -176,7 +176,7 @@ def test_a_cloud_launch_humanizes_in_the_sdk_by_default_and_switches_the_servers
     """A cloud launch humanizes in the SDK unless told humanize=False, so the session always says
     humanize: false (the hosted browser's own mouse humanizer would fight the SDK's over the cursor).
     humanize=False means no humanizing at all."""
-    from clearcote.cloud import _prepare_launch
+    from code_browser.cloud import _prepare_launch
     sdk, body = _prepare_launch({"identity": "a", "humanize": True})
     assert sdk["humanize"] is True and body == {"identity": "a", "humanize": False}
     sdk, body = _prepare_launch({"identity": "a", "humanize": False})
@@ -240,7 +240,7 @@ def test_profile_forms():
     with pytest.raises(ValueError, match='profile="auto"'):
         session_body({"profile": "auto"})
     with pytest.raises(ValueError, match="saved local Profile"):
-        session_body({"profile": clearcote.Profile("p", {"fingerprint": "x"})})
+        session_body({"profile": code_browser.Profile("p", {"fingerprint": "x"})})
     with pytest.raises(ValueError, match="profile.seed is not a cloud profile field"):
         session_body({"profile": {"name": "a", "seed": 1}})
 
@@ -270,18 +270,18 @@ def test_every_local_launch_option_is_classified():
 
 def test_launch_rejects_local_options_before_any_request(api):
     with pytest.raises(ValueError, match="executable_path is not available for cloud browsers"):
-        clearcote.launch(cloud=True, executable_path="/opt/chrome")
+        code_browser.launch(cloud=True, executable_path="/opt/chrome")
     with pytest.raises(ValueError, match="user_data_dir"):
-        clearcote.launch_persistent_context("/tmp/x", cloud=True, profile="p")
+        code_browser.launch_persistent_context("/tmp/x", cloud=True, profile="p")
     with pytest.raises(ValueError, match='needs profile="name"'):
-        clearcote.launch_persistent_context(cloud=True)
+        code_browser.launch_persistent_context(cloud=True)
     assert api.log == []
 
 
 def test_local_persistent_context_still_needs_a_dir(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_CLOUD", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_CLOUD", raising=False)
     with pytest.raises(TypeError, match="needs a user_data_dir"):
-        clearcote.launch_persistent_context()
+        code_browser.launch_persistent_context()
 
 
 # ── launch(cloud=True) with a stand-in Playwright ─────────────────────────────────────────────────
@@ -333,13 +333,13 @@ def fake_pw(monkeypatch):
     class PW:
         chromium = Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: PW())
+    monkeypatch.setattr(code_browser, "_playwright", lambda: PW())
     return seen
 
 
 def test_cloud_launch_creates_connects_and_closes(api, fake_pw):
     api.connect_url = "wss://w1.example/v1/connect/bs_1?token=t"
-    b = clearcote.launch(cloud=True, country="us", identity="acct-1", timeout=5000, slow_mo=10)
+    b = code_browser.launch(cloud=True, country="us", identity="acct-1", timeout=5000, slow_mo=10)
     assert fake_pw["url"] == api.connect_url
     assert fake_pw["kw"] == {"timeout": 5000, "slow_mo": 10}
     # the SDK humanizes (on by default), so the session switches the server's own mouse humanizer off
@@ -358,15 +358,15 @@ def test_cloud_launch_creates_connects_and_closes(api, fake_pw):
 def test_cloud_launch_installs_the_sdks_humanize_by_default(api, fake_pw, given, installed):
     """Unset or True: the SDK's humanize goes onto the session's own context (a "page" listener);
     False: nothing. The session says humanize: false either way."""
-    b = clearcote.launch(cloud=True, identity="a", **given)
+    b = code_browser.launch(cloud=True, identity="a", **given)
     assert ("page" in fake_pw["browser"].contexts[0].handlers) is installed
     assert api.requests("POST", "/api/v1/browsers")[-1]["body"] == {"identity": "a", "humanize": False}
     b.close()
 
 
-def test_clearcote_cloud_env_moves_an_unedited_script_to_the_cloud_humanized(api, fake_pw, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_CLOUD", "1")
-    b = clearcote.launch(identity="a")
+def test_code_browser_cloud_env_moves_an_unedited_script_to_the_cloud_humanized(api, fake_pw, monkeypatch):
+    monkeypatch.setenv("CODE_BROWSER_CLOUD", "1")
+    b = code_browser.launch(identity="a")
     assert "page" in fake_pw["browser"].contexts[0].handlers
     assert api.requests("POST", "/api/v1/browsers")[-1]["body"] == {"identity": "a", "humanize": False}
     b.close()
@@ -385,66 +385,66 @@ CONNECT_TIMEOUT_CASES = [
 
 @pytest.mark.parametrize("given,connect", CONNECT_TIMEOUT_CASES)
 def test_cloud_launch_waits_120_s_for_the_connect_by_default(api, fake_pw, given, connect):
-    clearcote.launch(cloud=True, **given)
+    code_browser.launch(cloud=True, **given)
     assert fake_pw["kw"] == connect
-    clearcote.launch_persistent_context(cloud=True, profile="acct-1", **given)
+    code_browser.launch_persistent_context(cloud=True, profile="acct-1", **given)
     assert fake_pw["kw"] == connect
 
 
 def test_cloud_launch_sends_the_key_and_user_agent(api, fake_pw):
-    clearcote.launch(cloud=True, api_key=API_KEY, api_url=api.url)
+    code_browser.launch(cloud=True, api_key=API_KEY, api_url=api.url)
     h = api.requests("POST", "/api/v1/browsers")[0]["headers"]
     assert h["authorization"] == f"Bearer {API_KEY}"
-    assert h["user-agent"] == f"clearcote-sdk-python/{clearcote.__version__}"
+    assert h["user-agent"] == f"clearcote-sdk-python/{code_browser.__version__}"
     assert h["content-type"] == "application/json"
 
 
 def test_cloud_launch_failure_to_connect_ends_the_session(api, fake_pw):
     fake_pw["fail"] = True
     with pytest.raises(RuntimeError, match="connect refused"):
-        clearcote.launch(cloud=True)
+        code_browser.launch(cloud=True)
     assert api.requests("DELETE", "/api/v1/browsers/bs_1")
 
 
 def test_cloud_launch_failure_after_connecting_disconnects_and_ends_the_session(api, fake_pw, monkeypatch):
-    import clearcote._humanize as hz
+    import code_browser._humanize as hz
 
     def boom(*_a, **_k):
         raise RuntimeError("page crashed")
     monkeypatch.setattr(hz, "install_humanize_on_context", boom)
     with pytest.raises(RuntimeError, match="page crashed"):
-        clearcote.launch(cloud=True, humanize=True, keep_alive=True)
+        code_browser.launch(cloud=True, humanize=True, keep_alive=True)
     assert fake_pw["browser"].closed  # the CDP connection was closed
     assert api.requests("DELETE", "/api/v1/browsers/bs_1")  # and the session stopped, keep_alive or not
 
 
 def test_keep_alive_session_is_left_running_on_close(api, fake_pw):
-    b = clearcote.launch(cloud=True, keep_alive=True)
+    b = code_browser.launch(cloud=True, keep_alive=True)
     b.close()
     assert not api.requests("DELETE")
 
 
 def test_cloud_launch_installs_humanize_like_a_local_launch(api, fake_pw, monkeypatch):
     seen = []
-    import clearcote._humanize as hz
+    import code_browser._humanize as hz
     monkeypatch.setattr(hz, "install_humanize", lambda b, h, s, seed=None: seen.append(("browser", h, s, seed)))
     monkeypatch.setattr(hz, "install_humanize_on_context",
                         lambda c, h, s, b=None, seed=None: seen.append(("context", h, s, seed)))
-    clearcote.launch(cloud=True, humanize=True, fingerprint="seed-7")
+    code_browser.launch(cloud=True, humanize=True, fingerprint="seed-7")
     assert ("context", True, False, "seed-7") in seen and ("browser", True, False, "seed-7") in seen
     seen.clear()
-    clearcote.launch(cloud=True, humanize=True, show_cursor=True, identity="acct-9")
+    code_browser.launch(cloud=True, humanize=True, show_cursor=True, identity="acct-9")
     assert ("browser", True, True, "acct-9") in seen  # the identity seeds the motor persona
 
 
 def test_persistent_cloud_context(api, fake_pw):
-    ctx = clearcote.launch_persistent_context(cloud=True, profile="acct-1")
+    ctx = code_browser.launch_persistent_context(cloud=True, profile="acct-1")
     assert api.requests("POST", "/api/v1/browsers")[0]["body"]["profile"] == {"name": "acct-1", "persist": True}
     assert ctx is fake_pw["browser"].contexts[0]
     assert ctx.cloud_session["id"] == "bs_1"
     ctx.close()
     assert fake_pw["browser"].closed and api.requests("DELETE", "/api/v1/browsers/bs_1")
-    clearcote.launch_persistent_context(cloud=True, profile={"name": "acct-2", "persist": False})
+    code_browser.launch_persistent_context(cloud=True, profile={"name": "acct-2", "persist": False})
     assert api.requests("POST", "/api/v1/browsers")[1]["body"]["profile"] == {"name": "acct-2", "persist": False}
 
 
@@ -601,7 +601,7 @@ async def test_async_cloud_launch_failures_leave_nothing_running(api, monkeypatc
 
     async def boom(*_a, **_k):
         raise RuntimeError("humanize failed")
-    import clearcote._humanize_async as hz
+    import code_browser._humanize_async as hz
     monkeypatch.setattr(async_api, "_start_driver", start2)
     monkeypatch.setattr(hz, "install_humanize", boom)
     with pytest.raises(RuntimeError, match="humanize failed"):
@@ -1062,7 +1062,7 @@ def test_webhook_oversized_header_is_refused_before_any_work():
 
 def test_exports():
     for name in ("Cloud", "AsyncCloud", "CloudError", "CloudTimeoutError", "verify_webhook"):
-        assert hasattr(clearcote, name) and name in clearcote.__all__
+        assert hasattr(code_browser, name) and name in code_browser.__all__
     for name in ("AsyncCloud", "CloudError", "verify_webhook"):
         assert hasattr(async_api, name)
     assert asyncio.iscoroutinefunction(async_api.launch)

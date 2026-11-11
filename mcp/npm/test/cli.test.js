@@ -3,7 +3,7 @@
 // server, uvx, pipx, pip) and what it says when there is none. POSIX only: the stubs are sh scripts.
 //
 //   node --test mcp/npm/test/cli.test.js
-//   CLEARCOTE_MCP_CLI=/path/to/other/cli.js node --test mcp/npm/test/cli.test.js   (test another launcher)
+//   CODE_BROWSER_MCP_CLI=/path/to/other/cli.js node --test mcp/npm/test/cli.test.js   (test another launcher)
 const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
@@ -11,9 +11,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-const CLI = process.env.CLEARCOTE_MCP_CLI || path.join(__dirname, "..", "cli.js");
+const CLI = process.env.CODE_BROWSER_MCP_CLI || path.join(__dirname, "..", "cli.js");
 const VERSION = require("../package.json").version;
-const SPEC = "clearcote-mcp>=" + VERSION;
+const SPEC = "code-browser-mcp>=" + VERSION;
 const skip = process.platform === "win32" && "the stub commands are sh scripts";
 
 // Each stub logs the calls that matter to $STUB_LOG, one line each. Probes (version checks) are not logged.
@@ -24,16 +24,16 @@ const STUBS = {
     '  *"version_info[0]"*) echo "${STUB_PYVER%%.*}" ;;',
     '  *version_info*) echo "$STUB_PYVER" ;;',
     '  *base_prefix*) echo "${STUB_VENV:-0}" ;;',
-    '  *"import clearcote_mcp"*)',
+    '  *"import code_browser_mcp"*)',
     '    if [ -n "$STUB_INSTALLED" ]; then echo "$STUB_INSTALLED"; exit 0; fi',
     '    if [ -f "$STUB_DIR/pip-installed" ]; then echo "$STUB_VERSION"; exit 0; fi',
     "    exit 1 ;;",
     '  "-m pip install"*)',
     '    echo "python3 $*" >> "$STUB_LOG"',
     '    if [ "$STUB_PIP" = refuse ]; then echo "error: externally-managed-environment" >&2; exit 1; fi',
-    '    if [ "$STUB_PIP" = fail ]; then echo "ERROR: No matching distribution found for clearcote-mcp" >&2; exit 1; fi',
+    '    if [ "$STUB_PIP" = fail ]; then echo "ERROR: No matching distribution found for code-browser-mcp" >&2; exit 1; fi',
     '    : > "$STUB_DIR/pip-installed" ;;',
-    '  "-m clearcote_mcp") echo "python3 $*" >> "$STUB_LOG"; exit "${STUB_EXIT:-0}" ;;',
+    '  "-m code_browser_mcp") echo "python3 $*" >> "$STUB_LOG"; exit "${STUB_EXIT:-0}" ;;',
     '  *) echo "unexpected python3 call: $*" >&2; exit 2 ;;',
     "esac",
     "",
@@ -70,27 +70,27 @@ function launch(t, stubs, env = {}) {
 
 test("an installed, new-enough server runs directly, as before", { skip }, (t) => {
   const r = launch(t, ["python3", "uvx"], { STUB_INSTALLED: VERSION });
-  assert.deepStrictEqual(r.calls, ["python3 -m clearcote_mcp"]);
+  assert.deepStrictEqual(r.calls, ["python3 -m code_browser_mcp"]);
   assert.strictEqual(r.status, 0);
   assert.strictEqual(r.stdout, "", "stdout is the MCP channel");
 });
 
 test("uvx runs the server when it is on PATH; pip is never tried", { skip }, (t) => {
   const r = launch(t, ["python3", "uvx", "pipx"], { STUB_PIP: "refuse" });
-  assert.deepStrictEqual(r.calls, [`uvx --from ${SPEC} clearcote-mcp`]);
+  assert.deepStrictEqual(r.calls, [`uvx --from ${SPEC} code-browser-mcp`]);
   assert.strictEqual(r.status, 0);
   assert.strictEqual(r.stdout, "");
 });
 
 test("uvx works without any Python on PATH", { skip }, (t) => {
   const r = launch(t, ["uvx"]);
-  assert.deepStrictEqual(r.calls, [`uvx --from ${SPEC} clearcote-mcp`]);
+  assert.deepStrictEqual(r.calls, [`uvx --from ${SPEC} code-browser-mcp`]);
   assert.strictEqual(r.status, 0);
 });
 
 test("pipx runs the server when there is no uvx", { skip }, (t) => {
   const r = launch(t, ["python3", "pipx"], { STUB_PIP: "refuse" });
-  assert.deepStrictEqual(r.calls, [`pipx run --spec ${SPEC} clearcote-mcp`]);
+  assert.deepStrictEqual(r.calls, [`pipx run --spec ${SPEC} code-browser-mcp`]);
   assert.strictEqual(r.status, 0);
   assert.strictEqual(r.stdout, "");
 });
@@ -101,14 +101,14 @@ test("the server's exit code is passed on", { skip }, (t) => {
 
 test("pip installs for the user and runs the server when there is no uvx or pipx, as before", { skip }, (t) => {
   const r = launch(t, ["python3"]);
-  assert.deepStrictEqual(r.calls, [`python3 -m pip install --user --quiet --upgrade ${SPEC}`, "python3 -m clearcote_mcp"]);
+  assert.deepStrictEqual(r.calls, [`python3 -m pip install --user --quiet --upgrade ${SPEC}`, "python3 -m code_browser_mcp"]);
   assert.strictEqual(r.status, 0);
   assert.strictEqual(r.stdout, "");
 });
 
 test("inside a virtual environment pip installs without --user", { skip }, (t) => {
   const r = launch(t, ["python3"], { STUB_VENV: "1" });
-  assert.deepStrictEqual(r.calls, [`python3 -m pip install --quiet --upgrade ${SPEC}`, "python3 -m clearcote_mcp"]);
+  assert.deepStrictEqual(r.calls, [`python3 -m pip install --quiet --upgrade ${SPEC}`, "python3 -m code_browser_mcp"]);
   assert.strictEqual(r.status, 0);
 });
 
@@ -134,7 +134,7 @@ test("when pip fails for another reason, it does not blame PEP 668", { skip }, (
 
 test("a Python older than the package needs is not used", { skip }, (t) => {
   const old = launch(t, ["python3", "uvx"], { STUB_PYVER: "3.8" });
-  assert.deepStrictEqual(old.calls, [`uvx --from ${SPEC} clearcote-mcp`]);
+  assert.deepStrictEqual(old.calls, [`uvx --from ${SPEC} code-browser-mcp`]);
   const none = launch(t, ["python3"], { STUB_PYVER: "3.9" });
   assert.strictEqual(none.status, 1);
   assert.deepStrictEqual(none.calls, [], "pip is not run on a Python the package does not support");
@@ -151,7 +151,7 @@ const { EventEmitter } = require("node:events");
 Object.defineProperty(process, "platform", { value: process.env.FAKE_PLATFORM });
 cp.spawnSync = (cmd, args) => {
   const a = args.join(" ");
-  const out = a.includes("version_info") ? "3.12" : a.includes("import clearcote_mcp") ? process.env.FAKE_VERSION : "";
+  const out = a.includes("version_info") ? "3.12" : a.includes("import code_browser_mcp") ? process.env.FAKE_VERSION : "";
   return { status: 0, stdout: out, stderr: "" };
 };
 const sent = [];

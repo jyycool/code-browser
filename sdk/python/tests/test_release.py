@@ -1,7 +1,7 @@
 import re
 import sys
 
-from clearcote.release import PLATFORMS, RELEASE, REPO, SIGNING_KEY_FPR, platform_release
+from code_browser.release import PLATFORMS, RELEASE, REPO, SIGNING_KEY_FPR, platform_release
 
 
 def _check_pin(rel):

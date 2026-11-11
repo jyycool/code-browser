@@ -14,8 +14,8 @@ import os
 
 import pytest
 
-from clearcote import _motion
-from clearcote._motion import click_hold, drag_dwell, key_dwell, make_persona, mulberry32, plan_ambient, plan_drag, rollover_rate
+from code_browser import _motion
+from code_browser._motion import click_hold, drag_dwell, key_dwell, make_persona, mulberry32, plan_ambient, plan_drag, rollover_rate
 
 VECTORS = os.path.join(os.path.dirname(__file__), "..", "..", "testdata", "humanize_motion_vectors.json")
 with open(VECTORS, encoding="utf-8") as _f:

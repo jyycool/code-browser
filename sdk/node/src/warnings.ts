@@ -1,10 +1,10 @@
-// Launch-time coherence warnings (mirror of the Python clearcote/_warnings.py).
+// Launch-time coherence warnings (mirror of the Python code-browser/_warnings.py).
 //
 // The SDK already defaults the safe things (strips --enable-automation, denies WebRTC leak,
 // disables Privacy Sandbox, matches the persona to the build). What it CAN'T fix is an operator
 // passing an incoherent or missing-recommended combination. coherenceWarnings() spots those at
 // launch() and emitCoherenceWarnings() prints an actionable line to stderr. Never blocks the
-// launch; suppressible with quiet:true or CLEARCOTE_NO_WARN=1. coherenceWarnings() is pure (no I/O).
+// launch; suppressible with quiet:true or CODE_BROWSER_NO_WARN=1. coherenceWarnings() is pure (no I/O).
 
 import { isFingerprintPassthrough } from "./fingerprint.js";
 
@@ -178,10 +178,10 @@ export function serveExposureWarnings(host: string, allowOrigins: string): Coher
   return cdpExposure(host, allowOrigins);
 }
 
-/** Print a list of warnings to stderr unless quiet or CLEARCOTE_NO_WARN. */
+/** Print a list of warnings to stderr unless quiet or CODE_BROWSER_NO_WARN. */
 export function emitWarnings(warnings: readonly CoherenceWarning[], quiet?: boolean): void {
-  if (quiet || process.env.CLEARCOTE_NO_WARN) return;
-  for (const w of warnings) process.stderr.write(`clearcote: ${w.severity === "warn" ? "warning" : "note"}: ${w.message}\n`);
+  if (quiet || process.env.CODE_BROWSER_NO_WARN) return;
+  for (const w of warnings) process.stderr.write(`code-browser: ${w.severity === "warn" ? "warning" : "note"}: ${w.message}\n`);
 }
 
 /** Engine-behaviour advisories: true for every launch, so they live here rather than in
@@ -212,16 +212,16 @@ export function resetSeenWarnings(): void {
   seenNotes.clear();
 }
 
-/** Print `clearcote: warning: <message>` to stderr at most once per process for `code`: for warnings about the
+/** Print `code-browser: warning: <message>` to stderr at most once per process for `code`: for warnings about the
  *  engine or the launch mode rather than one launch's options, so a program that launches in a loop is told once.
- *  quiet and CLEARCOTE_NO_WARN silence it like every other warning, without using it up. */
+ *  quiet and CODE_BROWSER_NO_WARN silence it like every other warning, without using it up. */
 export function warnOnce(code: string, message: string, quiet?: boolean): void {
-  if (quiet || process.env.CLEARCOTE_NO_WARN || seenNotes.has(code)) return;
+  if (quiet || process.env.CODE_BROWSER_NO_WARN || seenNotes.has(code)) return;
   seenNotes.add(code);
-  process.stderr.write(`clearcote: warning: ${message}\n`);
+  process.stderr.write(`code-browser: warning: ${message}\n`);
 }
 
-/** Print coherence warnings to stderr unless quiet or CLEARCOTE_NO_WARN. NOTE lines (and the host warnings in
+/** Print coherence warnings to stderr unless quiet or CODE_BROWSER_NO_WARN. NOTE lines (and the host warnings in
  *  ONCE_PER_PROCESS) fire once per process; the other WARN lines fire every launch. `opts._stockRuntime` /
  *  `opts._runtimeBindings`: this launch's browser has --disable-runtime-suppression / --enable-runtime-bindings, so
  *  the engine notes about what those restore are left out (ENGINE_NOTE_RESTORED_BY). */
@@ -231,17 +231,17 @@ export function emitCoherenceWarnings(
   hostPlatform?: string,
   buildMajor?: string
 ): void {
-  if (quiet || process.env.CLEARCOTE_NO_WARN) return;
+  if (quiet || process.env.CODE_BROWSER_NO_WARN) return;
   for (const w of coherenceWarnings(opts, hostPlatform, buildMajor)) {
     if (w.severity === "note" || ONCE_PER_PROCESS.has(w.code)) {
       if (seenNotes.has(w.code)) continue;
       seenNotes.add(w.code);
     }
-    process.stderr.write(`clearcote: ${w.severity === "warn" ? "warning" : "note"}: ${w.message}\n`);
+    process.stderr.write(`code-browser: ${w.severity === "warn" ? "warning" : "note"}: ${w.message}\n`);
   }
   for (const [code, message] of ENGINE_NOTES) {
     if (seenNotes.has(code) || (ENGINE_NOTE_RESTORED_BY[code] ?? []).some((k) => opts[k])) continue;
     seenNotes.add(code);
-    process.stderr.write(`clearcote: note: ${message}\n`);
+    process.stderr.write(`code-browser: note: ${message}\n`);
   }
 }

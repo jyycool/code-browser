@@ -8,8 +8,8 @@ running 10 s after SIGTERM was killed and its profile deleted without waiting fo
 
 The stand-in browser does what Chrome does there: links its pid and socket from the profile, keeps the
 socket in a temp directory of its own, goes on writing the profile for half a second after SIGTERM,
-and leaves the socket directory behind. The last test runs a real engine (CLEARCOTE_TEST_BINARY or
-CLEARCOTE_LIVE_ENGINE).
+and leaves the socket directory behind. The last test runs a real engine (CODE_BROWSER_TEST_BINARY or
+CODE_BROWSER_LIVE_ENGINE).
 """
 import http.server
 import json
@@ -28,12 +28,12 @@ import urllib.request
 
 import pytest
 
-import clearcote
-from clearcote import _profile, _serve
+import code_browser
+from code_browser import _profile, _serve
 
 POSIX_ONLY = pytest.mark.skipif(
     os.name == "nt", reason="the stand-in is a shell script; Chrome keeps its socket links on Linux and macOS only")
-ENGINE = os.environ.get("CLEARCOTE_TEST_BINARY") or os.environ.get("CLEARCOTE_LIVE_ENGINE")
+ENGINE = os.environ.get("CODE_BROWSER_TEST_BINARY") or os.environ.get("CODE_BROWSER_LIVE_ENGINE")
 
 STANDIN = textwrap.dedent("""\
     #!/bin/sh
@@ -65,11 +65,11 @@ def temp(tmp_path, monkeypatch):
         monkeypatch.setenv(k, str(temp))
     for k in ("HOME", "USERPROFILE"):
         monkeypatch.setenv(k, str(home))
-    for k in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"):
+    for k in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"):
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     monkeypatch.setattr(_profile, "PROFILE_DIR", str(tmp_path / "no-saved-profiles"))
-    assert clearcote.resolve_license_key(None) is None  # harness: no serve() here takes a real lease
+    assert code_browser.resolve_license_key(None) is None  # harness: no serve() here takes a real lease
     yield temp
     shutil.rmtree(temp, ignore_errors=True)
 
@@ -114,7 +114,7 @@ class _Endpoint:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def up(self):
-        dirs = [self.profile] if self.profile else [str(p) for p in self.temp.glob("clearcote-serve-*")]
+        dirs = [self.profile] if self.profile else [str(p) for p in self.temp.glob("code-browser-serve-*")]
         return any(os.path.islink(os.path.join(d, "SingletonLock")) for d in dirs)
 
     def close(self):
@@ -139,10 +139,10 @@ def _alive(pid):
 
 @POSIX_ONLY
 def test_close_waits_for_the_browser_to_exit_then_removes_its_profile_and_socket_directory(temp, standin, cdp):
-    srv = clearcote.serve(executable_path=standin, port=cdp.port, quiet=True)
+    srv = code_browser.serve(executable_path=standin, port=cdp.port, quiet=True)
     # the harness: a profile and the browser's socket directory, both in this test's temp directory
     assert sorted(re.sub(r"[^-.]+$", "*", n) for n in os.listdir(temp)) == [
-        "clearcote-serve-*", "org.chromium.Chromium.*"]
+        "code-browser-serve-*", "org.chromium.Chromium.*"]
     srv.close()
     assert srv.process.returncode == 0  # it shut down by itself, within the grace period
     time.sleep(0.7)  # a browser still shutting down would have written its profile back by now
@@ -155,7 +155,7 @@ def test_close_keeps_a_profile_that_is_the_callers_and_removes_the_socket_direct
     profile = tmp_path / "profile"
     profile.mkdir()
     cdp.profile = str(profile)
-    srv = clearcote.serve(executable_path=standin, port=cdp.port, quiet=True, user_data_dir=str(profile))
+    srv = code_browser.serve(executable_path=standin, port=cdp.port, quiet=True, user_data_dir=str(profile))
     srv.close()
     assert os.listdir(temp) == []
     assert (profile / "Default").is_dir()
@@ -166,7 +166,7 @@ def test_close_kills_a_browser_still_running_after_the_grace_period_and_waits_fo
         temp, standin, cdp, monkeypatch):
     monkeypatch.setattr(_serve, "_CLOSE_GRACE", 0.5)
     monkeypatch.setenv("STANDIN_IGNORE_TERM", "1")
-    srv = clearcote.serve(executable_path=standin, port=cdp.port, quiet=True)
+    srv = code_browser.serve(executable_path=standin, port=cdp.port, quiet=True)
     srv.close()
     assert srv.process.returncode == -signal.SIGKILL
     assert os.listdir(temp) == []
@@ -174,11 +174,11 @@ def test_close_kills_a_browser_still_running_after_the_grace_period_and_waits_fo
 
 @POSIX_ONLY
 def test_an_interpreter_that_exits_without_close_leaves_nothing_behind_either(temp, standin, cdp):
-    code = ("import json, sys, clearcote; "
-            "srv = clearcote.serve(executable_path=sys.argv[1], port=int(sys.argv[2]), quiet=True); "
+    code = ("import json, sys, code_browser; "
+            "srv = code_browser.serve(executable_path=sys.argv[1], port=int(sys.argv[2]), quiet=True); "
             "print(json.dumps({'pid': srv.pid}), flush=True)")
-    # the clearcote under test, wherever this run imports it from
-    path = os.path.dirname(os.path.dirname(clearcote.__file__))
+    # the code-browser under test, wherever this run imports it from
+    path = os.path.dirname(os.path.dirname(code_browser.__file__))
     r = subprocess.run([sys.executable, "-c", code, standin, str(cdp.port)], capture_output=True, timeout=60,
                        env={**os.environ, "PYTHONPATH": path})
     assert r.returncode == 0, r.stderr.decode()
@@ -223,9 +223,9 @@ def test_close_returns_only_once_a_killed_browser_has_exited(tmp_path):
     assert proc.calls == ["terminate", "wait", "kill", "wait"]  # once
 
 
-@pytest.mark.skipif(not ENGINE, reason="set CLEARCOTE_TEST_BINARY (or CLEARCOTE_LIVE_ENGINE) to a Clearcote build")
+@pytest.mark.skipif(not ENGINE, reason="set CODE_BROWSER_TEST_BINARY (or CODE_BROWSER_LIVE_ENGINE) to a CodeBrowser build")
 def test_close_with_a_real_engine_leaves_nothing_in_the_temp_directory(temp):
-    srv = clearcote.serve(executable_path=ENGINE, quiet=True)
+    srv = code_browser.serve(executable_path=ENGINE, quiet=True)
     with urllib.request.urlopen(srv.cdp_url + "/json/version", timeout=10) as r:
         assert "Chrom" in json.load(r).get("Browser", "")
     srv.close()

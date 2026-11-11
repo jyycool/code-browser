@@ -1,4 +1,4 @@
-// `clearcote connect`: the helper pin (and its parity with the Python SDK), the code format, and the
+// `code-browser connect`: the helper pin (and its parity with the Python SDK), the code format, and the
 // download -> SHA-256 check -> unpack -> cache path against a local server with a fake helper archive.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
@@ -52,7 +52,7 @@ afterAll(async () => {
   rmSync(TMP, { recursive: true, force: true });
 });
 afterEach(() => {
-  delete process.env.CLEARCOTE_HELPER_DIR;
+  delete process.env.CODE_BROWSER_HELPER_DIR;
   vi.restoreAllMocks();
 });
 
@@ -68,7 +68,7 @@ describe("the pin", () => {
   });
 
   it("matches the Python SDK's HELPER field for field", () => {
-    const py = readFileSync(join(__dirname, "..", "..", "python", "clearcote", "_connect.py"), "utf8");
+    const py = readFileSync(join(__dirname, "..", "..", "python", "code_browser", "_connect.py"), "utf8");
     expect(py).toContain(`"version": "${HELPER.version}"`);
     expect(py).toContain(`"base_url": "${HELPER.baseUrl}"`);
     for (const [plat, a] of Object.entries(HELPER.assets)) {
@@ -136,24 +136,24 @@ describe("ensureHelper", () => {
     expect(existsSync(join(cacheRoot, "helper", `9.9.8-${plat}`))).toBe(false);
   });
 
-  it("CLEARCOTE_HELPER_DIR uses a helper you unpacked yourself, without downloading", async () => {
+  it("CODE_BROWSER_HELPER_DIR uses a helper you unpacked yourself, without downloading", async () => {
     const plat = "linux-x64";
     const dir = join(TMP, "own");
     mkdirSync(join(dir, "lib"), { recursive: true });
     writeFileSync(join(dir, "lib", "clearcote-helper.js"), "");
-    process.env.CLEARCOTE_HELPER_DIR = dir;
+    process.env.CODE_BROWSER_HELPER_DIR = dir;
     hits = 0;
     expect(await ensureHelper({ plat })).toEqual(helperFiles(dir, plat));
     expect(hits).toBe(0);
-    process.env.CLEARCOTE_HELPER_DIR = join(TMP, "nothing-here");
+    process.env.CODE_BROWSER_HELPER_DIR = join(TMP, "nothing-here");
     await expect(ensureHelper({ plat })).rejects.toThrow(/no lib\/clearcote-helper.js/);
   });
 });
 
-describe("clearcote connect (CLI)", () => {
+describe("code-browser connect (CLI)", () => {
   it("has its usage and help", () => {
     const help = commandUsage("connect");
-    expect(help).toContain("clearcote connect [<code>] [--port <n>] [--allow-origin <origin>]... [--no-open]");
+    expect(help).toContain("code-browser connect [<code>] [--port <n>] [--allow-origin <origin>]... [--no-open]");
     expect(help).toContain("https://app.clearcotelabs.com");
   });
 

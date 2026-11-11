@@ -1,22 +1,22 @@
-# clearcote — open-source stealth Chromium, as a CDP-endpoint container.
+# code-browser — open-source stealth Chromium, as a CDP-endpoint container.
 #
-#   docker build -t clearcote .
-#   docker run -d --rm --shm-size=1g -p 127.0.0.1:9222:9222 --security-opt seccomp=seccomp.json clearcote   # CDP on http://localhost:9222
+#   docker build -t code-browser .
+#   docker run -d --rm --shm-size=1g -p 127.0.0.1:9222:9222 --security-opt seccomp=seccomp.json code-browser   # CDP on http://localhost:9222
 #   # then:  playwright.chromium.connect_over_cdp("http://localhost:9222")
 #
-# seccomp.json (in this directory, and in the image at /etc/clearcote/seccomp.json) is Docker's default
+# seccomp.json (in this directory, and in the image at /etc/code-browser/seccomp.json) is Docker's default
 # seccomp profile of moby/profiles seccomp v0.2.3 plus the two namespace calls Chrome's sandbox needs; it
 # replaces the daemon's own default. Without it the container still runs, with Chrome's sandbox off
 # (--no-sandbox) and a log line saying so; see README.md.
 #
 # Published image: teamflatearth/clearcote  (docker run -d --rm --shm-size=1g -p 127.0.0.1:9222:9222 teamflatearth/clearcote)
-# Builds against the LATEST clearcote SDK (override with --build-arg CLEARCOTE_SPEC='==0.46.0').
+# Builds against the LATEST code-browser SDK (override with --build-arg CLEARCOTE_SPEC='==0.46.0').
 # Free by default. Pass a licence key to run the PRO engine, and mount the cache so it downloads once:
-#   docker run -d --rm --shm-size=1g -p 127.0.0.1:9222:9222 -v clearcote-cache:/opt/xdg-cache \
+#   docker run -d --rm --shm-size=1g -p 127.0.0.1:9222:9222 -v code-browser-cache:/opt/xdg-cache \
 #     -e CLEARCOTE_LICENSE_KEY=cc_lic_... teamflatearth/clearcote
 FROM python:3.12-slim-bookworm
 
-LABEL org.opencontainers.image.title="clearcote" \
+LABEL org.opencontainers.image.title="code-browser" \
       org.opencontainers.image.description="Open-source stealth Chromium — CDP endpoint on :9222, drop-in for Playwright/Puppeteer/browser-use" \
       org.opencontainers.image.source="https://github.com/clearcotelabs/clearcote-browser" \
       org.opencontainers.image.url="https://github.com/clearcotelabs/clearcote-browser" \
@@ -28,7 +28,7 @@ LABEL org.opencontainers.image.title="clearcote" \
 # CC_HEADLESS, with no display. tini runs as PID 1 (see ENTRYPOINT) so processes orphaned inside the
 # container are reaped.
 #
-# Fonts. The clearcote release bundles the Windows metric-clone fonts, and the SDK points fontconfig at
+# Fonts. The code-browser release bundles the Windows metric-clone fonts, and the SDK points fontconfig at
 # them with a SELF-CONTAINED config, so nothing under /usr/share/fonts reaches the browser: the emoji and
 # CJK packages this image used to install were invisible, and every CJK, Indic or Thai character drew
 # as an empty box (a Windows machine draws all of them). The script fonts now go into their own
@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libpango-1.0-0 libcairo2 libx11-6 libexpat1 libdbus-1-3 libxi6 libxtst6 \
       fontconfig fonts-liberation fonts-noto-color-emoji fonts-unifont fonts-wqy-zenhei \
       fonts-ipafont-gothic fonts-noto-core \
- && F=/usr/local/share/clearcote/fonts && mkdir -p $F && cd /usr/share/fonts \
+ && F=/usr/local/share/code-browser/fonts && mkdir -p $F && cd /usr/share/fonts \
  && cp -l truetype/noto/NotoColorEmoji.ttf truetype/wqy/wqy-zenhei.ttc \
           opentype/ipafont-gothic/ipag.ttf opentype/ipafont-gothic/ipagp.ttf $F/ \
  && for s in Arabic Armenian Bengali Cherokee Devanagari Ethiopic Georgian Gujarati Gurmukhi Javanese \
@@ -56,17 +56,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get purge -y fonts-noto-core \
  && test "$(ls $F | wc -l)" = 65 \
  && rm -rf /var/lib/apt/lists/*
-ENV CLEARCOTE_FALLBACK_FONT_DIRS=/usr/local/share/clearcote/fonts
+ENV CLEARCOTE_FALLBACK_FONT_DIRS=/usr/local/share/code-browser/fonts
 
-# Install the SDK + bake the signed clearcote Linux binary into the image (SHA-256 verified).
+# Install the SDK + bake the signed code-browser Linux binary into the image (SHA-256 verified).
 # CLEARCOTE_SPEC pins the SDK version: empty (the default) installs the LATEST release, so a
 # rebuilt image always carries current licensed-build selection; CI passes "==<version>" so the
 # image is built from the exact SDK release that fired the workflow.
 ENV XDG_CACHE_HOME=/opt/xdg-cache
 ARG CLEARCOTE_SPEC=""
 RUN mkdir -p /opt/xdg-cache \
- && pip install --no-cache-dir "clearcote${CLEARCOTE_SPEC}" \
- && python -c "from clearcote import download; print('binary:', download())" \
+ && pip install --no-cache-dir "code-browser${CLEARCOTE_SPEC}" \
+ && python -c "from code_browser import download; print('binary:', download())" \
  && useradd -m -u 10001 cc && chown -R cc /opt/xdg-cache
 
 # The engine cache. A licensed container fetches the PRO engine here on first start; declaring
@@ -75,7 +75,7 @@ RUN mkdir -p /opt/xdg-cache \
 VOLUME ["/opt/xdg-cache"]
 
 COPY serve.py idle_exit.py proxy_relay.py sandbox_check.py webrtc_ip.py /
-COPY seccomp.json /etc/clearcote/seccomp.json
+COPY seccomp.json /etc/code-browser/seccomp.json
 # What the entrypoint does with the settings the SDKs pass (see SERVE_PROTOCOL in serve.py): 2 = takes
 # CC_SECRETS_FILE and CC_IDLE_EXIT_SECONDS, logs in to a proxy that needs a password, and reports what it
 # applied in a "serve-state" line; 3 = also runs Chrome's sandbox when the container allows it, so the SDKs

@@ -12,7 +12,7 @@
 // - CLEARCOTE_GEOIP_ECHO_URL — your own IP-echo endpoint(s), comma-separated, used instead of the public
 //   ones (api.ipify.org, icanhazip.com). The answer is the IP as plain text, or JSON with an `ip` (or
 //   `query`) field.
-// - CLEARCOTE_GEOIP_IPAPI=1 — also ask ip-api.com (exit IP + geo in one call) when the database has no
+// - CODE_BROWSER_GEOIP_IPAPI=1 — also ask ip-api.com (exit IP + geo in one call) when the database has no
 //   answer, e.g. while it is still downloading on first use. Off by default: ip-api.com's free endpoint is
 //   for non-commercial use only and allows 45 requests a minute per IP.
 // - CLEARCOTE_GEOIP_TIMEOUT_SECONDS (default 20) bounds the whole resolution. A lookup that runs out of
@@ -34,7 +34,7 @@ const MMDB_MAX_AGE_DAYS = 30;
  * plain-http request with a 301 to https, so an http echo failed on a proxy that browses fine. */
 export const IPECHO_URLS: string[] = ["https://api.ipify.org", "https://icanhazip.com"];
 export const ECHO_URL_ENV = "CLEARCOTE_GEOIP_ECHO_URL";
-export const IPAPI_ENV = "CLEARCOTE_GEOIP_IPAPI";
+export const IPAPI_ENV = "CODE_BROWSER_GEOIP_IPAPI";
 /** @internal mutable so tests can point the ip-api fallback at a local server */
 export const geoUrls = { ipApi: "http://ip-api.com/json/?fields=status,message,countryCode,timezone,lat,lon,query" };
 
@@ -44,7 +44,7 @@ export function echoUrls(env: Record<string, string | undefined> = process.env):
   return custom.length ? custom : [...IPECHO_URLS];
 }
 
-/** Whether CLEARCOTE_GEOIP_IPAPI opts in to the ip-api.com fallback (1/true/yes/on). */
+/** Whether CODE_BROWSER_GEOIP_IPAPI opts in to the ip-api.com fallback (1/true/yes/on). */
 export function ipapiEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return ["1", "true", "yes", "on"].includes((env[IPAPI_ENV] ?? "").trim().toLowerCase());
 }
@@ -72,16 +72,16 @@ export interface Geo {
 }
 
 function log(quiet: boolean | undefined, m: string): void {
-  if (!quiet) process.stderr.write(`[clearcote] ${m}\n`);
+  if (!quiet) process.stderr.write(`[code-browser] ${m}\n`);
 }
 
-/** Where the geoip database is cached (CLEARCOTE_CACHE/geoip when set). */
+/** Where the geoip database is cached (CODE_BROWSER_CACHE/geoip when set). */
 export function geoCacheRoot(): string {
-  if (process.env.CLEARCOTE_CACHE) return path.join(process.env.CLEARCOTE_CACHE, "geoip");
+  if (process.env.CODE_BROWSER_CACHE) return path.join(process.env.CODE_BROWSER_CACHE, "geoip");
   if (process.platform === "win32")
-    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "clearcote", "geoip");
-  if (process.platform === "darwin") return path.join(os.homedir(), "Library", "Caches", "clearcote", "geoip");
-  return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "clearcote", "geoip");
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "code-browser", "geoip");
+  if (process.platform === "darwin") return path.join(os.homedir(), "Library", "Caches", "code-browser", "geoip");
+  return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "code-browser", "geoip");
 }
 
 /** Whole-resolution budget in ms: CLEARCOTE_GEOIP_TIMEOUT_SECONDS (seconds, > 0), default 20s. */
@@ -217,7 +217,7 @@ async function mmdbLookup(ip: string, deadline: number, quiet?: boolean, info: D
 /** @internal the database lookup, replaceable in tests */
 export const geoDb = { lookup: mmdbLookup };
 
-// Opt-in fallback (CLEARCOTE_GEOIP_IPAPI=1): ip-api.com returns geo directly (through the proxy), no DB
+// Opt-in fallback (CODE_BROWSER_GEOIP_IPAPI=1): ip-api.com returns geo directly (through the proxy), no DB
 // needed. Its free endpoint is for non-commercial use only.
 async function ipApiFallback(proxy: ProxySpec | null, deadline: number): Promise<Geo | null> {
   const left = deadline - Date.now();
@@ -285,9 +285,9 @@ export function startEgressDriftCheck(
   firstIp: string | undefined,
   quiet?: boolean
 ): Promise<void> {
-  if (quiet || process.env.CLEARCOTE_NO_WARN || !proxy || !firstIp) return Promise.resolve();
+  if (quiet || process.env.CODE_BROWSER_NO_WARN || !proxy || !firstIp) return Promise.resolve();
   return checkEgressDrift(proxy, firstIp).then((newIp) => {
-    if (newIp) process.stderr.write(`clearcote: warning: ${egressDriftMessage(firstIp, newIp)}\n`);
+    if (newIp) process.stderr.write(`code-browser: warning: ${egressDriftMessage(firstIp, newIp)}\n`);
   }, () => undefined);
 }
 
@@ -359,7 +359,7 @@ export async function applyGeoip(fp: GeoFillable, proxy: unknown, quiet?: boolea
   const geo: Geo | null = result.geo;
   if (!geo || !geo.timezone) {
     if (fp.timezone && fp.acceptLanguage) {
-      if (!quiet) console.warn(`clearcote: geoip could not resolve the region (${result.reason}); using the explicit timezone and acceptLanguage.`);
+      if (!quiet) console.warn(`code-browser: geoip could not resolve the region (${result.reason}); using the explicit timezone and acceptLanguage.`);
       return undefined;
     }
     throw new GeoipError(
@@ -383,10 +383,10 @@ export async function applyGeoip(fp: GeoFillable, proxy: unknown, quiet?: boolea
  * and the WebRTC IP describe the place sites see the connection come from.
  *   - "strict": `geoip: true`. Fails closed ({@link GeoipError}), as before.
  *   - "auto":   the default. A lookup that fails warns and launches with the persona's defaults.
- *   - "off":    `geoip: false`, or CLEARCOTE_GEOIP=0/false/no/off (an explicit `geoip: true` still wins).
+ *   - "off":    `geoip: false`, or CODE_BROWSER_GEOIP=0/false/no/off (an explicit `geoip: true` still wins).
  */
 export type GeoipMode = "off" | "auto" | "strict";
-export const GEOIP_ENV = "CLEARCOTE_GEOIP";
+export const GEOIP_ENV = "CODE_BROWSER_GEOIP";
 
 export function geoipMode(geoip: boolean | undefined | null, env: Record<string, string | undefined> = process.env): GeoipMode {
   if (geoip === true) return "strict";
@@ -436,8 +436,8 @@ export async function applyGeoipMode(fp: GeoFillable, proxy: unknown, mode: Geoi
     return { geo, autoWebrtcIp: before.webrtcIp == null && fp.webrtcIp != null, ip: geo?.ip };
   } catch (e) {
     if (!(e instanceof GeoipError)) throw e;
-    if (!quiet && !process.env.CLEARCOTE_NO_WARN)
-      process.stderr.write(`clearcote: warning: ${e.message.replace(/^geoip: /, "geoip (on by default): ")
+    if (!quiet && !process.env.CODE_BROWSER_NO_WARN)
+      process.stderr.write(`code-browser: warning: ${e.message.replace(/^geoip: /, "geoip (on by default): ")
         .replace(/ Launching anyway[\s\S]*$/, "")} Launching with the persona's default timezone and language; ` +
         "pass geoip: true to fail instead, or geoip: false to skip the lookup.\n");
     return { autoWebrtcIp: false };
@@ -466,7 +466,7 @@ export function dropAutoWebrtcIp(fp: GeoFillable, applied: GeoipApplied, proxy: 
 
 /**
  * Resolve geo for the egress (through `proxy` if given, else direct). Never throws — returns null
- * on failure. Uses the geoip-all-in-one offline DB (ip-api.com only with CLEARCOTE_GEOIP_IPAPI=1).
+ * on failure. Uses the geoip-all-in-one offline DB (ip-api.com only with CODE_BROWSER_GEOIP_IPAPI=1).
  */
 export async function resolveGeo(
   proxy?: string | { server?: string; username?: string; password?: string },

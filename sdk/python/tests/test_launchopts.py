@@ -1,6 +1,6 @@
 import warnings
 
-from clearcote._launchopts import (
+from code_browser._launchopts import (
     extension_args,
     merge_feature_flags,
     privacy_sandbox_args,
@@ -11,7 +11,7 @@ from clearcote._launchopts import (
     webrtc_default_deny_args,
 )
 
-import clearcote._launchopts as _lo  # module handle: web_bluetooth_args reads sys.platform
+import code_browser._launchopts as _lo  # module handle: web_bluetooth_args reads sys.platform
 
 
 def test_merge_feature_flags_collapses_into_one_each():
@@ -125,7 +125,7 @@ def test_resolve_proxy_keys_win_over_userinfo_per_key():
 
 
 def test_quic_args_keeps_quic_through_the_socks5_udp_relay_on_an_r54_engine(tmp_path):
-    from clearcote._launchopts import quic_args
+    from code_browser._launchopts import quic_args
     r54 = tmp_path / "r54-chrome"; r54.write_bytes(b"\x00socks5-udp\x00disable-socks5-udp-quic\x00")
     r53 = tmp_path / "r53-chrome"; r53.write_bytes(b"\x00socks5-udp\x00")
     socks = {"server": "socks5://203.0.113.9:1080"}
@@ -139,7 +139,7 @@ def test_quic_args_keeps_quic_through_the_socks5_udp_relay_on_an_r54_engine(tmp_
 
 
 def test_warn_unsupported_engine_options_sees_socks5_url_credentials(tmp_path):
-    from clearcote._launchopts import warn_unsupported_engine_options
+    from code_browser._launchopts import warn_unsupported_engine_options
     r16 = tmp_path / "r16-chrome"; r16.write_bytes(b"\x00proxy-server\x00")  # no socks5-credentials
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -226,15 +226,15 @@ def test_web_bluetooth_args_bare_call_follows_the_host(monkeypatch):
     """No claim means no persona switches, so the page sees the real host OS -- and the switch has
     to agree with that, not with the build's default."""
     monkeypatch.setattr(_lo.sys, "platform", "linux")
-    monkeypatch.setattr("clearcote._fingerprint.sys.platform", "linux")
+    monkeypatch.setattr("code_browser._fingerprint.sys.platform", "linux")
     assert _lo.web_bluetooth_args() == ["--disable-features=WebBluetooth"]
     monkeypatch.setattr(_lo.sys, "platform", "win32")
-    monkeypatch.setattr("clearcote._fingerprint.sys.platform", "win32")
+    monkeypatch.setattr("code_browser._fingerprint.sys.platform", "win32")
     assert _lo.web_bluetooth_args() == ["--enable-features=WebBluetooth"]
 
 
 def test_persona_platform_is_the_claim_not_the_host(monkeypatch):
-    from clearcote import _fingerprint as _fp
+    from code_browser import _fingerprint as _fp
     monkeypatch.setattr(_fp.sys, "platform", "linux")
     assert _fp.persona_platform({}) == "linux"                        # bare: host's own
     assert _fp.persona_platform({"platform": "windows"}) == "windows"  # explicit persona wins
@@ -317,7 +317,7 @@ def test_resolve_proxy_socks5_routing_does_not_depend_on_the_proxy_auth_flag():
 
 
 def test_engine_supports_switch_probes_the_nul_delimited_literal(tmp_path):
-    from clearcote._launchopts import engine_supports_switch
+    from code_browser._launchopts import engine_supports_switch
     exe = tmp_path / "chrome"
     exe.write_bytes(b"xx\x00proxy-authenticate\x00yy")          # HPACK header name: must NOT match
     assert engine_supports_switch(str(exe), "proxy-auth") is False
@@ -329,7 +329,7 @@ def test_engine_supports_switch_probes_the_nul_delimited_literal(tmp_path):
 
 
 def test_warn_unsupported_engine_options_warns_only_for_missing_switches(tmp_path):
-    from clearcote._launchopts import warn_unsupported_engine_options
+    from code_browser._launchopts import warn_unsupported_engine_options
     old = tmp_path / "old-chrome"; old.write_bytes(b"\x00socks5-credentials\x00")        # r17/r18-class engine
     new = tmp_path / "new-chrome"; new.write_bytes(b"\x00socks5-credentials\x00\x00fingerprint-schema\x00\x00fingerprint-gpu-backend-real\x00\x00proxy-auth\x00")
     fp = {"persona_schema": 2, "real_gpu_host": True}
@@ -352,7 +352,7 @@ def test_warn_unsupported_engine_options_warns_only_for_missing_switches(tmp_pat
 def test_warn_unsupported_engine_options_knows_which_engine_each_schema_needs(tmp_path):
     # Schema 2 came with 151 r19 (the switch itself), 3 with 154 r36 (--block-third-party-cookies too), 4 with 154 r37,
     # whose schema-4 GPU pool is the first to carry the Intel Arc row; r36's table names that chip "Arc(TM) Pro".
-    from clearcote._launchopts import SCHEMA4_ENGINE_MARKER, warn_unsupported_engine_options
+    from code_browser._launchopts import SCHEMA4_ENGINE_MARKER, warn_unsupported_engine_options
     lits = lambda *ls: b"".join(b"\x00" + l.encode("ascii") + b"\x00" for l in ls)
     r35 = tmp_path / "r35"; r35.write_bytes(lits("fingerprint-schema"))
     r36 = tmp_path / "r36"; r36.write_bytes(lits("fingerprint-schema", "block-third-party-cookies", "ANGLE (Intel, Intel(R) Arc(TM) Pro Graphics (0x00007D55) Direct3D11 vs_5_0 ps_5_0, D3D11)"))
@@ -380,7 +380,7 @@ PW157 = ("AcceptCHFrame", "AvoidUnnecessaryBeforeUnloadCheckSync", "HttpsUpgrade
 
 
 def test_playwright_feature_override_re_enables_only_what_a_site_can_observe():
-    from clearcote._launchopts import playwright_feature_override_args
+    from code_browser._launchopts import playwright_feature_override_args
     out = playwright_feature_override_args(playwright_features=PW157, screenshot_surface=False)
     assert out == ["--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,PaintHolding,RenderDocument"]
     # LazyFrameLoading (Playwright 1.49) is page-visible too
@@ -390,7 +390,7 @@ def test_playwright_feature_override_re_enables_only_what_a_site_can_observe():
 
 
 def test_playwright_feature_override_is_skipped_only_when_playwrights_exact_switch_is_dropped():
-    from clearcote._launchopts import playwright_feature_override_args
+    from code_browser._launchopts import playwright_feature_override_args
     exact = "--disable-features=" + ",".join(PW157)
     kw = dict(playwright_features=PW157, screenshot_surface=False)
     assert playwright_feature_override_args(True, **kw) == []
@@ -402,13 +402,13 @@ def test_playwright_feature_override_is_skipped_only_when_playwrights_exact_swit
 
 
 def test_playwright_screenshot_surface_is_re_emitted():
-    from clearcote._launchopts import playwright_feature_override_args
+    from code_browser._launchopts import playwright_feature_override_args
     out = playwright_feature_override_args(playwright_features=("PaintHolding",), screenshot_surface=True)
     assert out == ["--disable-features=PaintHolding", "--enable-features=CDPScreenshotNewSurface"]
 
 
 def test_parse_playwright_disabled_features_reads_every_release_shape():
-    from clearcote._launchopts import parse_playwright_disabled_features as parse
+    from code_browser._launchopts import parse_playwright_disabled_features as parse
     v157 = """const disabledFeatures = (assistantMode) => [
   // See https://github.com/microsoft/playwright/pull/10380
   "AcceptCHFrame",
@@ -432,7 +432,7 @@ def test_parse_playwright_disabled_features_reads_every_release_shape():
 def test_the_installed_playwright_list_is_readable():
     # Drift guard: if a Playwright release reshapes chromiumSwitches, the SDK falls back to its 1.57
     # copy -- this fails instead of letting that happen silently.
-    from clearcote._launchopts import installed_playwright_disabled_features
+    from code_browser._launchopts import installed_playwright_disabled_features
     feats = installed_playwright_disabled_features()
     assert feats, "could not read the installed Playwright's --disable-features list"
     assert "MediaRouter" in feats
@@ -441,7 +441,7 @@ def test_the_installed_playwright_list_is_readable():
 def test_dropping_playwrights_disable_switch_still_keeps_its_screenshot_switch():
     # The SDK's own --enable-features (WebBluetooth) replaces Playwright's CDPScreenshotNewSurface
     # whether or not the caller dropped Playwright's --disable-features.
-    from clearcote._launchopts import playwright_feature_override_args
+    from code_browser._launchopts import playwright_feature_override_args
     exact = "--disable-features=" + ",".join(PW157)
     assert playwright_feature_override_args([exact], PW157, True) == ["--enable-features=CDPScreenshotNewSurface"]
     # ...but a screenshot switch the caller dropped is not re-added
@@ -450,7 +450,7 @@ def test_dropping_playwrights_disable_switch_still_keeps_its_screenshot_switch()
 
 
 def test_parse_is_robust_to_a_bracket_in_a_comment_and_rejects_an_unrecognised_list():
-    from clearcote._launchopts import parse_playwright_disabled_features as parse
+    from code_browser._launchopts import parse_playwright_disabled_features as parse
     assert parse('const disabledFeatures = [\n // see ] here\n "MediaRouter",\n "Translate"\n];') \
         == ("MediaRouter", "Translate")
     assert parse('disabledFeatures = ["SomethingElse"];') is None      # no known entry: not trusted
@@ -460,18 +460,18 @@ def test_parse_is_robust_to_a_bracket_in_a_comment_and_rejects_an_unrecognised_l
 # -- software WebGPU under a desktop claim (engine r47+, pro-r47-04) ------------------------------
 
 def test_engine_revision_reads_the_pro_tag_from_the_path():
-    from clearcote._launchopts import engine_revision
-    assert engine_revision("/home/u/.clearcote/pro-155.0.8059.39-r47/chrome") == 47
-    assert engine_revision(r"C:\Users\u\.clearcote\pro-155.0.8059.39-r46\chrome.exe") == 46
-    assert engine_revision("/Users/u/.clearcote/pro-155.0.8059.39-r48/Chromium.app/Contents/MacOS/Chromium") == 48
+    from code_browser._launchopts import engine_revision
+    assert engine_revision("/home/u/.code-browser/pro-155.0.8059.39-r47/chrome") == 47
+    assert engine_revision(r"C:\Users\u\.code-browser\pro-155.0.8059.39-r46\chrome.exe") == 46
+    assert engine_revision("/Users/u/.code-browser/pro-155.0.8059.39-r48/Chromium.app/Contents/MacOS/Chromium") == 48
     assert engine_revision("/x/other-r3/pro-155.0.8059.39-r47/chrome") == 47  # the deepest component wins
-    assert engine_revision("/opt/clearcote/chrome") is None  # a binary the caller named: no revision there
+    assert engine_revision("/opt/code-browser/chrome") is None  # a binary the caller named: no revision there
     assert engine_revision("/x/chromium-r4/chrome") == 4
     assert engine_revision("") is None and engine_revision(None) is None
 
 
 def test_software_webgpu_args_only_for_an_engine_that_can_dress_the_adapter(tmp_path):
-    from clearcote._launchopts import SOFTWARE_WEBGPU_ARGS, software_webgpu_args
+    from code_browser._launchopts import SOFTWARE_WEBGPU_ARGS, software_webgpu_args
     r47 = str(tmp_path / "pro-155.0.8059.39-r47" / "chrome")
     r46 = str(tmp_path / "pro-155.0.8059.39-r46" / "chrome")
     three = list(SOFTWARE_WEBGPU_ARGS)
@@ -488,7 +488,7 @@ def test_software_webgpu_args_only_for_an_engine_that_can_dress_the_adapter(tmp_
 
 
 def test_software_webgpu_args_marker_switch_stands_in_for_the_revision(tmp_path):
-    from clearcote._launchopts import SOFTWARE_WEBGPU_ARGS, software_webgpu_args
+    from code_browser._launchopts import SOFTWARE_WEBGPU_ARGS, software_webgpu_args
     exe = tmp_path / "chrome"
     exe.write_bytes(b"xx\x00fingerprint-platform\x00yy")
     assert software_webgpu_args(str(exe), "windows", "linux") == []
@@ -497,7 +497,7 @@ def test_software_webgpu_args_marker_switch_stands_in_for_the_revision(tmp_path)
 
 
 def test_software_webgpu_args_never_adds_a_switch_twice(tmp_path):
-    from clearcote._launchopts import playwright_keeps_unsafe_swiftshader, software_webgpu_args
+    from code_browser._launchopts import playwright_keeps_unsafe_swiftshader, software_webgpu_args
     r47 = str(tmp_path / "pro-155.0.8059.39-r47" / "chrome")
     assert software_webgpu_args(r47, "windows", "linux", present=["--enable-unsafe-swiftshader"]) == [
         "--use-webgpu-adapter=swiftshader", "--enable-unsafe-webgpu"]

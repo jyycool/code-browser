@@ -48,25 +48,25 @@ describe("installHumanizeOnContext without a Browser", () => {
     const open = {};
     const { ctx, listeners } = fakeContext([open]);
     installHumanizeOnContext(ctx as never, { humanize: true, seed: "no-browser" });
-    expect((open as any).__clearcoteHumanized).toBe(true);
+    expect((open as any).__code_browserHumanized).toBe(true);
     expect(listeners.page).toBeTypeOf("function");
     const later = {};
     listeners.page(later);
-    expect((later as any).__clearcoteHumanized).toBe(true);
+    expect((later as any).__code_browserHumanized).toBe(true);
   });
 
   it("stays off when humanize and showCursor are off", () => {
     const open = {};
     const { ctx, listeners } = fakeContext([open]);
     installHumanizeOnContext(ctx as never, {});
-    expect((open as any).__clearcoteHumanized).toBeUndefined();
+    expect((open as any).__code_browserHumanized).toBeUndefined();
     expect(listeners.page).toBeUndefined();
   });
 });
 
 describe("CURSOR_OVERLAY", () => {
   it("is an idempotent IIFE (runs as both addInitScript and page.evaluate)", () => {
-    expect(CURSOR_OVERLAY).toContain("__clearcoteCursor");
+    expect(CURSOR_OVERLAY).toContain("__code_browserCursor");
     const body = CURSOR_OVERLAY.trim();
     expect(body.startsWith("(()")).toBe(true);
     expect(body.endsWith(")();")).toBe(true);
@@ -138,7 +138,7 @@ describe("attachHumanize idempotency", () => {
   it("marks the page so a later attach can detect it", async () => {
     const page = fakePage() as any;
     await attachHumanize({} as never, page, { humanize: true, seed: "t" });
-    expect(page.__clearcoteHumanized).toBe(true);
+    expect(page.__code_browserHumanized).toBe(true);
   });
 });
 
@@ -167,10 +167,10 @@ describe("installHumanize hooks the implicit context of browser.newPage", () => 
     };
     installHumanize(b as never, { showCursor: true, seed: "popup" });
     const page = await b.newPage();
-    expect(page.__clearcoteHumanized).toBe(true);
+    expect(page.__code_browserHumanized).toBe(true);
     const popup: any = stub();
     ctx.emit(popup);
-    expect(popup.__clearcoteHumanized).toBe(true);
+    expect(popup.__code_browserHumanized).toBe(true);
     await b.newPage();
     expect(ctx.handlers.length).toBe(1);
     installHumanizeOnContext(ctx as never, { showCursor: true, seed: "popup" });

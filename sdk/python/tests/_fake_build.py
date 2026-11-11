@@ -14,7 +14,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import zipfile
 
-download = importlib.import_module("clearcote.download")  # the module: `clearcote.download` is also a function
+download = importlib.import_module("code_browser.download")  # the module: `code_browser.download` is also a function
 
 BINARY = "chrome.exe" if sys.platform == "win32" else "chrome"
 TAG = "pro-0.0.0-r1"

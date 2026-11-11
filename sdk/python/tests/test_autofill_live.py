@@ -1,9 +1,9 @@
 """LIVE: a form submitted in a launch_persistent_context() profile is remembered in Default/Web Data, as Chrome
 does. The engine's own defaults (r54) have autofill off and save 0 rows; the SDK seeds it on (_autofillpref).
-Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is available for a PRO build:
-CLEARCOTE_LICENSE_KEY or ~/.clearcote/license.key).
+Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is available for a PRO build:
+CLEARCOTE_LICENSE_KEY or ~/.code-browser/license.key).
 
-    CLEARCOTE_LIVE_ENGINE=/path/to/chrome python -m pytest tests/test_autofill_live.py
+    CODE_BROWSER_LIVE_ENGINE=/path/to/chrome python -m pytest tests/test_autofill_live.py
 
 Mirrors sdk/node/test/autofill.live.test.ts.
 """
@@ -18,11 +18,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-import clearcote
-from clearcote import async_api
+import code_browser
+from code_browser import async_api
 
-LIVE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
-pytestmark = pytest.mark.skipif(not LIVE, reason="needs CLEARCOTE_LIVE_ENGINE (a Clearcote build)")
+LIVE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
+pytestmark = pytest.mark.skipif(not LIVE, reason="needs CODE_BROWSER_LIVE_ENGINE (a CodeBrowser build)")
 
 FORM = b"""<!doctype html><form method="post" action="/done">
 <input name="name" autocomplete="name"><input name="email" type="email" autocomplete="email">
@@ -86,7 +86,7 @@ def _fill(page, site):
 
 
 def _launch(user_data_dir):
-    return clearcote.launch_persistent_context(user_data_dir, executable_path=LIVE, headless=True, quiet=True,
+    return code_browser.launch_persistent_context(user_data_dir, executable_path=LIVE, headless=True, quiet=True,
                                                fingerprint="autofill-live-1", geoip=False)
 
 

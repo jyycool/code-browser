@@ -1,7 +1,7 @@
 // launch({ cloud: true }) end to end against a REAL browser: the fake hosted API answers the create
 // with the CDP WebSocket of a local Chromium, so the SDK's connect, humanize install, close and DELETE
 // run for real. Profile sync reads cookies off the same browser over CDP.
-// Needs a Chromium: CLEARCOTE_TEST_BINARY, or one Playwright has downloaded. Skips without one.
+// Needs a Chromium: CODE_BROWSER_TEST_BINARY, or one Playwright has downloaded. Skips without one.
 // Mirrors sdk/python/tests/test_cloud_launch.py.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -13,8 +13,8 @@ import { API_KEY, startFakeCloud, type FakeCloud } from "./helpers/fake-cloud.js
 import { LocalChromium, findChromium } from "./helpers/chromium.js";
 
 const BUTTON = "<title>t</title><button id=b onclick=\"document.title='clicked'\">go</button>";
-const ENV = ["CLEARCOTE_API_KEY", "CLEARCOTE_API_URL", "CLEARCOTE_CLOUD"];
-const humanized = (p: Page) => (p as unknown as { _clearcotePersona?: unknown })._clearcotePersona !== undefined;
+const ENV = ["CODE_BROWSER_API_KEY", "CODE_BROWSER_API_URL", "CODE_BROWSER_CLOUD"];
+const humanized = (p: Page) => (p as unknown as { _code_browserPersona?: unknown })._code_browserPersona !== undefined;
 
 describe.skipIf(!findChromium())("cloud launch against a real browser", () => {
   const saved: Record<string, string | undefined> = {};
@@ -26,9 +26,9 @@ describe.skipIf(!findChromium())("cloud launch against a real browser", () => {
     browserProc = await new LocalChromium().start();
     api = await startFakeCloud();
     api.connectUrl = browserProc.wsUrl;
-    process.env.CLEARCOTE_API_KEY = API_KEY;
-    process.env.CLEARCOTE_API_URL = api.url;
-    delete process.env.CLEARCOTE_CLOUD;
+    process.env.CODE_BROWSER_API_KEY = API_KEY;
+    process.env.CODE_BROWSER_API_URL = api.url;
+    delete process.env.CODE_BROWSER_CLOUD;
   });
 
   afterEach(async () => {
@@ -65,8 +65,8 @@ describe.skipIf(!findChromium())("cloud launch against a real browser", () => {
     expect(browserProc.alive()).toBe(true); // close() only disconnects: ending the browser is the gateway's job
   }, 60_000);
 
-  it("follows CLEARCOTE_CLOUD, humanized by default like any cloud launch", async () => {
-    process.env.CLEARCOTE_CLOUD = "true";
+  it("follows CODE_BROWSER_CLOUD, humanized by default like any cloud launch", async () => {
+    process.env.CODE_BROWSER_CLOUD = "true";
     const browser = await launch({ note: "from env" } as never);
     try {
       expect(browser.isConnected() && browser.version()).toBeTruthy();

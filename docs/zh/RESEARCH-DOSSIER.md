@@ -1,8 +1,8 @@
-# clearcote：完整研究档案
+# code-browser：完整研究档案
 
 *一个 100% 开源、可复现的反检测 / 指纹加固 Chromium。目标：Windows x64，在 Linux 机器上交叉编译。本文汇总了迄今为止的全部研究。*
 
-- **仓库：** github.com/clearcotelabs/clearcote-browser
+- **仓库：** github.com/jyycool/code-browser
 - **基础：** ungoogled-chromium 149.0.7827.114（去 Google 化）+ adryfish/fingerprint-chromium 补丁（引擎级伪装）
 - **构建主机：** 一台专用 Linux 机器（8 vCPU / 32 GB 内存 + 16 GB 交换 / 约 640 GB 磁盘，Ubuntu 22.04），交叉编译 Windows 二进制
 - **配套文档：** `RESEARCH.md`（全局综述）、`PATCHES.md`（文件级隐身补丁清单）
@@ -11,7 +11,7 @@
 
 ## 0. 执行摘要
 
-clearcote 建立在与商业反检测 Chromium 分支完全相同的基础之上，但以 **100% 开源、可复现**的方式发布：没有专有二进制。这个基础是：
+code-browser 建立在与商业反检测 Chromium 分支完全相同的基础之上，但以 **100% 开源、可复现**的方式发布：没有专有二进制。这个基础是：
 
 ```
 Chromium (Google)
@@ -20,12 +20,12 @@ ungoogled-chromium  ── de-Google: strips Google services/telemetry, build wi
         │
 adryfish/fingerprint-chromium  ── C++ source patches: canvas/WebGL/audio/fonts/WebRTC/UA spoofing
         │
-clearcote-native upgrades  ── per-eTLD+1 farbling coherence, TLS group-table version pinning,
+code-browser-native upgrades  ── per-eTLD+1 farbling coherence, TLS group-table version pinning,
                               QUIC/STUN-over-SOCKS5, full de-Google, engine-level humanize
 ```
 
 研究中最重要的一条设计洞见：**好的指纹既不是随机的也不是静态的，而是按 eTLD+1 确定、并且内部自洽的。**
-除了 Brave，每个隐身分支都弄错了这一点（它们使用一个全局种子，而这本身就是一个可跨站关联的超级 cookie）。clearcote 把 Brave 的 farbling 模型作为核心。
+除了 Brave，每个隐身分支都弄错了这一点（它们使用一个全局种子，而这本身就是一个可跨站关联的超级 cookie）。code-browser 把 Brave 的 farbling 模型作为核心。
 
 ---
 
@@ -35,7 +35,7 @@ clearcote-native upgrades  ── per-eTLD+1 farbling coherence, TLS group-table
 
 - **CloakBrowser**：打过补丁的 Chromium，闭源二进制。README 声称 42→57 个补丁、人类化、geoip、持久化配置、TLS 匹配。
 - **ChromiumFish**（arman-bd）：打过补丁的 Chromium，闭源二进制，但公开了部分示例补丁并固定了 `UPSTREAM_REVISION`。公开的 TLS + 画像种子补丁中最好的。
-- **两者都在模仿的开源基础** = **`adryfish/fingerprint-chromium`**（一个中国项目），"一个基于 Ungoogled Chromium 的指纹浏览器"。这才是 clearcote 真正的起点。
+- **两者都在模仿的开源基础** = **`adryfish/fingerprint-chromium`**（一个中国项目），"一个基于 Ungoogled Chromium 的指纹浏览器"。这才是 code-browser 真正的起点。
 
 ### adryfish 的延迟开源策略（关键的操作事实）
 adryfish 的 **main 分支没有补丁**。源码以 **git 标签**的形式发布，比二进制**晚约 1 个月**。可用的源码标签：`129, 130, 131, 132, 133, 134, 135, 136, 138, 139, 142, 144`。
@@ -50,11 +50,11 @@ adryfish 的 **main 分支没有补丁**。源码以 **git 标签**的形式发�
 
 全部克隆到机器上的 `~/research/` 下。
 
-| 仓库 | 引擎 | 方式 | 开源？ | 对 clearcote 的关键启示 |
+| 仓库 | 引擎 | 方式 | 开源？ | 对 code-browser 的关键启示 |
 |---|---|---|---|---|
 | **brave-core** | Chromium | 按站点 **farbling** | ✅ 完全 | 正确的随机化模型：按 eTLD+1 确定 |
 | **cromite** | Chromium | 在 ungoogled 风格基础上实现 Brave farbling | ✅ 完全 | 确切的移植模式 + 学术指纹论文 |
-| **fingerprint-chromium**（adryfish） | Chromium | 在 ungoogled 上 种子→指纹 | ⚠️ 标签 | clearcote 的基础伪装层 |
+| **fingerprint-chromium**（adryfish） | Chromium | 在 ungoogled 上 种子→指纹 | ⚠️ 标签 | code-browser 的基础伪装层 |
 | **ungoogled-chromium-149** | Chromium | 去 Google 化 + 构建接线 | ✅ 完全 | 基础（149.0.7827.114） |
 | **CloakBrowser** | Chromium | 补丁 + 人类化 + geoip | ❌ 二进制 | 人类化预设、geoip、持久化配置的用户体验 |
 | **chromiumfish** | Chromium | 引擎补丁 + 画像 + TLS | ⚠️ 补丁 | TLS 固定、画像种子的管线、canvas 桥 |
@@ -69,7 +69,7 @@ adryfish 的 **main 分支没有补丁**。源码以 **git 标签**的形式发�
 | **SeleniumBase** | — | 自动化框架 + 规避 | ✅ | 基础的检测向量 |
 | **undetected-chromedriver** | — | 标志/痕迹清理 | ✅ | 经典的检测向量 |
 
-**两大阵营：** *引擎级分支*（clearcote 所属的类别，上面几行 = 蓝图）和*客户端/CDP 补丁*（下面几行 = 需要在引擎内消除的检测向量目录）。
+**两大阵营：** *引擎级分支*（code-browser 所属的类别，上面几行 = 蓝图）和*客户端/CDP 补丁*（下面几行 = 需要在引擎内消除的检测向量目录）。
 
 ---
 
@@ -77,7 +77,7 @@ adryfish 的 **main 分支没有补丁**。源码以 **git 标签**的形式发�
 
 ### 3.1 在引擎层面做，绝不用 JavaScript
 所有严肃的分支都同意：在 C++ 引擎中伪装，绝不通过注入 JS。JS 垫片（`playwright-stealth`、`puppeteer-extra`、`undetected-chromedriver`）
-恰好会在指纹审计工具检查的地方留下篡改痕迹，而且每次 Chrome 更新都会坏。adryfish（clearcote 的基础）已经在 C++ 层面打补丁。
+恰好会在指纹审计工具检查的地方留下篡改痕迹，而且每次 Chrome 更新都会坏。adryfish（code-browser 的基础）已经在 C++ 层面打补丁。
 
 ### 3.2 按 eTLD+1 的确定性一致（关键升级）
 Brave 的 **farbling** 从 `(session_token × eTLD+1)` 种子推导出每一个半识别性的值，因此：
@@ -89,7 +89,7 @@ Brave 的 **farbling** 从 `(session_token × eTLD+1)` 种子推导出每一个�
 canvas、audio、webgl、**webgpu**、screen、plugins、useragent、languages、hardwareConcurrency、deviceMemory、speech-synthesis、USB、enumerateDevices。
 
 **为什么重要：** CloakBrowser / ChromiumFish / adryfish 都使用**单一全局 `--fingerprint` 种子** → 每个站点看到相同的 canvas → 可跨站关联。
-采用 Brave 的按 eTLD+1 模型是 clearcote 最大的一项正确性优势，而*隐身*领域里还没有人这样做。
+采用 Brave 的按 eTLD+1 模型是 code-browser 最大的一项正确性优势，而*隐身*领域里还没有人这样做。
 
 ### 3.3 内部（纵向）一致性
 每个指纹面都必须描述**同一台合理的真实机器**，而且这台机器必须与二进制**实际使用的渲染后端**一致。一个 WebGL renderer 字符串不能与矛盾的 `MAX_TEXTURE_SIZE`、
@@ -100,9 +100,9 @@ canvas、audio、webgl、**webgpu**、screen、plugins、useragent、languages�
 
 ## 4. 检测面矩阵
 
-✅ adryfish 基础已覆盖 · ➕ clearcote 新增/升级 · ★ 差异化
+✅ adryfish 基础已覆盖 · ➕ code-browser 新增/升级 · ★ 差异化
 
-| 指纹面 | adryfish 基础 | 最佳参考 | clearcote 的行动 |
+| 指纹面 | adryfish 基础 | 最佳参考 | code-browser 的行动 |
 |---|:-:|---|---|
 | UA + 完整 Client Hints | ✅ | Camoufox navigator | 保留，强制一致 |
 | navigator.webdriver / cdc_ 清理 | ✅ | BotBrowser removeHeadless | 保留 + 审计 |
@@ -131,7 +131,7 @@ canvas、audio、webgl、**webgpu**、screen、plugins、useragent、languages�
 ## 5. 各分支的深入发现
 
 ### 5.1 Brave（farbling 的黄金标准）
-专门的 farbling 服务 + 逐个面的浏览器测试；按 eTLD+1、按会话的确定性种子。"随机化，而不是屏蔽"的标准开源实现。clearcote 的 L0 种子引擎照搬的就是这个模型。
+专门的 farbling 服务 + 逐个面的浏览器测试；按 eTLD+1、按会话的确定性种子。"随机化，而不是屏蔽"的标准开源实现。code-browser 的 L0 种子引擎照搬的就是这个模型。
 
 ### 5.2 ChromiumFish（公开的 TLS + 画像实现中最好的）
 - `persona-seed.patch`：展示了确切的管线：`--persona-seed` 通过 `render_process_host_impl.cc` 中的 `kSwitchNames[]` 转发给每个渲染进程，由 `fingerprint_profile.cc DeriveFromSeed` 读取。
@@ -139,7 +139,7 @@ canvas、audio、webgl、**webgpu**、screen、plugins、useragent、languages�
 - **Canvas Bridge**：一个*可选*的渲染服务，运行在真实的 Windows GPU 上；无头的 Linux 浏览器把 canvas/WebGL 读取路由给它，以获得真实硬件的结果。
   这是对"SwiftShader 会暴露你"最有力的回答。其它项目都没有。
 - 固定 `UPSTREAM_REVISION` 以实现可复现。
-- **它自己公开的审计发现它会联系 Google**（组件更新器 + 5228 端口上的 GCM 推送）：这是 clearcote 可以胜过的真实隐私缺口。
+- **它自己公开的审计发现它会联系 Google**（组件更新器 + 5228 端口上的 GCM 推送）：这是 code-browser 可以胜过的真实隐私缺口。
 
 ### 5.3 BotBrowser（值得借鉴的另一种模型）
 大部分是专有的（只开源了 GUI 启动器 + 示例补丁：`webglAttrs.diff`、`timezone.diff`、`removeHeadless.diff`、`video_capture_device_descriptor.cc.diff`）。它公开的架构文档揭示了：
@@ -151,11 +151,11 @@ canvas、audio、webgl、**webgpu**、screen、plugins、useragent、languages�
 ### 5.4 Camoufox（指纹面广度的参考）
 Firefox 分支，但拥有**最完整的开源伪装面清单**：反字体指纹、audio-context + audio-fingerprint-manager、fingerprint-injection、font-hijacker、
 font-list + system-ui-font、geolocation、locale、media-device、navigator、screen、timezone、voice/speech-voices、webgl、webrtc-ip、shadow-root-bypass。
-配置结构 `additions/camoucfg/MaskConfig.hpp`（`webGl:parameters`、`voices`、`humanize:minTime/maxTime`、带 `precision` 的范围）是 clearcote 配置的好模型。
+配置结构 `additions/camoucfg/MaskConfig.hpp`（`webGl:parameters`、`voices`、`humanize:minTime/maxTime`、带 `precision` 的范围）是 code-browser 配置的好模型。
 
 ### 5.5 Cromite
 ungoogled 风格的 Chromium，以独立补丁的形式引入源自 Brave 的指纹缓解措施（`build/patches/*fingerprint*`、`Multiple-fingerprinting-mitigations.patch`），
-证明了 clearcote 需要的"把 Brave 移植到 ungoogled 上"的模式是可行的。它还附带了 `docs/Papers/`：支撑这一切的学术指纹文献。
+证明了 code-browser 需要的"把 Brave 移植到 ungoogled 上"的模式是可行的。它还附带了 `docs/Papers/`：支撑这一切的学术指纹文献。
 
 ---
 
@@ -165,7 +165,7 @@ ChromiumFish 的 `tls-fingerprint.patch` 修改了 `net/base/features.cc`（`kTl
 RESEARCH.md 最初的说法是："149 新增了 ML-DSA sigalgs `0x904–0x906`；禁用它们，让 ClientHello 与更旧的 Chrome 一致。"
 
 **有依据的更正（已对照原版 149 源码树验证）：** `kTlsMldsaSignatures` **和** `kTLSTrustAnchorIDs` 在**原版 149 中已经是 `FEATURE_DISABLED_BY_DEFAULT`**。
-所以原版 149 构建的 JA4 已经与真实的 Chrome 149 一致："1 比特就能看出不是真 148"的说法是反的。clearcote 真正需要做的 TLS 工作是：
+所以原版 149 构建的 JA4 已经与真实的 Chrome 149 一致："1 比特就能看出不是真 148"的说法是反的。code-browser 真正需要做的 TLS 工作是：
 - 一个**可按版本选择、与 UA 生成器协调的 `supported_groups` / `key_share` 表**（让 ClientHello 与*所宣称的* Chrome 版本一致），以及
 - **回归断言**，确保 adryfish 的移植没有意外打开后量子 sigalgs（**不要**硬编码经典分支：那会与真实 149 能完成的、由服务器触发的后量子握手不同步）。
 
@@ -177,7 +177,7 @@ RESEARCH.md 最初的说法是："149 新增了 ML-DSA sigalgs `0x904–0x906`�
 
 10 个领域中的 66 个候选补丁，组织为 **3 层**：
 
-- **L0：farbling 核心 + 画像引擎**（P0）：`--clearcote-seed` 根 → 按 eTLD+1 的 token → `FingerprintProfile` 画像结构（UA/屏幕/硬件/GPU 从真实集群中先按档次抽取）。
+- **L0：farbling 核心 + 画像引擎**（P0）：`--code-browser-seed` 根 → 按 eTLD+1 的 token → `FingerprintProfile` 画像结构（UA/屏幕/硬件/GPU 从真实集群中先按档次抽取）。
   两个读取方，一个根。一切都通过 `SessionCache::From(context)` / `fingerprinting::Current()` 解析。
 - **L1：adryfish 142→149 基础移植**：基础伪装；它的单一全局种子被**升级为按 eTLD+1**，而不是重复打补丁。一个带**构建时 `static_assert`** 的审计门禁，
   只要还有任何面读取全局种子就让编译失败。
@@ -210,7 +210,7 @@ P0 = 种子 + 画像 + GPU 解析 + 一致性 + 版本冻结 + TLS group 表 + �
 ### 8.2 源码准备（已完成）
 1. 配置机器：16 GB 交换空间（Chromium 链接很吃内存）、build-essential、depot_tools。
 2. 下载并校验哈希 Chromium 149 源码（1.5 GB lite 源码包 → 解压后 9.7 GB）。
-3. `prune_binaries.py` → `patches.py apply`（111 个 ungoogled 补丁）→ `domain_substitution.py` → 得到位于 `~/clearcoat/build/src` 的原版 ungoogled-149 源码树（7.9 GB）。
+3. `prune_binaries.py` → `patches.py apply`（111 个 ungoogled 补丁）→ `domain_substitution.py` → 得到位于 `~/code-browser/build/src` 的原版 ungoogled-149 源码树（7.9 GB）。
 
 ### 8.3 遇到并解决的工具链坑（Linux 主机）
 - **域名替换破坏了工具链下载 URL。** ungoogled 会混淆源码中的 Google 域名，包括 `tools/clang/scripts/update.py` 中的
@@ -227,7 +227,7 @@ P0 = 种子 + 画像 + GPU 解析 + 一致性 + 版本冻结 + TLS group 表 + �
 在 Linux 上为 Windows 交叉编译 Chromium 使用 **clang-cl + lld-link**（源码树中已有），但需要 **MSVC + Windows SDK** 的头文件/库。
 Chromium 的官方方式是从一台 Windows 机器打包它们（`package_from_installed.py`），这被排除了（只能用 SSH，本地 PC 不够用）。
 
-**方案：`xwin`**：直接从微软的 CDN 下载官方的 Windows 11 SDK + CRT（需接受许可协议）到 Linux 机器上，不需要 Windows 机器。**已完成：630 MB 的 SDK/CRT 已展开到 `~/clearcoat/winsdk`。**
+**方案：`xwin`**：直接从微软的 CDN 下载官方的 Windows 11 SDK + CRT（需接受许可协议）到 Linux 机器上，不需要 Windows 机器。**已完成：630 MB 的 SDK/CRT 已展开到 `~/code-browser/winsdk`。**
 
 **剩余的接线工作：** Chromium（`DEPOT_TOOLS_WIN_TOOLCHAIN=0` 时）读取 `GYP_MSVS_OVERRIDE_PATH` + `WINDOWSSDKDIR`，并在交叉构建时从
 `win_sdk/bin/SetEnv.x64.json`（通常由 `package_from_installed.py` 生成）加载 include/lib 路径。xwin 的扁平 sysroot 必须映射成 `package_from_installed` 风格的目录结构：
@@ -263,7 +263,7 @@ ffmpeg_branding="Chrome"
    然后叠加 adryfish 142→149 → 然后是 PATCHES.md 的 P0。
 
 ### 必须达到的最终状态：Playwright 即插即用（硬性要求）
-clearcote 必须像 CloakBrowser 一样工作：一个返回标准 Playwright `Browser` 的 `launch()`，外加原始的 `chromium.launch(executablePath=...)`。
+code-browser 必须像 CloakBrowser 一样工作：一个返回标准 Playwright `Browser` 的 `launch()`，外加原始的 `chromium.launch(executablePath=...)`。
 Python + JS SDK 负责获取 → 校验（SHA-256）→ 缓存 → 启动。可复现构建 + Sigstore/cosign 来源证明 = "100% 开源 + 可验证"的信任差异点。
 
 ---
@@ -276,12 +276,12 @@ Python + JS SDK 负责获取 → 校验（SHA-256）→ 缓存 → 启动。可�
                             camoufox, invisible_playwright, kameleo,
                             undetectable-fingerprint-browser, rebrowser-patches,
                             patchright-python, nodriver, SeleniumBase, undetected-chromedriver)
-~/clearcoat/build/src       vanilla ungoogled-149 source tree (pruned, patched)
-~/clearcoat/build/src/out/Release/gn_build/gn   in-tree-built gn binary
-~/clearcoat/winsdk          xwin: Windows 11 SDK + CRT (630 MB)
-~/clearcoat/bin/            gn, xwin
-~/clearcoat/logs/           build/toolchain logs + status files
-~/clearcoat/*.sh            prepare/toolchain build scripts
+~/code-browser/build/src       vanilla ungoogled-149 source tree (pruned, patched)
+~/code-browser/build/src/out/Release/gn_build/gn   in-tree-built gn binary
+~/code-browser/winsdk          xwin: Windows 11 SDK + CRT (630 MB)
+~/code-browser/bin/            gn, xwin
+~/code-browser/logs/           build/toolchain logs + status files
+~/code-browser/*.sh            prepare/toolchain build scripts
 ~/depot_tools/              depot_tools (gn/ninja wrappers unusable as root; use in-tree gn)
 ```
 

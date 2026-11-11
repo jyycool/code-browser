@@ -1,6 +1,6 @@
 /**
  * SC 232 lane G (mirrors sdk/python/tests/test_motionscore_actions.py): scoreAction scores every humanize
- * surface, CLEARCOTE_HUMANIZE_SCORE records each walked path, and the three SDKs score the shared traces in
+ * surface, CODE_BROWSER_HUMANIZE_SCORE records each walked path, and the three SDKs score the shared traces in
  * sdk/testdata/humanize_motion_vectors.json `scores` identically. On origin/main ceb7983 these fail:
  * scoreAction / fingerOf / trace.ts do not exist and nothing is exported from the package index.
  */
@@ -66,7 +66,7 @@ describe("scoreAction", () => {
   });
 });
 
-describe("CLEARCOTE_HUMANIZE_SCORE hook", () => {
+describe("CODE_BROWSER_HUMANIZE_SCORE hook", () => {
   let dir = "";
   let file = "";
   const env = { ...process.env };
@@ -78,9 +78,9 @@ describe("CLEARCOTE_HUMANIZE_SCORE hook", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "cc-score-"));
     file = join(dir, "score.jsonl");
-    process.env.CLEARCOTE_HUMANIZE_SCORE = "1";
-    process.env.CLEARCOTE_HUMANIZE_SCORE_FILE = file;
-    delete process.env.CLEARCOTE_NO_WARN;
+    process.env.CODE_BROWSER_HUMANIZE_SCORE = "1";
+    process.env.CODE_BROWSER_HUMANIZE_SCORE_FILE = file;
+    delete process.env.CODE_BROWSER_NO_WARN;
     resetSeenWarnings();
     clock = 0;
   });
@@ -116,26 +116,26 @@ describe("CLEARCOTE_HUMANIZE_SCORE hook", () => {
     await walk(bad, async () => undefined, { now, sleep });
     expect(lines()[0].score).toBeLessThan(0.5);
     const out = err.mock.calls.map((c) => String(c[0])).join("");
-    expect(out).toContain("clearcote: warning: humanize glide scored");
+    expect(out).toContain("code-browser: warning: humanize glide scored");
     expect(out).toContain("no-corrective-submovement");
   });
 
   it("off by default and with =0", async () => {
-    delete process.env.CLEARCOTE_HUMANIZE_SCORE;
+    delete process.env.CODE_BROWSER_HUMANIZE_SCORE;
     await walk([{ x: 1, y: 1, sleepMs: 8 }, { x: 5, y: 5, sleepMs: 8 }], async () => undefined, { now, sleep });
-    process.env.CLEARCOTE_HUMANIZE_SCORE = "0";
+    process.env.CODE_BROWSER_HUMANIZE_SCORE = "0";
     await walk([{ x: 1, y: 1, sleepMs: 8 }, { x: 5, y: 5, sleepMs: 8 }], async () => undefined, { now, sleep });
     expect(existsSync(file)).toBe(false);
     expect(readdirSync(dir)).toEqual([]);
   });
 
   it("a failing tap never breaks the walk", async () => {
-    process.env.CLEARCOTE_HUMANIZE_SCORE_FILE = join(dir, "no-such-dir", "x.jsonl");
+    process.env.CODE_BROWSER_HUMANIZE_SCORE_FILE = join(dir, "no-such-dir", "x.jsonl");
     expect(await walk([{ x: 1, y: 1, sleepMs: 8 }, { x: 50, y: 5, sleepMs: 8 }], async () => undefined, { now, sleep })).toBe(2);
   });
 
   it("record() is the tap the typing / wheel / hover loops call", () => {
-    process.env.CLEARCOTE_NO_WARN = "1";
+    process.env.CODE_BROWSER_NO_WARN = "1";
     const r = record("typed", kase("typed", "robot").samples, { field: "#name" });
     expect(r?.kind).toBe("typed");
     const l = lines()[0];

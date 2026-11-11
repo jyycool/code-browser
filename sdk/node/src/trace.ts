@@ -1,8 +1,8 @@
-// Humanize score hook (SC 232 lane G; mirrors sdk/python/clearcote/_trace.py).
+// Humanize score hook (SC 232 lane G; mirrors sdk/python/code_browser/_trace.py).
 //
-// CLEARCOTE_HUMANIZE_SCORE=1 makes the SDK record every action it dispatches, score it with
-// motionscore.scoreAction and append one JSON line per action to CLEARCOTE_HUMANIZE_SCORE_FILE (default
-// ./clearcote-humanize-score.jsonl). A score below WARN_BELOW prints a `clearcote: warning:` line naming
+// CODE_BROWSER_HUMANIZE_SCORE=1 makes the SDK record every action it dispatches, score it with
+// motionscore.scoreAction and append one JSON line per action to CODE_BROWSER_HUMANIZE_SCORE_FILE (default
+// ./code-browser-humanize-score.jsonl). A score below WARN_BELOW prints a `code-browser: warning:` line naming
 // the penalties (once per kind + penalty set, through warnings.warnOnce).
 //
 // Read-only tap: nothing here changes what is dispatched or when, and record() never throws.
@@ -14,14 +14,14 @@ import { appendFileSync } from "node:fs";
 import { scoreAction, type ActionScore } from "./motionscore.js";
 import { warnOnce } from "./warnings.js";
 
-export const SCORE_ENV = "CLEARCOTE_HUMANIZE_SCORE";
-export const SCORE_FILE_ENV = "CLEARCOTE_HUMANIZE_SCORE_FILE";
-export const DEFAULT_SCORE_FILE = "./clearcote-humanize-score.jsonl";
+export const SCORE_ENV = "CODE_BROWSER_HUMANIZE_SCORE";
+export const SCORE_FILE_ENV = "CODE_BROWSER_HUMANIZE_SCORE_FILE";
+export const DEFAULT_SCORE_FILE = "./code-browser-humanize-score.jsonl";
 export const WARN_BELOW = 0.7;
 
 const FALSE = new Set(["", "0", "false", "off", "no"]);
 
-/** True when the hook is on (CLEARCOTE_HUMANIZE_SCORE set to anything but 0/false/off/no). */
+/** True when the hook is on (CODE_BROWSER_HUMANIZE_SCORE set to anything but 0/false/off/no). */
 export function traceEnabled(): boolean {
   return !FALSE.has((process.env[SCORE_ENV] ?? "").trim().toLowerCase());
 }

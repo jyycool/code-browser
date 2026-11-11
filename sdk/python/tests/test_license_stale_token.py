@@ -1,6 +1,6 @@
 """The PRO engine refuses a run-token older than the newest it has accepted for this OS user.
 
-Its clock-rollback guard (patch 990) keeps that newest ``iat`` in ``$LOCALAPPDATA/.clearcote/.cc_hwm`` (else
+Its clock-rollback guard (patch 990) keeps that newest ``iat`` in ``$LOCALAPPDATA/.code-browser/.cc_hwm`` (else
 ``$HOME``) and refuses any lower one: "this run-token is older than the last one accepted here (system clock
 set back?); refusing." The SDK reuses a cached token for its 24 h life, and anything else under the same OS
 user that launches with a newer token (another process, the hosted-browser gateway, a run with another key)
@@ -19,13 +19,13 @@ import time
 
 import pytest
 
-import clearcote
-import clearcote._license as L
-from clearcote import async_api
+import code_browser
+import code_browser._license as L
+from code_browser import async_api
 
 KEY = "cc_lic_STALETOKEN"
 REFUSAL = ("BrowserType.launch_persistent_context: Target page, context or browser has been closed\n"
-           "Browser logs:\n[pid=1][err] [clearcote] licence: this run-token is older than the last one "
+           "Browser logs:\n[pid=1][err] [code-browser] licence: this run-token is older than the last one "
            "accepted here (system clock set back?); refusing.")
 
 
@@ -39,8 +39,8 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(L.Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.setenv("CLEARCOTE_LICENSE_KEY", KEY)
-    monkeypatch.setenv("CLEARCOTE_LICENSE_API", "http://test.local")
-    monkeypatch.delenv("CLEARCOTE_INSTANCE_ID", raising=False)
+    monkeypatch.setenv("CODE_BROWSER_LICENSE_API", "http://test.local")
+    monkeypatch.delenv("CODE_BROWSER_INSTANCE_ID", raising=False)
     monkeypatch.setattr(L._MachineLease, "_start_heartbeat", lambda self: setattr(self, "_hb_started", True))
     _reset()
     yield tmp_path
@@ -57,8 +57,8 @@ def _reset():
 
 
 def set_mark(home, iat):
-    (home / ".clearcote").mkdir(exist_ok=True)
-    (home / ".clearcote" / ".cc_hwm").write_text(str(iat))
+    (home / ".code-browser").mkdir(exist_ok=True)
+    (home / ".code-browser" / ".cc_hwm").write_text(str(iat))
 
 
 def cache_token(iat, lease_id="L1"):
@@ -94,14 +94,14 @@ def test_token_iat_is_read_from_the_payload():
 def test_engine_mark_is_found_where_the_engine_keeps_it(tmp_path):
     local, home = tmp_path / "local", tmp_path / "home"
     for d, v in ((local, "200"), (home, "100")):
-        (d / ".clearcote").mkdir(parents=True)
-        (d / ".clearcote" / ".cc_hwm").write_text(v + "\n")
+        (d / ".code-browser").mkdir(parents=True)
+        (d / ".code-browser" / ".cc_hwm").write_text(v + "\n")
     assert L.engine_hwm({"LOCALAPPDATA": str(local), "HOME": str(home)}) == 200   # Windows: LOCALAPPDATA first
     assert L.engine_hwm({"HOME": str(home)}) == 100                               # elsewhere: HOME
     assert L.engine_hwm({"LOCALAPPDATA": "", "HOME": str(home)}) == 100           # empty counts as unset, as there
     assert L.engine_hwm({"HOME": str(tmp_path / "none")}) == 0                    # no mark yet
     assert L.engine_hwm({}) == 0
-    (home / ".clearcote" / ".cc_hwm").write_text("garbage")
+    (home / ".code-browser" / ".cc_hwm").write_text("garbage")
     assert L.engine_hwm({"HOME": str(home)}) == 0
 
 
@@ -201,7 +201,7 @@ def test_a_refused_launch_is_retried_once_with_a_fresh_token():
             raise RuntimeError(REFUSAL)
         return "browser"
 
-    assert clearcote._retry_on_stale_run_token(lease, pw_kwargs, ("C:/t/run.token", lambda: None), start) == "browser"
+    assert code_browser._retry_on_stale_run_token(lease, pw_kwargs, ("C:/t/run.token", lambda: None), start) == "browser"
     assert lease.refreshes == 1 and len(seen) == 2
     assert seen[1]["CLEARCOTE_RUN_TOKEN"] == "TOK-FRESH" and seen[1]["KEEP"] == "1"
     assert seen[1]["CLEARCOTE_RUN_TOKEN_FILE"] == "C:/t/run.token"
@@ -219,7 +219,7 @@ def test_anything_else_is_raised_as_it_was(case):
         raise RuntimeError(REFUSAL)
 
     with pytest.raises(RuntimeError):
-        clearcote._retry_on_stale_run_token(lease, {"env": {}}, None, start)
+        code_browser._retry_on_stale_run_token(lease, {"env": {}}, None, start)
     assert len(attempts) == (2 if case == "still refused" else 1)   # at most ONE retry, never a loop
     if case == "other error":
         assert lease.refreshes == 0

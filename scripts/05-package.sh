@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # 05 — package the built browser into a distributable archive:
-#       windows -> clearcote-<V>-windows-x64.zip  (chrome.exe + DLLs + VC++ runtime)
-#       linux   -> clearcote-<V>-linux-x64.tar.xz (chrome + chrome-sandbox + .so/.pak/…)
+#       windows -> code-browser-<V>-windows-x64.zip  (chrome.exe + DLLs + VC++ runtime)
+#       linux   -> code-browser-<V>-linux-x64.tar.xz (chrome + chrome-sandbox + .so/.pak/…)
 # The signing + checksum + GitHub-release steps live in docs/en/RELEASING.md.
 #
 #   TARGET  windows | linux   (default: windows)
-#   WORK    working dir (default: ~/clearcote-build)
+#   WORK    working dir (default: ~/code-browser-build)
 #   V       Chromium version for the asset name (default: 151.0.7922.108)
 set -euo pipefail
 TARGET="${TARGET:-windows}"
-WORK="${WORK:-$HOME/clearcote-build}"
+WORK="${WORK:-$HOME/code-browser-build}"
 SRC="$WORK/build/src"; OUT="${OUT:-$SRC/out/Default}"   # override OUT for a Linux build in out/Linux
 DIST="$WORK/dist"; mkdir -p "$DIST"
 V="${V:-151.0.7922.108}"
 
 if [ "$TARGET" = "windows" ]; then
-  ASSET="clearcote-$V-windows-x64.zip"
+  ASSET="code-browser-$V-windows-x64.zip"
   cd "$OUT"; rm -f "$DIST/$ASSET"
   # NOTE: *.manifest (the SxS version-assembly manifest, e.g. 151.0.7922.108.manifest) is
   # REQUIRED at the archive root — without it chrome.exe fails to start with "the side-by-side
@@ -36,7 +36,7 @@ if [ "$TARGET" = "windows" ]; then
   INNER="chrome.exe"
 else
   # --- Linux: deterministic tar.xz of the deployed-file set (from chrome/installer/linux) ---
-  ASSET="clearcote-$V-linux-x64.tar.xz"
+  ASSET="code-browser-$V-linux-x64.tar.xz"
   STAGE="$DIST/stage-linux-x64"; rm -rf "$STAGE"; mkdir -p "$STAGE/locales" "$STAGE/lib"
   copy_in() { [ -e "$OUT/$1" ] && { mkdir -p "$STAGE/$(dirname "$1")"; cp -a "$OUT/$1" "$STAGE/$1"; } || \
               { [ "${2:-}" = req ] && { echo "FATAL: missing $1"; exit 1; } || echo "  (skip: $1)"; }; }

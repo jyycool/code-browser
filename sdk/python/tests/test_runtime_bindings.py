@@ -1,31 +1,31 @@
-"""runtime_bindings / CLEARCOTE_RUNTIME_BINDINGS: Runtime.addBinding bindings across navigations, on request.
+"""runtime_bindings / CODE_BROWSER_RUNTIME_BINDINGS: Runtime.addBinding bindings across navigations, on request.
 
 Patch 110 keeps CDP bindings out of documents created after the binding was added, so Playwright's expose_function()
-and expose_binding() fail after page.goto() (clearcote-browser#43). Engine r54 (pro-r54-04) adds
+and expose_binding() fail after page.goto() (code-browser-browser#43). Engine r54 (pro-r54-04) adds
 --enable-runtime-bindings, which restores only that. Off by default, gated on the binary like stock_runtime, never
 part of the persona payload; redundant next to stock_runtime, which already restores it.
 
 Hermetic, on the stand-ins of test_stock_runtime.py. Mirrors sdk/node/test/runtime-bindings.test.ts and
-sdk/dotnet/tests/Clearcote.Tests/RuntimeBindingsTests.cs.
+sdk/dotnet/tests/CodeBrowser.Tests/RuntimeBindingsTests.cs.
 """
 import asyncio
 
 import pytest
 
-import clearcote
-import clearcote.async_api as async_api
-from clearcote import _docker, _warnings
-from clearcote import _personaenv as P
+import code_browser
+import code_browser.async_api as async_api
+from code_browser import _docker, _warnings
+from code_browser import _personaenv as P
 from test_stock_runtime import (  # noqa: F401  (pytest fixtures, used by name)
     API_KEY, ENGINE_1021, ENGINE_R32, LOCAL, _local, api, async_driver, driver, fake_engine, served,
 )
 
 SWITCH = "--enable-runtime-bindings"
 STOCK = "--disable-runtime-suppression"
-ENV = "CLEARCOTE_RUNTIME_BINDINGS"
+ENV = "CODE_BROWSER_RUNTIME_BINDINGS"
 ENGINE_R54 = b"\x00enable-runtime-bindings\x00"
-UNSUPPORTED = "runtime_bindings (CLEARCOTE_RUNTIME_BINDINGS) is on, but this engine does not support it"
-CLOUD_ONLY_LOCAL = "runtime_bindings (CLEARCOTE_RUNTIME_BINDINGS) only applies to local and Docker launches"
+UNSUPPORTED = "runtime_bindings (CODE_BROWSER_RUNTIME_BINDINGS) is on, but this engine does not support it"
+CLOUD_ONLY_LOCAL = "runtime_bindings (CODE_BROWSER_RUNTIME_BINDINGS) only applies to local and Docker launches"
 BINDINGS_NOTE = "page.expose_function()"  # in the engine note about bindings
 ONCE_CODES = ("runtime-bindings-unsupported", "runtime-bindings-cloud", "cdp-bindings", "cdp-console-events",
               "stock-runtime-unsupported", "stock-runtime-cloud")
@@ -35,8 +35,8 @@ ONCE_CODES = ("runtime-bindings-unsupported", "runtime-bindings-cloud", "cdp-bin
 def _clean(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
-    for var in ("CLEARCOTE_LICENSE_KEY", ENV, "CLEARCOTE_STOCK_RUNTIME", "CLEARCOTE_NO_WARN", P.OPT_OUT_ENV,
-                P.ENV_VAR, "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION"):
+    for var in ("CLEARCOTE_LICENSE_KEY", ENV, "CODE_BROWSER_STOCK_RUNTIME", "CODE_BROWSER_NO_WARN", P.OPT_OUT_ENV,
+                P.ENV_VAR, "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION"):
         monkeypatch.delenv(var, raising=False)
     for code in ONCE_CODES:
         _warnings._seen_notes.discard(code)
@@ -47,7 +47,7 @@ def _clean(monkeypatch, tmp_path):
 
 def _persistent(driver, tmp_path, exe, **kw):
     kw.setdefault("quiet", True)
-    clearcote.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, headless=True, **kw)
+    code_browser.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, headless=True, **kw)
     return driver["args"]
 
 
@@ -87,16 +87,16 @@ def test_an_engine_without_it_launches_without_it_and_says_so_once(driver, tmp_p
     err = capsys.readouterr().err
     assert err.count(UNSUPPORTED) == 1, err
     line = next(x for x in err.splitlines() if UNSUPPORTED in x)
-    assert line.startswith("clearcote: warning: ") and "r54" in line and "stock_runtime=True" in line
+    assert line.startswith("code-browser: warning: ") and "r54" in line and "stock_runtime=True" in line
 
 
 def test_quiet_and_no_warn_silence_it_without_using_it_up(driver, tmp_path, capsys, monkeypatch):
     exe = fake_engine(tmp_path)
     _persistent(driver, tmp_path, exe, runtime_bindings=True)
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     _persistent(driver, tmp_path, exe, runtime_bindings=True, quiet=False)
     assert UNSUPPORTED not in capsys.readouterr().err
-    monkeypatch.delenv("CLEARCOTE_NO_WARN")
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN")
     _persistent(driver, tmp_path, exe, runtime_bindings=True, quiet=False)
     assert capsys.readouterr().err.count(UNSUPPORTED) == 1
 
@@ -117,7 +117,7 @@ def test_it_stays_on_the_command_line_when_the_persona_moves_to_the_environment(
 
 
 def test_docker_hands_the_switch_to_the_images_entrypoint(monkeypatch):
-    from clearcote._docker import container_env
+    from code_browser._docker import container_env
     assert "CC_EXTRA_ARGS" not in container_env({"runtime_bindings": False})
     assert container_env({"runtime_bindings": True})["CC_EXTRA_ARGS"] == SWITCH
     assert container_env({"runtime_bindings": True, "args": [SWITCH]})["CC_EXTRA_ARGS"] == SWITCH  # once
@@ -137,15 +137,15 @@ def test_a_docker_launch_takes_the_option(monkeypatch, sync):
     monkeypatch.setattr(_docker, "container_env", spy)
     with pytest.raises(RuntimeError, match="stopped by the test"):
         if sync:
-            clearcote.launch(docker=True, runtime_bindings=True, headless=True)
+            code_browser.launch(docker=True, runtime_bindings=True, headless=True)
         else:
             asyncio.run(async_api.launch(docker=True, runtime_bindings=True, headless=True))
     assert seen["env"]["CC_EXTRA_ARGS"] == SWITCH
 
 
 def test_a_cloud_launch_does_not_take_it_and_says_so_once(api, driver, capsys):  # noqa: F811
-    clearcote.launch(cloud=True, runtime_bindings=True, country="us").close()
-    clearcote.launch(cloud=True, runtime_bindings=True).close()
+    code_browser.launch(cloud=True, runtime_bindings=True, country="us").close()
+    code_browser.launch(cloud=True, runtime_bindings=True).close()
     bodies = [r["body"] for r in api.requests("POST", "/api/v1/browsers")]
     assert not [k for b in bodies for k in b if "runtime" in k.lower() or "binding" in k.lower()]
     assert capsys.readouterr().err.count(CLOUD_ONLY_LOCAL) == 1

@@ -13,7 +13,7 @@
  * `evaluate()` resolves to `undefined` when the read is impossible (no CDP session, page closed, a
  * navigation mid-call). Callers fall back to their safe default -- never to the page world.
  *
- * Mirrors sdk/python/clearcote/_isolated.py and sdk/dotnet/src/Clearcote/IsolatedWorld.cs.
+ * Mirrors sdk/python/code_browser/_isolated.py and sdk/dotnet/src/CodeBrowser/IsolatedWorld.cs.
  */
 
 type CdpLike = { send(method: string, params?: Record<string, unknown>): Promise<any> };

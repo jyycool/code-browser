@@ -14,10 +14,10 @@ import sys
 
 import pytest
 
-import clearcote
-import clearcote.async_api as async_api
-from clearcote import _personaenv as P
-from clearcote import _widevine as W
+import code_browser
+import code_browser.async_api as async_api
+from code_browser import _personaenv as P
+from code_browser import _widevine as W
 
 ENGINE_1021 = b"\x00persona-from-env\x00"
 ENGINE_1022 = b"\x00widevine-cdm-path\x00"
@@ -166,9 +166,9 @@ def driver(monkeypatch):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
     return seen
 
 
@@ -179,7 +179,7 @@ def _persona(seen):
 
 def test_persistent_context_on_a_1021_engine(driver, tmp_path):
     exe = fake_engine(tmp_path, ENGINE_1021)
-    clearcote.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, fingerprint="17",
+    code_browser.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, fingerprint="17",
                                         platform="windows", headless=True, quiet=True)
     assert "--persona-from-env" in driver["args"]
     assert not [a for a in driver["args"] if a.startswith("--fingerprint")]
@@ -188,7 +188,7 @@ def test_persistent_context_on_a_1021_engine(driver, tmp_path):
 
 def test_persistent_context_on_an_older_engine_is_unchanged(driver, tmp_path):
     exe = fake_engine(tmp_path)
-    clearcote.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, fingerprint="17",
+    code_browser.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, fingerprint="17",
                                         platform="windows", headless=True, quiet=True)
     assert "--fingerprint=17" in driver["args"] and "--persona-from-env" not in driver["args"]
     assert _persona(driver) is None
@@ -196,13 +196,13 @@ def test_persistent_context_on_an_older_engine_is_unchanged(driver, tmp_path):
 
 def test_plain_launch_on_a_1021_engine(driver, tmp_path):
     exe = fake_engine(tmp_path, ENGINE_1021)
-    clearcote.launch(executable_path=exe, fingerprint="17", headless=True, quiet=True, ephemeral_profile=False)
+    code_browser.launch(executable_path=exe, fingerprint="17", headless=True, quiet=True, ephemeral_profile=False)
     assert "--persona-from-env" in driver["args"] and ("fingerprint", "17") in _persona(driver)
 
 
 def test_persona_env_false_keeps_the_command_line(driver, tmp_path):
     exe = fake_engine(tmp_path, ENGINE_1021)
-    clearcote.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, fingerprint="17",
+    code_browser.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, fingerprint="17",
                                         headless=True, quiet=True, persona_env=False)
     assert "--fingerprint=17" in driver["args"] and _persona(driver) is None
 
@@ -267,10 +267,10 @@ def test_widevine_cdm_path_is_best_effort(monkeypatch, tmp_path):
 
 def test_persistent_widevine_launch_passes_the_cdm_path(driver, monkeypatch, tmp_path):
     cdm = str(tmp_path / "cdm")
-    monkeypatch.setattr(clearcote, "apply_widevine_launch", lambda udd, kwargs, quiet=False: None)
+    monkeypatch.setattr(code_browser, "apply_widevine_launch", lambda udd, kwargs, quiet=False: None)
     monkeypatch.setattr(W, "fetch_widevine", lambda dest=None, quiet=False: cdm)
     exe = fake_engine(tmp_path, ENGINE_1022)
-    clearcote.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, headless=True, quiet=True,
+    code_browser.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, headless=True, quiet=True,
                                         widevine=True)
     assert "--widevine-cdm-path=" + cdm in driver["args"]
 
@@ -284,7 +284,7 @@ SERVE_PY = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file_
 
 
 def test_the_docker_path_hands_persona_env_to_the_container():
-    from clearcote._docker import container_env
+    from code_browser._docker import container_env
     assert "CLEARCOTE_PERSONA_ENV" not in container_env({"fingerprint": "17"})
     assert container_env({"fingerprint": "17", "persona_env": False})["CLEARCOTE_PERSONA_ENV"] == "0"
     assert container_env({"fingerprint": "17", "persona_env": True})["CLEARCOTE_PERSONA_ENV"] == "1"
@@ -310,7 +310,7 @@ def test_the_images_entrypoint_takes_the_persona_off_chromes_command_line(tmp_pa
     sdk = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     env = {"PATH": str(stubs) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"), "PYTHONPATH": sdk,
            "HOME": str(tmp_path / "home"), "TMPDIR": str(tmp_path), "XDG_CACHE_HOME": str(tmp_path / "xdg"),
-           "CLEARCOTE_BINARY": str(engine), "CC_HEADLESS": "1", "CC_PROFILE_DIR": str(tmp_path / "profile"),
+           "CODE_BROWSER_BINARY": str(engine), "CC_HEADLESS": "1", "CC_PROFILE_DIR": str(tmp_path / "profile"),
            "CC_FINGERPRINT": "17", "CC_PLATFORM": "linux"}
     if opt_out is not None:
         env["CLEARCOTE_PERSONA_ENV"] = opt_out

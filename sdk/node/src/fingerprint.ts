@@ -1,4 +1,4 @@
-// Maps the SDK's fingerprint options to the Clearcote Chromium command-line switches.
+// Maps the SDK's fingerprint options to the CodeBrowser Chromium command-line switches.
 // Switch names mirror components/ungoogled/ungoogled_switches.cc (see patches/000-fingerprint-switches.patch).
 
 import { gzipSync } from "node:zlib";
@@ -295,7 +295,7 @@ export function cleanAcceptLanguage(v: string): string {
     .join(",");
 }
 
-/** Encode a captured clearcote-profile for the `--fingerprint-profile` switch. `value` may be a
+/** Encode a captured code-browser-profile for the `--fingerprint-profile` switch. `value` may be a
  * path to a `.json` file, a profile object, or a JSON string. gzip+base64 keeps the full capture
  * (~40 KB) within Chromium's command-line length limit (gzip ~6x); the engine gunzips + parses it. */
 export function encodeProfile(value: string | Record<string, unknown>): string {
@@ -612,7 +612,7 @@ export function fingerprintArgs(o: FingerprintOptions): string[] {
   // platform: "windows" | "linux" | "macos".
   set("fingerprint-platform", o.platform ?? hostPersonaPlatform());
   set("fingerprint-platform-version", o.platformVersion);
-  // clearcote presents as Google Chrome (its UA says "Chrome/<v>"); default the UA-CH brand to
+  // code-browser presents as Google Chrome (its UA says "Chrome/<v>"); default the UA-CH brand to
   // "chrome" so navigator.userAgentData advertises "Google Chrome", not bare "Chromium" (a
   // UA/UA-CH mismatch some bot detectors flag). Override via brand: "Edge" etc.
   set("fingerprint-brand", o.brand ?? "chrome");
@@ -674,7 +674,7 @@ export function fingerprintArgs(o: FingerprintOptions): string[] {
   // Only "off" is meaningful — concealment ON is both the Chromium default and real Chrome's
   // behaviour, so there is nothing to emit for "on".
   //
-  // This uses Chromium's OWN feature flag rather than a clearcote switch. The mDNS responder is
+  // This uses Chromium's OWN feature flag rather than a code-browser switch. The mDNS responder is
   // created in PeerConnectionDependencyFactory behind `kWebRtcHideLocalIpsWithMdns`; disabling
   // the feature means no responder is built and host candidates are signalled as raw IPs.
   // Verified end-to-end: with the flag, host candidates come back as 192.168.x.x; without it,

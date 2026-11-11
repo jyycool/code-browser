@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Convert the open-source chrome-fingerprints dataset into clearcote-profile JSON.
+"""Convert the open-source chrome-fingerprints dataset into code-browser-profile JSON.
 
 The dataset (https://github.com/Vinyzu/chrome-fingerprints) ships 10,000 real Windows-Chrome
 fingerprints with strings interned as integer indices. This tool resolves the interning and
-remaps each record into the clearcote-profile schema (the same one tools/fingerprint-collect
+remaps each record into the code-browser-profile schema (the same one tools/fingerprint-collect
 captures), so every record is usable via the SDK's ``fingerprint_profile`` option or the engine's
 ``--fingerprint-profile`` switch.
 
@@ -12,9 +12,9 @@ WHAT IT IMPORTS — the version-INDEPENDENT hardware identity: GPU (WebGL unmask
 metadata, CPU/memory, keyboard layout.
 
 WHAT IT SKIPS BY DEFAULT — the Chrome VERSION. The dataset records are Chrome ~114/115; the
-clearcote binary is 149. Importing the dataset's ``uaFullVersion`` would make
+code-browser binary is 149. Importing the dataset's ``uaFullVersion`` would make
 navigator.userAgentData disagree with the real UA string (a coherence tell), so the converter
-leaves the version to clearcote's native 149. Pass --include-version to import it anyway (only
+leaves the version to code-browser's native 149. Pass --include-version to import it anyway (only
 sensible if your binary's major version matches the dataset).
 
 USAGE
@@ -26,7 +26,7 @@ USAGE
 
 Then, with the SDK:
   # Python
-  from clearcote import launch
+  from code_browser import launch
   launch(fingerprint="seed-1", fingerprint_profile="./profiles/profile-00000.json")
   # Node
   launch({ fingerprint: "seed-1", fingerprintProfile: "./profiles/profile-00000.json" })
@@ -39,7 +39,7 @@ import os
 import re
 import sys
 
-# ---- WebGL key map: dataset camelCase -> clearcote GL constant name (the engine reads these) ----
+# ---- WebGL key map: dataset camelCase -> code-browser GL constant name (the engine reads these) ----
 # Explicit where the naive transform would be wrong (RenderBuffer->RENDERBUFFER, 3D, acronyms) or
 # where the engine specifically consumes the value. WebGL2 keys carry a trailing "2" in the dataset
 # (stripped before lookup); a handful use a "Webgl" suffix.
@@ -172,7 +172,7 @@ def map_navigator(nav, include_version):
         "uadata": {"platform": plat.get("name"), "mobile": False, "high_entropy": he},
     }
     if include_version:
-        # Only coherent if the clearcote binary's major version matches the dataset's.
+        # Only coherent if the code-browser binary's major version matches the dataset's.
         he["uaFullVersion"] = nav.get("full_version")
         he["fullVersionList"] = nav.get("full_version_list")
         he["brands"] = nav.get("brands")
@@ -239,7 +239,7 @@ def convert(rec, tables, include_version=False):
         "device_memory": rec.get("device_memory"),
         "do_not_track": rec.get("do_not_track"),
         "navigator": map_navigator(rec.get("navigator") or {}, include_version),
-        "screen": rec.get("screen") or {},   # dataset screen keys already match the clearcote schema
+        "screen": rec.get("screen") or {},   # dataset screen keys already match the code-browser schema
         "webgl": map_webgl(rec.get("webgl") or {}, tables),
         "audio": {k: _num(v) for k, v in (rec.get("audio") or {}).items()},
         "speech": map_speech(rec.get("speech"), tables),
@@ -253,9 +253,9 @@ def convert(rec, tables, include_version=False):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Convert chrome-fingerprints records to clearcote-profile JSON.")
+    ap = argparse.ArgumentParser(description="Convert chrome-fingerprints records to code-browser-profile JSON.")
     ap.add_argument("--dataset", help="Path to the chrome_fingerprints package dir (auto-detected if installed).")
-    ap.add_argument("--out", default="./clearcote-profiles", help="Output directory (default ./clearcote-profiles).")
+    ap.add_argument("--out", default="./code-browser-profiles", help="Output directory (default ./code-browser-profiles).")
     ap.add_argument("--count", type=int, default=0, help="Convert the first N records (0 = all 10000).")
     ap.add_argument("--index", type=int, help="Convert a single record by index.")
     ap.add_argument("--stdout", action="store_true", help="With --index, print to stdout instead of writing a file.")

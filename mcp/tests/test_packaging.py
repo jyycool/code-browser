@@ -4,7 +4,7 @@ import json
 import pathlib
 import re
 
-import clearcote_mcp
+import code_browser_mcp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PYPROJECT = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -21,16 +21,16 @@ def _dependency(name: str) -> str:
 def test_versions_agree():
     py = re.search(r'^version\s*=\s*"([^"]+)"', PYPROJECT, re.M).group(1)
     npm = json.loads((ROOT / "npm" / "package.json").read_text(encoding="utf-8"))["version"]
-    assert clearcote_mcp.__version__ == py == npm
+    assert code_browser_mcp.__version__ == py == npm
 
 
 def test_mcp_dependency_has_an_upper_bound():
     assert "<" in _dependency("mcp"), "cap mcp at the next major: an unreleased major can break the import"
 
 
-def test_clearcote_floor_supports_free_keys():
-    floor = re.search(r">=\s*([\d.]+)", _dependency("clearcote")).group(1)
-    assert tuple(int(p) for p in floor.split(".")) >= (0, 30), "free-tier keys need clearcote 0.30.0+"
+def test_code_browser_floor_supports_free_keys():
+    floor = re.search(r">=\s*([\d.]+)", _dependency("code-browser")).group(1)
+    assert tuple(int(p) for p in floor.split(".")) >= (0, 30), "free-tier keys need code-browser 0.30.0+"
 
 
 def _floor(name: str) -> str:
@@ -45,14 +45,14 @@ def test_mcp_floor_passes_tool_images_through():
 
 def test_ci_floor_job_pins_the_declared_floors():
     ci = (ROOT.parent / ".github" / "workflows" / "mcp-ci.yml").read_text(encoding="utf-8")
-    pins = dict(re.findall(r"(mcp|clearcote)==([\d.]+)", ci))  # inside printf 'mcp==..\nclearcote==..'
+    pins = dict(re.findall(r"(mcp|code-browser)==([\d.]+)", ci))  # inside printf 'mcp==..\ncode_browser==..'
 
     def norm(v):
         parts = [int(p) for p in v.split(".")]
         while parts and parts[-1] == 0:
             parts.pop()
         return parts
-    assert {k: norm(v) for k, v in pins.items()} == {"mcp": norm(_floor("mcp")), "clearcote": norm(_floor("clearcote"))}
+    assert {k: norm(v) for k, v in pins.items()} == {"mcp": norm(_floor("mcp")), "code-browser": norm(_floor("code-browser"))}
 
 
 def test_launcher_requires_the_packages_python():
@@ -64,4 +64,4 @@ def test_launcher_requires_the_packages_python():
 
 def test_the_changelog_describes_this_version():
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert f"## {clearcote_mcp.__version__}" in changelog
+    assert f"## {code_browser_mcp.__version__}" in changelog

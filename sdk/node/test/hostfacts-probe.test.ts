@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { describeProbe } from "../src/persona.js";
 
-const REFUSAL = "[clearcote] no valid license lease for this run. Set a license key (CLEARCOTE_LICENSE_KEY) via the SDK and check your plan's concurrency limit.\r\n";
+const REFUSAL = "[code-browser] no valid license lease for this run. Set a license key (CLEARCOTE_LICENSE_KEY) via the SDK and check your plan's concurrency limit.\r\n";
 
 describe("describeProbe", () => {
   it("returns stdout of a clean run", () => {

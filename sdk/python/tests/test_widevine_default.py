@@ -16,10 +16,10 @@ import zipfile
 
 import pytest
 
-import clearcote
-import clearcote.async_api as async_api
-from clearcote import _warnings
-from clearcote import _widevine as W
+import code_browser
+import code_browser.async_api as async_api
+from code_browser import _warnings
+from code_browser import _widevine as W
 
 ENGINE_1022 = b"\x00widevine-cdm-path\x00"
 VERSION = "4.10.9999.0"
@@ -31,8 +31,8 @@ def _hermetic(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setenv("CLEARCOTE_WIDEVINE_DIR", str(tmp_path / "wv"))
-    for var in ("CLEARCOTE_WIDEVINE", "CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS", "CLEARCOTE_LICENSE_KEY",
-                "CLEARCOTE_NO_WARN", "CLEARCOTE_BINARY", "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER",
+    for var in ("CODE_BROWSER_WIDEVINE", "CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS", "CLEARCOTE_LICENSE_KEY",
+                "CODE_BROWSER_NO_WARN", "CODE_BROWSER_BINARY", "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER",
                 "CLEARCOTE_PERSONA_ENV"):
         monkeypatch.delenv(var, raising=False)
     # Catch-all network guard: Google's update check and the download fail loudly unless a test stands in for
@@ -166,13 +166,13 @@ class FakeGoogle:
     (None, True, "", "default"),
 ])
 def test_mode_matrix(option, licensed, env, expected):
-    assert W.widevine_mode(option, licensed, env={} if env is None else {"CLEARCOTE_WIDEVINE": env}) == expected
+    assert W.widevine_mode(option, licensed, env={} if env is None else {"CODE_BROWSER_WIDEVINE": env}) == expected
 
 
 def test_mode_reads_the_process_environment(monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_WIDEVINE", "0")
+    monkeypatch.setenv("CODE_BROWSER_WIDEVINE", "0")
     assert W.widevine_mode(None, True) == "off"
-    monkeypatch.setenv("CLEARCOTE_WIDEVINE", "1")
+    monkeypatch.setenv("CODE_BROWSER_WIDEVINE", "1")
     assert W.widevine_mode(None, False) == "explicit"
 
 
@@ -181,12 +181,12 @@ def test_mode_reads_the_process_environment(monkeypatch):
                                              ("1e10", 600.0), ("inf", 600.0), ("nan", 15.0), ("-inf", 15.0)])
 def test_timeout_seconds(value, expected):
     # clamped to 1-600 s: a huge value used to overflow Thread.join and fail the launch
-    assert W.timeout_seconds({} if value is None else {"CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS": value}) == expected
+    assert W.timeout_seconds({} if value is None else {"CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS": value}) == expected
 
 
 def test_the_names_match_the_other_sdks():
-    assert W.WIDEVINE_ENV == "CLEARCOTE_WIDEVINE"
-    assert W.TIMEOUT_ENV == "CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS"
+    assert W.WIDEVINE_ENV == "CODE_BROWSER_WIDEVINE"
+    assert W.TIMEOUT_ENV == "CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS"
     assert W.DEFAULT_TIMEOUT_SECONDS == 15.0
 
 
@@ -337,10 +337,10 @@ def test_default_cdm_fail_soft_warns_once(monkeypatch, capsys):
     assert W.default_cdm() is None
     assert W.default_cdm() is None  # within the retry window: no second attempt
     err = capsys.readouterr().err
-    assert err.count("clearcote: warning: Widevine is on by default") == 1
+    assert err.count("code-browser: warning: Widevine is on by default") == 1
     assert "OSError: Google said 403" in err
     # the advice leads with the variable, which works for every launch (cloud and Docker included)
-    assert err.index("CLEARCOTE_WIDEVINE=0") < err.index("widevine=False")
+    assert err.index("CODE_BROWSER_WIDEVINE=0") < err.index("widevine=False")
     assert calls == [1]
 
 
@@ -361,7 +361,7 @@ def test_default_cdm_quiet_says_nothing(monkeypatch, capsys):
 
 
 def test_default_cdm_no_warn_env_says_nothing(monkeypatch, capsys):
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     monkeypatch.setattr(W, "fetch_widevine", lambda dest=None, quiet=False: (_ for _ in ()).throw(OSError("x")))
     assert W.default_cdm() is None
     assert capsys.readouterr().err == ""
@@ -390,7 +390,7 @@ def test_default_cdm_is_bounded_and_a_late_fetch_is_used_later(monkeypatch, tmp_
 
 
 def test_default_cdm_timeout_from_the_environment(monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS", "0.2")
+    monkeypatch.setenv("CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS", "0.2")
     gate = threading.Event()
     monkeypatch.setattr(W, "fetch_widevine", lambda dest=None, quiet=False: gate.wait(30))
     t0 = time.monotonic()
@@ -482,7 +482,7 @@ def test_no_version_still_installs_as_current(monkeypatch, tmp_path):
 def test_the_install_renames_go_through_downloads_windows_retry(monkeypatch, tmp_path):
     # S14: download._rename_dir retries while a Windows scanner holds the fresh tree; the CDM install uses it
     import importlib
-    download = importlib.import_module("clearcote.download")  # the module (clearcote.download is also a function)
+    download = importlib.import_module("code_browser.download")  # the module (code_browser.download is also a function)
     real, seen = download._rename_dir, []
 
     def recording(src, dst):
@@ -503,7 +503,7 @@ def test_the_install_renames_go_through_downloads_windows_retry(monkeypatch, tmp
 @pytest.mark.parametrize("value", [False, None])
 def test_cloud_accepts_and_drops_the_opt_out(value):
     # S13: the warning's advice (widevine=False) used to raise on cloud=True
-    from clearcote.cloud import _prepare_launch
+    from code_browser.cloud import _prepare_launch
     _sdk, body = _prepare_launch({"widevine": value, "country": "us"})
     assert "widevine" not in body and body["country"] == "us"
     with pytest.raises(ValueError, match="^widevine is not available for cloud browsers$"):
@@ -511,7 +511,7 @@ def test_cloud_accepts_and_drops_the_opt_out(value):
 
 
 def test_a_cloud_launch_with_the_opt_out_gets_past_the_option_check(licensed, monkeypatch):
-    from clearcote import cloud as cloud_mod
+    from code_browser import cloud as cloud_mod
     bodies = []
 
     def stop(cloud, sdk):
@@ -522,15 +522,15 @@ def test_a_cloud_launch_with_the_opt_out_gets_past_the_option_check(licensed, mo
     monkeypatch.setattr(cloud_mod, "_client_for", stop)
     for kw in ({"widevine": False}, {"widevine": None}):
         with pytest.raises(RuntimeError, match="the options were accepted"):
-            clearcote.launch(cloud=True, **kw)
+            code_browser.launch(cloud=True, **kw)
         with pytest.raises(RuntimeError, match="the options were accepted"):
-            clearcote.launch_persistent_context(cloud=True, profile="p", **kw)
+            code_browser.launch_persistent_context(cloud=True, profile="p", **kw)
     assert all("widevine" not in body for _sdk, body in bodies) and len(bodies) == 4
 
 
 @pytest.mark.parametrize("value", [False, None])
 def test_docker_accepts_and_drops_the_opt_out(value):
-    from clearcote._docker import container_env
+    from code_browser._docker import container_env
     assert container_env({"fingerprint": "17", "widevine": value}) == container_env({"fingerprint": "17"})
     with pytest.raises(ValueError, match="widevine is not available when launch"):
         container_env({"fingerprint": "17", "widevine": True})
@@ -604,9 +604,9 @@ def driver(monkeypatch):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
     return seen
 
 
@@ -614,7 +614,7 @@ def driver(monkeypatch):
 def licensed(monkeypatch):
     """A licence key resolves (the PRO selection) but no lease is taken: the backend is a stand-in."""
     monkeypatch.setenv("CLEARCOTE_LICENSE_KEY", KEY)
-    monkeypatch.setattr(clearcote, "acquire_lease", lambda **kw: None)
+    monkeypatch.setattr(code_browser, "acquire_lease", lambda **kw: None)
 
 
 def _last_args(driver):
@@ -626,7 +626,7 @@ def _cdm_args(args):
 
 
 def _persistent(tmp_path, exe, **kw):
-    return clearcote.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, headless=True,
+    return code_browser.launch_persistent_context(str(tmp_path / "udd"), executable_path=exe, headless=True,
                                                quiet=kw.pop("quiet", True), **kw)
 
 
@@ -642,7 +642,7 @@ def test_licensed_persistent_launch_gets_widevine_by_default(driver, licensed, t
 
 def test_licensed_incognito_launch_gets_widevine_by_default(driver, licensed, tmp_path):
     cdm = cached_cdm_dir(str(tmp_path / "wv"))
-    clearcote.launch(executable_path=fake_engine(tmp_path, ENGINE_1022), headless=True, quiet=True,
+    code_browser.launch(executable_path=fake_engine(tmp_path, ENGINE_1022), headless=True, quiet=True,
                      ephemeral_profile=False)
     assert driver["launches"][-1][0] == "incognito"
     assert _cdm_args(_last_args(driver)) == ["--widevine-cdm-path=" + cdm]
@@ -652,7 +652,7 @@ def test_licensed_throwaway_profile_launch_gets_widevine_by_default(driver, lice
     import tempfile
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     cdm = cached_cdm_dir(str(tmp_path / "wv"))
-    browser = clearcote.launch(executable_path=fake_engine(tmp_path, ENGINE_1022), headless=True, quiet=True)
+    browser = code_browser.launch(executable_path=fake_engine(tmp_path, ENGINE_1022), headless=True, quiet=True)
     assert driver["launches"][-1][0] == "persistent"
     assert _cdm_args(_last_args(driver)) == ["--widevine-cdm-path=" + cdm]
     browser.close()
@@ -663,7 +663,7 @@ def test_licensed_launch_opt_out(driver, licensed, tmp_path, monkeypatch, how):
     cached_cdm_dir(str(tmp_path / "wv"))
     monkeypatch.setattr(W, "fetch_widevine", lambda *a, **k: pytest.fail("network used"))
     if how == "env":
-        monkeypatch.setenv("CLEARCOTE_WIDEVINE", "0")
+        monkeypatch.setenv("CODE_BROWSER_WIDEVINE", "0")
         _persistent(tmp_path, fake_engine(tmp_path, ENGINE_1022))
     else:
         _persistent(tmp_path, fake_engine(tmp_path, ENGINE_1022), widevine=False)
@@ -675,7 +675,7 @@ def test_free_launch_stays_off(driver, tmp_path, monkeypatch):
     cached_cdm_dir(str(tmp_path / "wv"))
     monkeypatch.setattr(W, "fetch_widevine", lambda *a, **k: pytest.fail("network used"))
     _persistent(tmp_path, fake_engine(tmp_path, ENGINE_1022))
-    clearcote.launch(executable_path=fake_engine(tmp_path, ENGINE_1022, name="c2"), headless=True, quiet=True,
+    code_browser.launch(executable_path=fake_engine(tmp_path, ENGINE_1022, name="c2"), headless=True, quiet=True,
                      ephemeral_profile=False)
     assert all(_cdm_args(kw["args"]) == [] for _k, _u, kw in driver["launches"])
 
@@ -685,7 +685,7 @@ def test_free_launch_opt_in_still_seeds_and_enables(driver, tmp_path, monkeypatc
     cdm = cached_cdm_dir(str(tmp_path / "wv"))
     monkeypatch.setattr(W.sys, "platform", "linux")  # the hint-file route; Windows adds the fast-update scan
     if how == "env":
-        monkeypatch.setenv("CLEARCOTE_WIDEVINE", "1")
+        monkeypatch.setenv("CODE_BROWSER_WIDEVINE", "1")
         _persistent(tmp_path, fake_engine(tmp_path, ENGINE_1022))
     else:
         _persistent(tmp_path, fake_engine(tmp_path, ENGINE_1022), widevine=True)
@@ -728,7 +728,7 @@ def test_licensed_launch_quiet_offline_says_nothing(driver, licensed, tmp_path, 
 
 
 def test_licensed_launch_does_not_wait_past_the_timeout(driver, licensed, tmp_path, monkeypatch):
-    monkeypatch.setenv("CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS", "0.3")
+    monkeypatch.setenv("CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS", "0.3")
     gate = threading.Event()
     monkeypatch.setattr(W, "fetch_widevine", lambda dest=None, quiet=False: gate.wait(30))
     t0 = time.monotonic()
@@ -753,7 +753,7 @@ def test_a_second_launch_does_not_download_again(driver, licensed, tmp_path, mon
     exe = fake_engine(tmp_path, ENGINE_1022)
     _persistent(tmp_path, exe)
     _persistent(tmp_path, exe)
-    clearcote.launch(executable_path=exe, headless=True, quiet=True, ephemeral_profile=False)
+    code_browser.launch(executable_path=exe, headless=True, quiet=True, ephemeral_profile=False)
     expected = "--widevine-cdm-path=" + os.path.join(str(tmp_path / "wv"), VERSION)
     assert all(_cdm_args(kw["args"]) == [expected] for _k, _u, kw in driver["launches"])
     assert (g.checks, g.downloads) == (1, 1)  # one update check, one download, for three launches
@@ -770,11 +770,11 @@ def test_prepare_for_serve_gets_the_default(licensed, tmp_path, monkeypatch):
     cdm = cached_cdm_dir(str(tmp_path / "wv"))
     kwargs = {"executable_path": fake_engine(tmp_path, ENGINE_1022), "quiet": True, "headless": True,
               "_cc_direct": True, "_cc_headed": False, "_cc_pro": (KEY, None)}
-    _exe, args, *_rest = clearcote._prepare(kwargs)
+    _exe, args, *_rest = code_browser._prepare(kwargs)
     assert _cdm_args(args) == ["--widevine-cdm-path=" + cdm]
     kwargs = {"executable_path": fake_engine(tmp_path, ENGINE_1022, name="c2"), "quiet": True, "headless": True,
               "_cc_direct": True, "_cc_headed": False, "_cc_pro": None, "widevine": None}
-    _exe, args, pw_kwargs, *_rest = clearcote._prepare(kwargs)
+    _exe, args, pw_kwargs, *_rest = code_browser._prepare(kwargs)
     assert _cdm_args(args) == []  # free: off
     assert "widevine" not in pw_kwargs  # never reaches Playwright
 
@@ -837,10 +837,10 @@ def test_async_launches_follow_the_same_rules(licensed, tmp_path, monkeypatch):
 def test_a_cloud_launch_is_untouched(licensed, monkeypatch):
     called = {}
     monkeypatch.setattr(W, "default_cdm", lambda *a, **k: pytest.fail("widevine resolved for a cloud launch"))
-    monkeypatch.setattr(clearcote, "launch_cloud", lambda cloud, kwargs, **kw: called.setdefault("kwargs", dict(kwargs)))
-    clearcote.launch(cloud=True, headless=True)
+    monkeypatch.setattr(code_browser, "launch_cloud", lambda cloud, kwargs, **kw: called.setdefault("kwargs", dict(kwargs)))
+    code_browser.launch(cloud=True, headless=True)
     assert "widevine" not in called["kwargs"]  # nothing added for the hosted browser, which loads its own
-    from clearcote.cloud import LOCAL_ONLY_OPTIONS
+    from code_browser.cloud import LOCAL_ONLY_OPTIONS
     assert "widevine" in LOCAL_ONLY_OPTIONS  # and an explicit widevine= is still refused there, as before
 
 
@@ -854,8 +854,8 @@ def test_the_auto_profile_host_probe_runs_without_widevine(monkeypatch):
     def fake_measure(launcher, exe, major):
         launcher(headless=True)
 
-    monkeypatch.setattr(clearcote, "launch", fake_launch)
-    monkeypatch.setattr(clearcote, "measure_host", fake_measure)
+    monkeypatch.setattr(code_browser, "launch", fake_launch)
+    monkeypatch.setattr(code_browser, "measure_host", fake_measure)
     with pytest.raises(RuntimeError, match="stop here"):
-        clearcote._apply_auto_profile({}, "/x/chrome", {}, quiet=True, pro=(KEY, None), lease=None)
+        code_browser._apply_auto_profile({}, "/x/chrome", {}, quiet=True, pro=(KEY, None), lease=None)
     assert seen["widevine"] is False and seen["license_key"] == KEY

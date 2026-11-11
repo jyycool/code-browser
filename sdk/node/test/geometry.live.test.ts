@@ -1,5 +1,5 @@
 /**
- * Live-engine geometry tests. Skipped unless CLEARCOTE_LIVE_ENGINE points at a chrome binary
+ * Live-engine geometry tests. Skipped unless CODE_BROWSER_LIVE_ENGINE points at a chrome binary
  * (add CLEARCOTE_LICENSE_KEY for a PRO build). These belong in the release gate.
  *
  * WHY THEY EXIST: the unit tests could not catch the bug that actually shipped here. The window fit
@@ -19,7 +19,7 @@ import { geometryIsCoherent, headlessGeometry, servedDisplay } from "../src/geom
 import { runFitChild } from "./helpers/fit-child.js";
 import { tempDir } from "./helpers/temp.js";
 
-const LIVE_EXE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE_EXE = process.env.CODE_BROWSER_LIVE_ENGINE;
 
 const READ = "[[screen.width, screen.height], [screen.availWidth, screen.availHeight], " +
   "[innerWidth, innerHeight], [outerWidth, outerHeight], [screenX, screenY], [window.__resizes], " +
@@ -283,9 +283,9 @@ describe.runIf(LIVE_EXE)("live engine geometry: serve() with --no-sandbox", () =
   }, 120_000);
 });
 
-// Headed opens real windows, so it is opt-in, as in the Python suite: CLEARCOTE_LIVE_HEADED=1 (and a
+// Headed opens real windows, so it is opt-in, as in the Python suite: CODE_BROWSER_LIVE_HEADED=1 (and a
 // display: on Linux run under xvfb-run).
-describe.runIf(LIVE_EXE && process.env.CLEARCOTE_LIVE_HEADED)("live engine geometry: headed serve() with --no-sandbox", () => {
+describe.runIf(LIVE_EXE && process.env.CODE_BROWSER_LIVE_HEADED)("live engine geometry: headed serve() with --no-sandbox", () => {
   it("the first tab keeps the frame a second tab has", async () => {
     expectNoWarningBar(await servedTabs({ headless: false }));
   }, 120_000);

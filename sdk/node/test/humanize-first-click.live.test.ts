@@ -1,6 +1,6 @@
 /**
  * LIVE: the FIRST humanized mouse.click on a fresh headless page, and the first after a navigation,
- * walks and presses. Skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary (and a licence is
+ * walks and presses. Skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary (and a licence is
  * available for a PRO build).
  *
  * WHY. The engine route (Browser.dispatchPointerPath) walks in the browser process and does not wait
@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, Page } from "playwright-core";
 import { launch } from "../src/index.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const PAGES = 6;
 
 const PAGE = `<!doctype html><html><body style="margin:0;height:1200px">

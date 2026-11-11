@@ -7,9 +7,9 @@ import warnings
 
 import pytest
 
-import clearcote
-from clearcote._fingerprint import FINGERPRINT_KEYS, fingerprint_args, is_fingerprint_passthrough
-from clearcote._launchopts import (
+import code_browser
+from code_browser._fingerprint import FINGERPRINT_KEYS, fingerprint_args, is_fingerprint_passthrough
+from code_browser._launchopts import (
     DEFAULT_IGNORED_ARGS,
     GATED_ENGINE_SWITCHES,
     QUIET_GATED_ENGINE_SWITCHES,
@@ -23,7 +23,7 @@ from clearcote._launchopts import (
     x_display_available,
     serve_needs_no_sandbox,
 )
-from clearcote.download import pro_download_url, resolve_release_channel
+from code_browser.download import pro_download_url, resolve_release_channel
 
 
 @pytest.fixture(autouse=True)
@@ -293,8 +293,8 @@ def test_fingerprint_voices_false_emits_switch():
 
 def test_release_channel_resolution():
     assert resolve_release_channel(None, {}) == "stable"
-    assert resolve_release_channel(None, {"CLEARCOTE_RELEASE_CHANNEL": "preview"}) == "preview"
-    assert resolve_release_channel("stable", {"CLEARCOTE_RELEASE_CHANNEL": "preview"}) == "stable"
+    assert resolve_release_channel(None, {"CODE_BROWSER_RELEASE_CHANNEL": "preview"}) == "preview"
+    assert resolve_release_channel("stable", {"CODE_BROWSER_RELEASE_CHANNEL": "preview"}) == "stable"
     assert resolve_release_channel(" Preview ", {}) == "preview"
     with pytest.raises(ValueError, match="Unknown release channel 'beta'"):
         resolve_release_channel("beta", {})
@@ -312,8 +312,8 @@ def test_pro_ensure_binary_sends_channel(monkeypatch):
     import json
     import urllib.request
 
-    from clearcote import download as _unused  # noqa: F401
-    dl = sys.modules["clearcote.download"]
+    from code_browser import download as _unused  # noqa: F401
+    dl = sys.modules["code_browser.download"]
     seen = []
 
     class Resp:
@@ -370,17 +370,17 @@ def test_serve_infobar_args_headed_test_type_only_with_no_sandbox_and_once():
 @pytest.fixture
 def served_line(monkeypatch, tmp_path):
     """serve() up to a stand-in browser process: the engine command line it spawns."""
-    import clearcote._geometry as _geometry
-    import clearcote._serve as _serve
+    import code_browser._geometry as _geometry
+    import code_browser._serve as _serve
     home = tmp_path / "home"
     home.mkdir()
     for k in ("HOME", "USERPROFILE"):  # no licence on this machine may select PRO or take a lease
         monkeypatch.setenv(k, str(home))
-    for k in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY"):
+    for k in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY"):
         monkeypatch.delenv(k, raising=False)
     exe = fake_engine(tmp_path, NEW)
-    monkeypatch.setattr(clearcote, "_resolve_binary", lambda *a, **k: exe)
-    monkeypatch.setattr(clearcote, "_guard", lambda exe: None)
+    monkeypatch.setattr(code_browser, "_resolve_binary", lambda *a, **k: exe)
+    monkeypatch.setattr(code_browser, "_guard", lambda exe: None)
     monkeypatch.setattr(_geometry, "fit_served_window", lambda *a, **k: None)
     monkeypatch.setattr(_serve.urllib.request, "urlopen", lambda *a, **k: None)  # the endpoint is "up"
     lines = []
@@ -406,7 +406,7 @@ def served_line(monkeypatch, tmp_path):
     monkeypatch.setattr(_serve.subprocess, "Popen", Proc)
 
     def run(**kwargs):
-        clearcote.serve(quiet=True, user_data_dir=str(tmp_path / "udd"), **kwargs).close()
+        code_browser.serve(quiet=True, user_data_dir=str(tmp_path / "udd"), **kwargs).close()
         return lines[-1]
     return run
 
@@ -434,14 +434,14 @@ def prepared(monkeypatch, tmp_path):
     # The WebGL backend choice reads the host (X display, Mesa's EGL) and has its own tests above;
     # keep these end-to-end ones the same on every host. A test can patch either back on.
     monkeypatch.delenv("DISPLAY", raising=False)
-    monkeypatch.setattr("clearcote._launchopts.mesa_egl_available", lambda *a, **k: False)
+    monkeypatch.setattr("code_browser._launchopts.mesa_egl_available", lambda *a, **k: False)
 
     def run(switches, **kwargs):
         exe = fake_engine(tmp_path, switches)
-        monkeypatch.setattr(clearcote, "_resolve_binary", lambda *a, **k: exe)
-        monkeypatch.setattr(clearcote, "_guard", lambda exe: None)
+        monkeypatch.setattr(code_browser, "_resolve_binary", lambda *a, **k: exe)
+        monkeypatch.setattr(code_browser, "_guard", lambda exe: None)
         kwargs.setdefault("quiet", True)
-        return clearcote._prepare(dict(kwargs))
+        return code_browser._prepare(dict(kwargs))
     return run
 
 
@@ -472,7 +472,7 @@ def test_prepare_serve_headed_flag(prepared, monkeypatch):
 
 def test_prepare_headless_linux_claim_renders_through_mesa_egl_without_a_display(prepared, monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr("clearcote._launchopts.mesa_egl_available", lambda *a, **k: True)
+    monkeypatch.setattr("code_browser._launchopts.mesa_egl_available", lambda *a, **k: True)
     _exe, args, *_ = prepared(NEW, headless=True, platform="linux")
     assert "--use-angle=gl-egl" in args and "--ignore-gpu-blocklist" in args
     _exe, args, *_ = prepared(NEW, headless=True, platform="windows")
@@ -505,7 +505,7 @@ def test_prepare_old_engine_drops_new_switches(prepared):
 
 def test_prepare_passthrough_skips_auto_profile(prepared, monkeypatch):
     called = []
-    monkeypatch.setattr(clearcote, "_apply_auto_profile", lambda *a, **k: called.append(1))
+    monkeypatch.setattr(code_browser, "_apply_auto_profile", lambda *a, **k: called.append(1))
     prepared(NEW, fingerprint="off", profile="auto")
     assert called == []
 
@@ -527,17 +527,17 @@ def test_launch_persistent_context_default_ignore_args(monkeypatch, tmp_path):
     class PW:
         chromium = Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: PW())
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
-    monkeypatch.setattr(clearcote, "_prepare",
+    monkeypatch.setattr(code_browser, "_playwright", lambda: PW())
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_prepare",
                         lambda kw: ("chrome", [], dict(kw), False, False, None))
-    monkeypatch.setattr(clearcote, "apply_headless_geometry", lambda *a, **k: None)
-    clearcote.launch_persistent_context(str(tmp_path / "udd"), quiet=True)  # it seeds the profile: not the cwd
+    monkeypatch.setattr(code_browser, "apply_headless_geometry", lambda *a, **k: None)
+    code_browser.launch_persistent_context(str(tmp_path / "udd"), quiet=True)  # it seeds the profile: not the cwd
     assert captured["ignore_default_args"] == ["--enable-automation", "--enable-unsafe-swiftshader", "--hide-scrollbars", "--disable-popup-blocking", "--disable-ipc-flooding-protection"]
 
 
 async def test_async_launch_persistent_context_default_ignore_args(monkeypatch, tmp_path):
-    from clearcote import async_api
+    from code_browser import async_api
     seen = {}
 
     def fake_prepare(kwargs):
@@ -551,20 +551,20 @@ async def test_async_launch_persistent_context_default_ignore_args(monkeypatch, 
 
 
 def test_release_channel_reaches_every_pro_download_path(monkeypatch):
-    dl = sys.modules["clearcote.download"]
+    dl = sys.modules["code_browser.download"]
     seen = []
-    monkeypatch.delenv("CLEARCOTE_BINARY", raising=False)
-    monkeypatch.delenv("CLEARCOTE_BROWSER_VERSION", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_BINARY", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_BROWSER_VERSION", raising=False)
     monkeypatch.setattr(dl, "pro_ensure_binary",
                         lambda key, **kw: seen.append((kw.get("version"), kw.get("release_channel"))) or "exe")
     monkeypatch.setattr(dl, "resolve_version", lambda sel, has_license=False, quiet=False: ("pro", "152"))
     pro = ("cc_lic_x", None)
-    clearcote._resolve_binary(None, pro=pro, release_channel="preview")                   # pinned PRO
-    clearcote._resolve_binary(None, pro=pro, version="r22", release_channel="preview")    # revision pin
-    clearcote._resolve_binary(None, pro=pro, version="152", release_channel="preview")    # catalog pin
+    code_browser._resolve_binary(None, pro=pro, release_channel="preview")                   # pinned PRO
+    code_browser._resolve_binary(None, pro=pro, version="r22", release_channel="preview")    # revision pin
+    code_browser._resolve_binary(None, pro=pro, version="152", release_channel="preview")    # catalog pin
     assert seen == [(None, "preview"), ("r22", "preview"), ("152", "preview")]
     with pytest.raises(ValueError, match="Unknown release channel"):
-        clearcote._resolve_binary(None, pro=pro, version="152", release_channel="beta")
+        code_browser._resolve_binary(None, pro=pro, version="152", release_channel="beta")
 
 
 # -- Playwright's --disable-features (2026-10-06) ------------------------------------------------
@@ -587,7 +587,7 @@ def test_launch_replaces_playwrights_list_without_partitioning(prepared, platfor
     # Playwright's stability/UI entries stay off on every claim (a Linux claim used to drop them all,
     # because its own --disable-features=WebBluetooth replaced Playwright's whole list). Which entries
     # Playwright disables varies by release (1.63 dropped RenderDocument): check the installed one's.
-    from clearcote._launchopts import (PAGE_VISIBLE_PLAYWRIGHT_FEATURES, PLAYWRIGHT_DISABLED_FEATURES,
+    from code_browser._launchopts import (PAGE_VISIBLE_PLAYWRIGHT_FEATURES, PLAYWRIGHT_DISABLED_FEATURES,
                                        installed_playwright_disabled_features)
     playwrights = installed_playwright_disabled_features() or PLAYWRIGHT_DISABLED_FEATURES
     kept = [f for f in playwrights if f not in PAGE_VISIBLE_PLAYWRIGHT_FEATURES]
@@ -601,7 +601,7 @@ def test_launch_replaces_playwrights_list_without_partitioning(prepared, platfor
 def test_cors_restart_feature_is_re_enabled():
     # Off, a same-origin request in a cross-site iframe sends Sec-Fetch-Storage-Access: active, which
     # genuine Chrome omits (measured 2026-10-28 on Chrome 156 launched plainly vs by Playwright 1.64.1).
-    from clearcote._launchopts import playwright_feature_override_args
+    from code_browser._launchopts import playwright_feature_override_args
     args = playwright_feature_override_args(
         playwright_features=("PaintHolding", "AvoidCorsURLLoaderRestartOnRedirect", "Translate"),
         screenshot_surface=False)
@@ -611,7 +611,7 @@ def test_cors_restart_feature_is_re_enabled():
 def test_optimization_hints_is_re_enabled():
     # Off, the built-in AI APIs answer availability() "unavailable", where genuine Chrome answers
     # "downloadable" (measured 2026-10-29 on Chrome 156 launched plainly vs by Playwright).
-    from clearcote._launchopts import playwright_feature_override_args
+    from code_browser._launchopts import playwright_feature_override_args
     args = playwright_feature_override_args(
         playwright_features=("PaintHolding", "OptimizationHints", "Translate"),
         screenshot_surface=False)
@@ -622,7 +622,7 @@ def test_media_router_is_re_enabled():
     # Off, PresentationRequest(["cast:"]).reconnect() rejects "Error joining route: No matching route"
     # where genuine Chrome says "Route not found"; fingerprint.com reports bot "bad" (chromium_automation)
     # (measured 2026-11-01 on r56 and Chrome 156).
-    from clearcote._launchopts import playwright_feature_override_args
+    from code_browser._launchopts import playwright_feature_override_args
     args = playwright_feature_override_args(
         playwright_features=("DialMediaRouteProvider", "MediaRouter", "Translate"),
         screenshot_surface=False)
@@ -637,7 +637,7 @@ def test_the_users_own_disable_features_are_kept(prepared):
 
 
 def test_no_copy_of_playwrights_list_when_the_caller_dropped_it(prepared):
-    from clearcote._launchopts import PLAYWRIGHT_DISABLED_FEATURES, installed_playwright_disabled_features
+    from code_browser._launchopts import PLAYWRIGHT_DISABLED_FEATURES, installed_playwright_disabled_features
     exact = "--disable-features=" + ",".join(installed_playwright_disabled_features()
                                               or PLAYWRIGHT_DISABLED_FEATURES)
     for ignore in (True, [exact]):

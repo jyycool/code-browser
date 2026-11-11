@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// clearcote-agent — a terminal wrapper around Clearcote's in-browser AI agent.
+// code-browser-agent — a terminal wrapper around CodeBrowser's in-browser AI agent.
 //
-// Launches a REGULAR-profile Clearcote (anti-detect Chromium), points it at OpenRouter, and runs
+// Launches a REGULAR-profile CodeBrowser (anti-detect Chromium), points it at OpenRouter, and runs
 // natural-language goals on a page via the SDK. The agent perceives the page, asks an LLM, and acts
 // via Chrome's Actor framework.
 //
-//   clearcote-agent --goal "Click the 'More information...' link" --url https://example.com
-//   clearcote-agent -i --url https://example.com           # interactive REPL
+//   code-browser-agent --goal "Click the 'More information...' link" --url https://example.com
+//   code-browser-agent -i --url https://example.com           # interactive REPL
 //
 // The agent only works in a regular/persistent profile, so this always uses launchAgent() (never the
 // incognito launch()). Logins/cookies persist in --profile so you can sign in once and reuse it.
@@ -26,24 +26,24 @@ interface ProxyConfig {
   password?: string;
 }
 
-const USAGE = `clearcote-agent — run natural-language goals on a page via Clearcote's in-browser AI agent.
+const USAGE = `code-browser-agent — run natural-language goals on a page via CodeBrowser's in-browser AI agent.
 
 USAGE
-  clearcote-agent --goal <text> [--url <url>] [options]      one-shot
-  clearcote-agent -i|--interactive [--url <url>] [options]   interactive REPL
+  code-browser-agent --goal <text> [--url <url>] [options]      one-shot
+  code-browser-agent -i|--interactive [--url <url>] [options]   interactive REPL
 
 OPTIONS
   --goal <text>        the task (required in one-shot; optional in REPL)
   --url <url>          starting page (default: about:blank)
   -i, --interactive    REPL mode (always headed + persistent)
   --model <slug>       OpenRouter provider/model slug (default: openai/gpt-4o)
-  --key <k>            OpenRouter API key (env OPENROUTER_API_KEY or CLEARCOTE_AGENT_KEY)
+  --key <k>            OpenRouter API key (env OPENROUTER_API_KEY or CODE_BROWSER_AGENT_KEY)
   --llm-url <url>      OpenAI-compatible base URL (default: OpenRouter)
   --tool-mode <m>      "tools" | "json"
   --max-steps <n>      max agent steps (default: 20)
-  --profile <dir>      persistent profile dir (default: ~/.clearcote/agent-profile)
+  --profile <dir>      persistent profile dir (default: ~/.code-browser/agent-profile)
   --headless           run headless (default: headed; ignored in REPL)
-  --executable <path>  path to Clearcote chrome.exe (else auto-download / CLEARCOTE_BINARY)
+  --executable <path>  path to CodeBrowser chrome.exe (else auto-download / CODE_BROWSER_BINARY)
   --fingerprint <seed> anti-detect fingerprint seed
   --proxy <url>        proxy, e.g. http://user:pass@host:port
   --timezone <tz>      IANA timezone, e.g. America/New_York
@@ -192,10 +192,10 @@ function parseCli(argv: string[]): { cli: Cli; help: boolean } {
   const key =
     (values.key as string | undefined) ??
     process.env.OPENROUTER_API_KEY ??
-    process.env.CLEARCOTE_AGENT_KEY;
+    process.env.CODE_BROWSER_AGENT_KEY;
   if (!key) {
     throw new UsageError(
-      "No OpenRouter API key. Pass --key <k>, or set OPENROUTER_API_KEY or CLEARCOTE_AGENT_KEY."
+      "No OpenRouter API key. Pass --key <k>, or set OPENROUTER_API_KEY or CODE_BROWSER_AGENT_KEY."
     );
   }
 
@@ -216,7 +216,7 @@ function parseCli(argv: string[]): { cli: Cli; help: boolean } {
   }
 
   const profile =
-    (values.profile as string | undefined) ?? join(homedir(), ".clearcote", "agent-profile");
+    (values.profile as string | undefined) ?? join(homedir(), ".code-browser", "agent-profile");
 
   return {
     cli: {
@@ -264,7 +264,7 @@ async function currentPage(ctx: BrowserContext): Promise<Page> {
 
 /** One-shot: launch -> goto -> run goal -> print -> close. Returns the process exit code. */
 async function runOneShot(cli: Cli): Promise<number> {
-  log(`launching Clearcote (profile: ${cli.profile})...`);
+  log(`launching CodeBrowser (profile: ${cli.profile})...`);
   const ctx = await launchAgent(launchOptions(cli));
   try {
     const page = await currentPage(ctx);
@@ -292,7 +292,7 @@ async function runOneShot(cli: Cli): Promise<number> {
 
 /** Interactive REPL: persistent headed session; each non-':' line is a goal on the current page. */
 async function runRepl(cli: Cli): Promise<number> {
-  log(`launching Clearcote (profile: ${cli.profile})...`);
+  log(`launching CodeBrowser (profile: ${cli.profile})...`);
   const ctx = await launchAgent(launchOptions(cli));
   let page = await currentPage(ctx);
   if (cli.url !== "about:blank") {

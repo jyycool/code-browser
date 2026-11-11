@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from clearcote import _fontpersona as fpm
-from clearcote._warnings import coherence_warnings
+from code_browser import _fontpersona as fpm
+from code_browser._warnings import coherence_warnings
 
 
 @pytest.fixture(autouse=True)
@@ -29,10 +29,10 @@ def _corpus(tmp_path, donors):
 
 
 def _with_corpus(monkeypatch, directory):
-    import clearcote._profileauto as pa
+    import code_browser._profileauto as pa
     monkeypatch.setattr(pa, "DEFAULT_LOCAL_DIR", directory)
     # index cache is keyed by directory+mtime, but pin it into the tmp dir anyway so a developer's
-    # real ~/.clearcote cache is never read or written by the tests.
+    # real ~/.code-browser cache is never read or written by the tests.
     monkeypatch.setattr(pa, "_local_index_cache_path",
                         lambda: os.path.join(directory, "index-cache.json"))
 
@@ -113,8 +113,8 @@ def test_explicit_profile_is_never_overwritten(tmp_path, monkeypatch):
 
 
 def test_missing_corpus_never_raises(monkeypatch):
-    import clearcote._profileauto as pa
-    monkeypatch.setattr(pa, "DEFAULT_LOCAL_DIR", "/nonexistent/clearcote/corpus")
+    import code_browser._profileauto as pa
+    monkeypatch.setattr(pa, "DEFAULT_LOCAL_DIR", "/nonexistent/code-browser/corpus")
     fp = {"fingerprint": "s", "platform": "linux"}
     fpm.ensure_persona_fonts(fp, quiet=True)
     assert "fingerprint_profile" not in fp

@@ -2,23 +2,23 @@
 
 Agents open this repository for one of two reasons:
 
-- **To use Clearcote in a project** (scraping, testing, an AI agent that needs a browser): read [Using Clearcote in a project](#using-clearcote-in-a-project).
-- **To work on Clearcote itself** (patches, build, SDK code): skip to [What this project is](#what-this-project-is).
+- **To use CodeBrowser in a project** (scraping, testing, an AI agent that needs a browser): read [Using CodeBrowser in a project](#using-code-browser-in-a-project).
+- **To work on CodeBrowser itself** (patches, build, SDK code): skip to [What this project is](#what-this-project-is).
 
-## Using Clearcote in a project
+## Using CodeBrowser in a project
 
-Clearcote is a Chromium build with its fingerprint controls in the engine. It is driven by Playwright,
+CodeBrowser is a Chromium build with its fingerprint controls in the engine. It is driven by Playwright,
 Puppeteer or any Chrome DevTools Protocol (CDP) client. Install the SDK; it downloads the browser on first
 use and checks its SHA-256, so `playwright install` is not needed.
 
 ```bash
-pip install clearcote          # Python
-npm install clearcote          # Node.js / TypeScript
-dotnet add package Clearcote   # .NET
+pip install code-browser          # Python
+npm install code-browser          # Node.js / TypeScript
+dotnet add package CodeBrowser   # .NET
 ```
 
 ```python
-from clearcote import launch          # asyncio: from clearcote.async_api import launch
+from code_browser import launch          # asyncio: from code_browser.async_api import launch
 
 browser = launch(fingerprint="user-7423", platform="windows")   # returns a standard Playwright Browser
 page = browser.new_page()
@@ -28,19 +28,19 @@ browser.close()
 
 - **Keep the existing Playwright code.** Replace only the `chromium.launch(...)` call with `launch(...)`.
 - **Tools that take a CDP URL** (browser-use, Crawl4AI, Playwright MCP, Puppeteer): start an endpoint with
-  `serve()` or `clearcote-serve --port 9222`, then connect to `http://127.0.0.1:9222`.
+  `serve()` or `code-browser-serve --port 9222`, then connect to `http://127.0.0.1:9222`.
 - **One seed per identity.** The same `fingerprint` string returns the same machine on every launch; a new
   string gives a new, unlinked one.
 - **Do not add stealth plugins** (`puppeteer-extra-plugin-stealth`, `playwright-stealth`). They patch values
   from JavaScript and conflict with the persona set in the engine.
-- **Selenium and WebDriver are not supported.** Clearcote is driven over CDP.
-- **Hosted browsers:** `launch(cloud=True, country="us")` with `CLEARCOTE_API_KEY` set runs the browser on
-  Clearcote's servers and returns the same Playwright `Browser`.
+- **Selenium and WebDriver are not supported.** CodeBrowser is driven over CDP.
+- **Hosted browsers:** `launch(cloud=True, country="us")` with `CODE_BROWSER_API_KEY` set runs the browser on
+  CodeBrowser's servers and returns the same Playwright `Browser`.
 
 To give an assistant (Claude, Cursor, Cline) a browser over MCP:
 
 ```json
-{ "mcpServers": { "clearcote": { "command": "npx", "args": ["-y", "clearcote-mcp"] } } }
+{ "mcpServers": { "code-browser": { "command": "npx", "args": ["-y", "code-browser-mcp"] } } }
 ```
 
 References: [`llms.txt`](llms.txt) · SDKs: [Python](sdk/python/README.md), [Node](sdk/node/README.md),
@@ -50,12 +50,12 @@ References: [`llms.txt`](llms.txt) · SDKs: [Python](sdk/python/README.md), [Nod
 
 ## What this project is
 
-Clearcote Browser: an open-source, reproducible Chromium build with engine-level privacy/identity controls. Base is ungoogled-chromium; changes are delivered as readable source patches. Builds target Windows x64 and Linux x64 and are produced on a Linux host (native for Linux, cross-compiled for Windows).
+CodeBrowser Browser: an open-source, reproducible Chromium build with engine-level privacy/identity controls. Base is ungoogled-chromium; changes are delivered as readable source patches. Builds target Windows x64 and Linux x64 and are produced on a Linux host (native for Linux, cross-compiled for Windows).
 
 ## Repository layout
 
 ```
-clearcote-browser/
+code-browser-browser/
 ├── README.md            # what/why, quickstart, credits
 ├── llms.txt             # summary for AI tools
 ├── ROADMAP.md           # phased plan
@@ -68,10 +68,10 @@ clearcote-browser/
 ├── build.sh             # one-shot Linux cross-build orchestrator
 ├── Dockerfile           # reproducible build environment
 ├── scripts/             # numbered build stages (00-05) + release and CI checks
-├── patches/             # Clearcote's source patches (unified diffs) + series
+├── patches/             # CodeBrowser's source patches (unified diffs) + series
 ├── config/              # args.gn and build configuration
-├── sdk/                 # SDKs: python/, node/, dotnet/ (published as `clearcote` / `Clearcote`)
-├── mcp/                 # MCP server (`clearcote-mcp`)
+├── sdk/                 # SDKs: python/, node/, dotnet/ (published as `code-browser` / `CodeBrowser`)
+├── mcp/                 # MCP server (`code-browser-mcp`)
 ├── docker/              # the CDP-endpoint Docker image
 ├── tools/               # fingerprint collector, canvas bridge server
 └── docs/

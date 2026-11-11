@@ -1,6 +1,6 @@
 /**
  * SC 232 integration (lane G's score hook in lanes C/D/E; mirrors python/tests/test_humanize_trace_taps.py): with
- * CLEARCOTE_HUMANIZE_SCORE=1 every humanized surface records a scored line -- a hover dwell as "hover", a held leg
+ * CODE_BROWSER_HUMANIZE_SCORE=1 every humanized surface records a scored line -- a hover dwell as "hover", a held leg
  * as "drag" (the held button on every sample), ambient motion as "ambient", a typed run as one "typed" line of the
  * characters' down/up, and one "wheel" line per mouse.wheel call -- on the forms fake page. Off by default: nothing
  * is written.
@@ -13,8 +13,8 @@ import { attached } from "./helpers/humanize-fake.js";
 import { walk } from "../src/pacing.js";
 import { makePersona, mulberry32, planDrag } from "../src/motion.js";
 
-const ENVS = ["CLEARCOTE_HUMANIZE_SCORE", "CLEARCOTE_HUMANIZE_SCORE_FILE", "CLEARCOTE_HUMANIZE_TYPO_RATE", "CLEARCOTE_NO_WARN",
-  "CLEARCOTE_HUMANIZE_ENGINE_CLICKS"];
+const ENVS = ["CODE_BROWSER_HUMANIZE_SCORE", "CODE_BROWSER_HUMANIZE_SCORE_FILE", "CODE_BROWSER_HUMANIZE_TYPO_RATE", "CODE_BROWSER_NO_WARN",
+  "CODE_BROWSER_HUMANIZE_ENGINE_CLICKS"];
 const saved: Record<string, string | undefined> = {};
 let dir = "";
 let file = "";
@@ -22,10 +22,10 @@ beforeEach(() => {
   for (const k of ENVS) saved[k] = process.env[k];
   dir = mkdtempSync(join(tmpdir(), "cc-taps-"));
   file = join(dir, "score.jsonl");
-  process.env.CLEARCOTE_HUMANIZE_SCORE_FILE = file;
-  process.env.CLEARCOTE_HUMANIZE_TYPO_RATE = "0";
-  process.env.CLEARCOTE_NO_WARN = "1";
-  delete process.env.CLEARCOTE_HUMANIZE_ENGINE_CLICKS;
+  process.env.CODE_BROWSER_HUMANIZE_SCORE_FILE = file;
+  process.env.CODE_BROWSER_HUMANIZE_TYPO_RATE = "0";
+  process.env.CODE_BROWSER_NO_WARN = "1";
+  delete process.env.CODE_BROWSER_HUMANIZE_ENGINE_CLICKS;
 });
 afterEach(() => {
   for (const k of ENVS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
@@ -45,7 +45,7 @@ async function drive(page: any): Promise<void> {
 
 describe("score hook taps (lane G in lanes C/D/E)", () => {
   it("every humanized surface records its kind", async () => {
-    process.env.CLEARCOTE_HUMANIZE_SCORE = "1";
+    process.env.CODE_BROWSER_HUMANIZE_SCORE = "1";
     const f = await attached({ field: { tag: "input", type: "text" } });
     await drive(f.page);
     const ls = lines();
@@ -68,14 +68,14 @@ describe("score hook taps (lane G in lanes C/D/E)", () => {
   }, 60_000);
 
   it("off by default: nothing is written", async () => {
-    delete process.env.CLEARCOTE_HUMANIZE_SCORE;
+    delete process.env.CODE_BROWSER_HUMANIZE_SCORE;
     const f = await attached({ field: { tag: "input", type: "text" } });
     await drive(f.page);
     expect(existsSync(file)).toBe(false);
   }, 60_000);
 
   it("walk carries the held button on every drag sample", async () => {
-    process.env.CLEARCOTE_HUMANIZE_SCORE = "1";
+    process.env.CODE_BROWSER_HUMANIZE_SCORE = "1";
     let t = 0;
     const steps = planDrag({ x: 100, y: 100 }, { x: 400, y: 300 }, makePersona("ha-1"), { rng: mulberry32(3) });
     await walk(steps, async () => undefined, { now: () => t, sleep: async (ms) => { t += Math.max(0, ms); }, kind: "drag", buttons: 1 });

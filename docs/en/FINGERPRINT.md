@@ -1,6 +1,6 @@
-# Clearcote fingerprint reference
+# CodeBrowser fingerprint reference
 
-This page lists every fingerprint surface the Clearcote engine (Chromium `151.0.7922.108`, see
+This page lists every fingerprint surface the CodeBrowser engine (Chromium `151.0.7922.108`, see
 [`UPSTREAM_REVISION`](../../UPSTREAM_REVISION)) **actually changes** relative to upstream Chromium /
 ungoogled-chromium, and the command-line switch that controls it. Each item maps to a patch in
 [`patches/`](../../patches/); the per-patch notes are in [`patches/README.md`](../../patches/README.md).
@@ -19,7 +19,7 @@ Precedence for every individual switch: **switch > persona > host**.
 
 ## 1. Seed and persona model
 
-Clearcote does not randomise each API on its own. One seed derives a whole machine, so the APIs agree with each other.
+CodeBrowser does not randomise each API on its own. One seed derives a whole machine, so the APIs agree with each other.
 
 - **`--fingerprint=<seed>`**: a number or any string (strings are hashed to a number; a bad seed cannot crash
   the renderer). The same seed gives the same machine on every launch; a new seed gives a new, unlinkable one.
@@ -265,7 +265,7 @@ The SDK is the recommended way: it downloads and verifies the browser, builds th
 standard Playwright `Browser`:
 
 ```python
-from clearcote import launch
+from code_browser import launch
 
 browser = launch(fingerprint="user-7423", platform="windows")
 ```

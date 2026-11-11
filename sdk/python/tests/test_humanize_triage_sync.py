@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-import clearcote._humanize as HS
+import code_browser._humanize as HS
 from _hz_sync_sim import Sync
 from test_humanize_forms_async import Field, Page, kinds, non_trial
 from test_humanize_keyboard import KPage
@@ -20,7 +20,7 @@ from test_humanize_keyboard import KPage
 @pytest.fixture
 def fast(monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda *a, **k: None)
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0")
 
 
 def _attached(seed, page_cls, *fields):

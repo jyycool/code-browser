@@ -1,7 +1,7 @@
-"""`clearcote login --device` against a local stand-in for the site's device endpoints, every branch of
+"""`code-browser login --device` against a local stand-in for the site's device endpoints, every branch of
 the contract: pending, slow_down (+5 s, kept), 429 (+5 s, Retry-After honoured), expired_token,
 access_denied, invalid_request, a dropped connection and a 5xx mid-poll (retried), an unreachable or
-older server, Ctrl-C, and the expiry `clearcote info --json` then reports. Mirrors
+older server, Ctrl-C, and the expiry `code-browser info --json` then reports. Mirrors
 sdk/node/test/device-login.test.ts."""
 import json
 import os
@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from clearcote import __version__, _commands, _devicelogin, _license
+from code_browser import __version__, _commands, _devicelogin, _license
 
 from _fake_device import DEVICE_CODE, LICENSE_KEY, USER_CODE, FakeDevice
 from _proxies import start_origin
@@ -23,8 +23,8 @@ def home(tmp_path, monkeypatch):
     h.mkdir()
     monkeypatch.setenv("HOME", str(h))
     monkeypatch.setenv("USERPROFILE", str(h))
-    monkeypatch.setenv("CLEARCOTE_CACHE", str(tmp_path / "cache"))
-    for k in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_LICENSE_API", "CLEARCOTE_BINARY", "CLEARCOTE_RELEASE_CHANNEL"):
+    monkeypatch.setenv("CODE_BROWSER_CACHE", str(tmp_path / "cache"))
+    for k in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_LICENSE_API", "CODE_BROWSER_BINARY", "CODE_BROWSER_RELEASE_CHANNEL"):
         monkeypatch.delenv(k, raising=False)
     return h
 
@@ -50,16 +50,16 @@ def _sigint_restored():
 def serve(monkeypatch, request, script, **kw):
     fake = FakeDevice(script, **kw)
     request.addfinalizer(fake.close)
-    monkeypatch.setenv("CLEARCOTE_LICENSE_API", fake.url)
+    monkeypatch.setenv("CODE_BROWSER_LICENSE_API", fake.url)
     return fake
 
 
 def key_file(home):
-    return home / ".clearcote" / "license.key"
+    return home / ".code-browser" / "license.key"
 
 
 def test_usage_documents_device_login():
-    assert "clearcote login --device" in _commands.usage()
+    assert "code-browser login --device" in _commands.usage()
 
 
 def test_device_login_saves_the_key_exactly_like_paste_login(home, sleeps, monkeypatch, request, capsys):
@@ -80,7 +80,7 @@ def test_device_login_saves_the_key_exactly_like_paste_login(home, sleeps, monke
     # the client named itself and its version, and polled with the device code at the interval
     code_req = fake.log[0]
     assert code_req["path"] == "/api/v1/device/code"
-    assert code_req["body"] == {"client_name": "clearcote-python", "client_version": __version__}
+    assert code_req["body"] == {"client_name": "code-browser-python", "client_version": __version__}
     assert code_req["headers"]["user-agent"] == f"clearcote-sdk-python/{__version__}"
     assert [e["body"] for e in fake.token_polls()] == [{"device_code": DEVICE_CODE}] * 3
     assert sleeps == [5, 5, 5]
@@ -100,7 +100,7 @@ def test_429_retry_after_is_honoured(home, sleeps, monkeypatch, request):
 
 
 @pytest.mark.parametrize("step,message", [
-    ("expired", "the code expired before it was approved. Nothing was saved. Run `clearcote login --device` again."),
+    ("expired", "the code expired before it was approved. Nothing was saved. Run `code-browser login --device` again."),
     ("denied", "the sign-in was denied in the browser. Nothing was saved."),
     ("invalid", "the licence server rejected the device login request (invalid_request). Nothing was saved."),
 ])
@@ -108,8 +108,8 @@ def test_refusals_save_nothing(home, sleeps, monkeypatch, request, capsys, step,
     fake = serve(monkeypatch, request, ["pending", step])
     assert _commands.main(["login", "--device"]) == 1
     err = capsys.readouterr().err
-    assert f"clearcote: {message}" in err
-    assert not key_file(home).exists() and not (home / ".clearcote" / "license.meta.json").exists()
+    assert f"code-browser: {message}" in err
+    assert not key_file(home).exists() and not (home / ".code-browser" / "license.meta.json").exists()
     assert len(fake.token_polls()) == 2  # stopped at the refusal
 
 
@@ -123,7 +123,7 @@ def test_dropped_connection_and_5xx_mid_poll_are_retried(home, sleeps, monkeypat
 
 
 def test_unreachable_server_fails_before_any_code(home, sleeps, monkeypatch, capsys):
-    monkeypatch.setenv("CLEARCOTE_LICENSE_API", "http://127.0.0.1:1")
+    monkeypatch.setenv("CODE_BROWSER_LICENSE_API", "http://127.0.0.1:1")
     assert _commands.main(["login", "--device"]) == 1
     err = capsys.readouterr().err
     assert "could not reach the licence server at http://127.0.0.1:1" in err and "Nothing was saved." in err
@@ -148,7 +148,7 @@ def test_ctrl_c_while_waiting_saves_nothing(home, monkeypatch, request, capsys):
     monkeypatch.setattr("time.sleep", sleep)
     monkeypatch.setattr(_devicelogin, "_wait", lambda _stop, s: sleep(s), raising=False)
     assert _commands.main(["login", "--device"]) == 130
-    assert "clearcote: cancelled. Nothing was saved." in capsys.readouterr().err
+    assert "code-browser: cancelled. Nothing was saved." in capsys.readouterr().err
     assert not key_file(home).exists()
     assert len(fake.token_polls()) == 1  # the approval after Ctrl-C was never fetched
 
@@ -209,7 +209,7 @@ def test_a_lost_answer_is_reported_as_possibly_approved_with_backoff(home, sleep
     fake = serve(monkeypatch, request, ["pending", "slow-ok"], slow_seconds=2.0)
     assert _commands.main(["login", "--device"]) == 1
     err = capsys.readouterr().err
-    assert "the sign-in may have been approved" in err and "Run `clearcote login --device` again." in err
+    assert "the sign-in may have been approved" in err and "Run `code-browser login --device` again." in err
     assert "the code expired before it was approved" not in err
     assert sleeps == [5, 5, 10]  # the timeout doubled the interval (RFC 8628 section 3.5)
     assert len(fake.token_polls()) == 3 and not key_file(home).exists()
@@ -224,7 +224,7 @@ def test_a_second_ctrl_c_stops_at_once_even_with_a_request_in_flight(home, sleep
     assert time.monotonic() - t0 < 3  # did not wait for the 5 s answer
     err = capsys.readouterr().err
     assert "press Ctrl-C again to stop at once" in err  # the first Ctrl-C said what it waits for
-    assert "clearcote: stopped at once (second Ctrl-C). Nothing was saved." in err
+    assert "code-browser: stopped at once (second Ctrl-C). Nothing was saved." in err
     assert not key_file(home).exists()
 
 
@@ -260,7 +260,7 @@ def test_info_json_reports_the_expiry_device_login_recorded(home, sleeps, monkey
     _commands.main(["info", "--quick"])
     assert "Expires         2027-01-31T00:00:00.000Z  (as reported at device login)" in capsys.readouterr().out
     # the record holds no key
-    meta = (home / ".clearcote" / "license.meta.json").read_text()
+    meta = (home / ".code-browser" / "license.meta.json").read_text()
     assert LICENSE_KEY not in meta
 
     # an env key is a different key: the record does not describe it
@@ -272,11 +272,11 @@ def test_info_json_reports_the_expiry_device_login_recorded(home, sleeps, monkey
     # pasting a different key drops the record; logout removes both files
     api = start_origin(lambda *a: (200, '{"used":0,"limit":null,"plan":"pro"}'))
     try:
-        monkeypatch.setenv("CLEARCOTE_LICENSE_API", f"http://127.0.0.1:{api.port}")
+        monkeypatch.setenv("CODE_BROWSER_LICENSE_API", f"http://127.0.0.1:{api.port}")
         assert _commands.main(["login", "cc_lic_pasted_key_abcdefgh"]) == 0
     finally:
         api.close()
-    assert not (home / ".clearcote" / "license.meta.json").exists()
+    assert not (home / ".code-browser" / "license.meta.json").exists()
     assert info_json(capsys)["license"]["expiry"]["source"] == "unknown"
     assert _commands.main(["logout"]) == 0
     assert "expiry" not in info_json(capsys)["license"]
@@ -291,4 +291,4 @@ def test_no_expiry_and_logout(home, sleeps, monkeypatch, request, capsys):
     _commands.main(["info", "--quick"])
     assert "Expires         never" in capsys.readouterr().out
     assert _commands.main(["logout"]) == 0
-    assert not (home / ".clearcote" / "license.meta.json").exists() and not key_file(home).exists()
+    assert not (home / ".code-browser" / "license.meta.json").exists() and not key_file(home).exists()

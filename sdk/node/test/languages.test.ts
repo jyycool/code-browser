@@ -5,7 +5,7 @@ import { CHROME_UI_LOCALES, chromeAcceptLanguages, chromeUiLocale, resolveLangua
 import { COUNTRY_LANG, acceptLanguageForCountry } from "../src/geoip.js";
 
 // Chrome's language defaults (mirrors sdk/python/tests/test_languages.py and
-// sdk/dotnet/tests/Clearcote.Tests/LanguagesTests.cs).
+// sdk/dotnet/tests/CodeBrowser.Tests/LanguagesTests.cs).
 // Genuine Google Chrome 154 on Windows, fresh profile per OS locale (--lang=<os locale>):
 // [os locale, navigator.languages, Intl locale]. 2026-09-25, SESSION-CONTEXT/118.
 const GENUINE_CHROME_154: [string, string, string][] = [

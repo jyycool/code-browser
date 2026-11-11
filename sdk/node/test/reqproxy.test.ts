@@ -188,7 +188,7 @@ describe("forwarder", () => {
     cleanups.push(() => ctx.dispose());
     const res = await ctx.get(`http://origin.test:${o}/x`);
     expect(res.status()).toBe(502);
-    expect(res.headers()["x-clearcote-proxy-error"]).toMatch(/407/);
+    expect(res.headers()["x-code-browser-proxy-error"]).toMatch(/407/);
     expect(up.log).toEqual([`origin.test:${o} auth=bad`]);
   });
 

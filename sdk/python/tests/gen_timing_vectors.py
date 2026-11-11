@@ -12,7 +12,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from clearcote._motion import (  # noqa: E402
+from code_browser._motion import (  # noqa: E402
     aim_traits, click_hold, click_point, dblclick_gap, drag_dwell, key_dwell, make_persona, mulberry32,
     pause_ms, timing_traits,
 )
@@ -47,9 +47,9 @@ def main():
              "click_point_rng": list(click_point(BOX, FROM, p, r))}
         draws.append(d)
     doc = {
-        "_about": ("Shared vectors for the per-persona timing and aim model: sdk/python/clearcote/_motion.py "
+        "_about": ("Shared vectors for the per-persona timing and aim model: sdk/python/code_browser/_motion.py "
                    "timing_traits/aim_traits/click_hold/key_dwell/drag_dwell/dblclick_gap/pause_ms/click_point, "
-                   "sdk/node/src/motion.ts and sdk/dotnet/src/Clearcote/Motion.cs must give these values "
+                   "sdk/node/src/motion.ts and sdk/dotnet/src/CodeBrowser/Motion.cs must give these values "
                    "(abs tolerance 1e-9 ms / px) from makePersona(persona) and mulberry32(rng). draws are taken "
                    "in the listed order from ONE mulberry32(rng) stream (per-sample draws are unseeded in use; "
                    "the seed fixes only the medians and aim traits). box {x:100,y:100,width:160,height:40}, from (20,300). persona_core = the "

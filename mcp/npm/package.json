@@ -1,12 +1,12 @@
 {
-  "name": "clearcote-mcp",
+  "name": "code-browser-mcp",
   "version": "0.3.1",
-  "description": "MCP server for Clearcote — drive the open-source stealth Chromium from Claude Desktop, Cursor, Cline, and any MCP client.",
-  "mcpName": "io.github.clearcotelabs/clearcote-mcp",
-  "bin": { "clearcote-mcp": "cli.js" },
+  "description": "MCP server for CodeBrowser — drive the open-source stealth Chromium from Claude Desktop, Cursor, Cline, and any MCP client.",
+  "mcpName": "io.github.jyycool/code-browser-mcp",
+  "bin": { "code-browser-mcp": "cli.js" },
   "files": ["cli.js", "README.md"],
-  "keywords": ["mcp", "model-context-protocol", "clearcote", "stealth", "browser", "playwright", "puppeteer", "scraping", "agent"],
+  "keywords": ["mcp", "model-context-protocol", "code-browser", "stealth", "browser", "playwright", "puppeteer", "scraping", "agent"],
   "license": "BSD-3-Clause",
-  "repository": { "type": "git", "url": "https://github.com/clearcotelabs/clearcote-browser.git", "directory": "mcp/npm" },
+  "repository": { "type": "git", "url": "https://github.com/jyycool/code-browser.git", "directory": "mcp/npm" },
   "engines": { "node": ">=18" }
 }

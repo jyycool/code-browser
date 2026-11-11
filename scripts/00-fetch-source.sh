@@ -2,9 +2,9 @@
 # 00 — fetch the pinned ungoogled-chromium tooling + Chromium source, then prune binaries.
 # Run on a capable Linux host. Produces a pruned, vanilla Chromium 151 source tree.
 #
-#   WORK   working dir (default: ~/clearcote-build)
+#   WORK   working dir (default: ~/code-browser-build)
 set -euo pipefail
-WORK="${WORK:-$HOME/clearcote-build}"
+WORK="${WORK:-$HOME/code-browser-build}"
 UG_TAG="151.0.7922.108-1"        # ungoogled-chromium tag -> pins Chromium 151.0.7922.108 (commit ecbcc4c1413c961e37d4224f787fecb8534b1505)
 UGW_TAG="151.0.7922.108-1.1"     # ungoogled-chromium-windows overlay tag (commit 0314145a88835602a48d656fd9836e5f5644721c)
 mkdir -p "$WORK"; cd "$WORK"
@@ -31,14 +31,14 @@ python3 ungoogled-chromium/utils/prune_binaries.py build/src ungoogled-chromium/
 CGIT="https://chromium.googlesource.com"
 fetch_dep() { # url  rev  dest(relative to build/src)
   local url="$1" rev="$2" dest="build/src/$3"
-  if [ ! -e "$dest/.clearcote-pinned" ]; then
+  if [ ! -e "$dest/.code-browser-pinned" ]; then
     rm -rf "$dest"; git clone --quiet "$url" "$dest"
     git -C "$dest" -c advice.detachedHead=false checkout --quiet "$rev"
-    touch "$dest/.clearcote-pinned"
+    touch "$dest/.code-browser-pinned"
   fi
 }
 fetch_dep "$CGIT/external/github.com/microsoft/webauthn.git"        273689d1d54232f0c316b31f596e7928acb1cd5a third_party/microsoft_webauthn/src
 fetch_dep "$CGIT/external/github.com/microsoft/DirectX-Headers.git" 62c23d5ec700659453c6fe89d296554b2a5e7edc third_party/microsoft_dxheaders/src
 
 echo "OK: pruned Chromium 151 source + win sub-DEPS at $WORK/build/src"
-echo "next -> scripts/01-apply-patches.sh   (patch series: ungoogled base + windows overlay + clearcote fingerprint; see patches/ and docs/en/BUILDING.md)"
+echo "next -> scripts/01-apply-patches.sh   (patch series: ungoogled base + windows overlay + code-browser fingerprint; see patches/ and docs/en/BUILDING.md)"

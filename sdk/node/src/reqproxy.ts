@@ -15,7 +15,7 @@
 // the caller's args, ours comes later in the same argv and Chromium keeps the last value of a switch;
 // the same holds for the --proxy-bypass-list it adds (`<-loopback>`), which requestProxyArgs overrides.
 // Playwright's fetch always tunnels with CONNECT (HttpsProxyAgent), even for http:// URLs, so that is
-// the one method served. Mirrors sdk/python/clearcote/_reqproxy.py and sdk/dotnet/src/Clearcote/RequestProxy.cs.
+// the one method served. Mirrors sdk/python/code_browser/_reqproxy.py and sdk/dotnet/src/CodeBrowser/RequestProxy.cs.
 import * as net from "node:net";
 import * as tls from "node:tls";
 import { proxyCredentials, type PwProxy } from "./launchopts.js";
@@ -107,7 +107,7 @@ function handleClient(client: net.Socket, upstream: Upstream, sockets: Set<net.S
       remote = isLoopback(dest.host) ? await direct(dest.host, dest.port) : await openTunnel(upstream, dest.host, dest.port);
     } catch (e) {
       const msg = String((e as Error)?.message ?? e).replace(/[\r\n]/g, " ").slice(0, 200);
-      client.end(`HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nX-Clearcote-Proxy-Error: ${msg}\r\nContent-Length: 0\r\n\r\n`);
+      client.end(`HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nX-Code-Browser-Proxy-Error: ${msg}\r\nContent-Length: 0\r\n\r\n`);
       return;
     }
     sockets.add(remote);
@@ -284,7 +284,7 @@ export async function routeRequestApi(
   try {
     return { proxy: await startRequestProxy(upstream, proxy?.bypass), args: requestProxyArgs(proxyArgs) };
   } catch (e) {
-    if (!quiet) console.warn(`clearcote: could not start the local proxy for context.request (${String((e as Error)?.message ?? e)}); context.request and page.request will connect from this machine's IP, not through your proxy.`);
+    if (!quiet) console.warn(`code-browser: could not start the local proxy for context.request (${String((e as Error)?.message ?? e)}); context.request and page.request will connect from this machine's IP, not through your proxy.`);
     return null;
   }
 }

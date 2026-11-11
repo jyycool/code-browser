@@ -1,9 +1,9 @@
 /*
- * clearcote fingerprint collector
+ * code-browser fingerprint collector
  * ================================
  * Run this in a REAL Chrome on a donor machine to capture an exhaustive, importable
  * fingerprint profile. `collectFingerprint()` returns a Promise<object> matching the
- * clearcote-profile schema (see README.md) — a SUPERSET of the Vinyzu chrome-fingerprints
+ * code-browser-profile schema (see README.md) — a SUPERSET of the Vinyzu chrome-fingerprints
  * record (every WebGL param, the full Web Audio constant table, voices, fonts, codecs, css,
  * webrtc, webgpu) PLUS the fields that dataset omits (canvas metadata, performance.memory,
  * maxTouchPoints, navigator.connection, mediaDevices, battery, permissions, Intl, Math,
@@ -382,10 +382,10 @@
     safe(() => {
       const c = document.createElement("canvas"); c.width = 280; c.height = 60;
       const x = c.getContext("2d"); x.textBaseline = "top"; x.font = "14px 'Arial'";
-      x.fillStyle = "#f60"; x.fillRect(1, 1, 100, 20); x.fillStyle = "#069"; x.fillText("clearcote fingerprint 😃", 2, 15);
+      x.fillStyle = "#f60"; x.fillRect(1, 1, 100, 20); x.fillStyle = "#069"; x.fillText("code-browser fingerprint 😃", 2, 15);
       const data = c.toDataURL(); let h = 0; for (let i = 0; i < data.length; i++) h = (h * 31 + data.charCodeAt(i)) >>> 0;
       out.toDataURL_hash = h >>> 0;
-      out.text_metrics = (() => { const m = x.measureText("clearcote MmWw 0123456789"); return { width: m.width, actualBoundingBoxAscent: m.actualBoundingBoxAscent, actualBoundingBoxDescent: m.actualBoundingBoxDescent, fontBoundingBoxAscent: m.fontBoundingBoxAscent }; })();
+      out.text_metrics = (() => { const m = x.measureText("code-browser MmWw 0123456789"); return { width: m.width, actualBoundingBoxAscent: m.actualBoundingBoxAscent, actualBoundingBoxDescent: m.actualBoundingBoxDescent, fontBoundingBoxAscent: m.fontBoundingBoxAscent }; })();
     });
     return out;
   }

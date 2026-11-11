@@ -19,24 +19,24 @@ function fakeBinary(): string {
 
 describe("resolveInstanceId (stable per-machine id: env > file > generated+persisted)", () => {
   const OLD = {
-    id: process.env.CLEARCOTE_INSTANCE_ID,
+    id: process.env.CODE_BROWSER_INSTANCE_ID,
     home: process.env.HOME,
     profile: process.env.USERPROFILE,
   };
   afterEach(() => {
-    for (const [k, v] of [["CLEARCOTE_INSTANCE_ID", OLD.id], ["HOME", OLD.home], ["USERPROFILE", OLD.profile]] as const) {
+    for (const [k, v] of [["CODE_BROWSER_INSTANCE_ID", OLD.id], ["HOME", OLD.home], ["USERPROFILE", OLD.profile]] as const) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
   });
 
-  it("prefers CLEARCOTE_INSTANCE_ID and trims it", () => {
-    process.env.CLEARCOTE_INSTANCE_ID = "  machine-7  ";
+  it("prefers CODE_BROWSER_INSTANCE_ID and trims it", () => {
+    process.env.CODE_BROWSER_INSTANCE_ID = "  machine-7  ";
     expect(resolveInstanceId()).toBe("machine-7");
   });
 
-  it("persists to ~/.clearcote/instance_id and is stable across calls (a restart reuses its slot)", () => {
-    delete process.env.CLEARCOTE_INSTANCE_ID;
+  it("persists to ~/.code-browser/instance_id and is stable across calls (a restart reuses its slot)", () => {
+    delete process.env.CODE_BROWSER_INSTANCE_ID;
     const home = tempDir("cc-home-");
     process.env.HOME = home; // POSIX
     process.env.USERPROFILE = home; // Windows
@@ -44,7 +44,7 @@ describe("resolveInstanceId (stable per-machine id: env > file > generated+persi
     const b = resolveInstanceId();
     expect(a).toBe(b);
     expect(a.length).toBeGreaterThanOrEqual(8);
-    expect(readFileSync(join(home, ".clearcote", "instance_id"), "utf8").trim()).toBe(a);
+    expect(readFileSync(join(home, ".code-browser", "instance_id"), "utf8").trim()).toBe(a);
   });
 });
 
@@ -73,16 +73,16 @@ describe("executablePath precedence (an explicit binary always wins over pro/fre
     expect(await executablePath({ executablePath: exe })).toBe(exe);
   });
 
-  it("returns CLEARCOTE_BINARY before selecting the PRO or free binary", async () => {
-    const OLD = process.env.CLEARCOTE_BINARY;
+  it("returns CODE_BROWSER_BINARY before selecting the PRO or free binary", async () => {
+    const OLD = process.env.CODE_BROWSER_BINARY;
     const exe = fakeBinary();
-    process.env.CLEARCOTE_BINARY = exe;
+    process.env.CODE_BROWSER_BINARY = exe;
     try {
       // Even WITH a pro selector present, the explicit env binary short-circuits (no fetch).
       expect(await executablePath({ pro: { licenseKey: "cc_lic_x" } })).toBe(exe);
     } finally {
-      if (OLD === undefined) delete process.env.CLEARCOTE_BINARY;
-      else process.env.CLEARCOTE_BINARY = OLD;
+      if (OLD === undefined) delete process.env.CODE_BROWSER_BINARY;
+      else process.env.CODE_BROWSER_BINARY = OLD;
     }
   });
 });
@@ -91,7 +91,7 @@ describe("proEnsureBinary (license-gated download)", () => {
   const realFetch = globalThis.fetch;
   const OLD = { home: process.env.HOME, profile: process.env.USERPROFILE };
   beforeEach(() => {
-    // the download route's answer is kept in ~/.clearcote: never this machine's
+    // the download route's answer is kept in ~/.code-browser: never this machine's
     const home = tempDir("cc-home-");
     process.env.HOME = home;
     process.env.USERPROFILE = home;

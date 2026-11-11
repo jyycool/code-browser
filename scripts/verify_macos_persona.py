@@ -1,4 +1,4 @@
-"""clearcote open build — macOS persona font coherence check.
+"""code-browser open build — macOS persona font coherence check.
 
 The open build needs no licence key. Pass CC_APP to point at another binary.
 
@@ -15,8 +15,8 @@ so a platform=-only launch spoofs the strings and measures no font work at all.
 """
 import os, sys
 APP = os.environ.get("CC_APP") or os.path.expanduser(
-    "~/clearcote-mac-build/open150/build/src/out/Default/Chromium.app/Contents/MacOS/Chromium")
-import clearcote
+    "~/code-browser-mac-build/open150/build/src/out/Default/Chromium.app/Contents/MacOS/Chromium")
+import code_browser
 SEED = os.environ.get("CC_SEED", "open150-macport")
 
 WIN_ONLY = ['Segoe UI', 'Calibri', 'Consolas', 'Cambria', 'Candara', 'Corbel',
@@ -56,7 +56,7 @@ PROBE = """(names) => {
 }"""
 
 def run(persona):
-    b = clearcote.launch(executable_path=APP, docker=False, headless=True,
+    b = code_browser.launch(executable_path=APP, docker=False, headless=True,
                          platform=persona, fingerprint=SEED,
                          args=["--use-mock-keychain"])
     pg = b.new_page(); pg.goto("about:blank")

@@ -3,8 +3,8 @@ measured 2026-10-28, SC 295). It is now written the way Chrome reports it, and a
 makers is refused. Mirrors sdk/node/test/gpu-vendor.test.ts."""
 import pytest
 
-from clearcote._fingerprint import fingerprint_args, gpu_maker, gpu_vendor_for
-from clearcote._warnings import coherence_warnings
+from code_browser._fingerprint import fingerprint_args, gpu_maker, gpu_vendor_for
+from code_browser._warnings import coherence_warnings
 
 AMD = "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001506) Direct3D11 vs_5_0 ps_5_0, D3D11)"
 INTEL = "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)"

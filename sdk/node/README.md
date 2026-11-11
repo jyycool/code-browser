@@ -1,16 +1,16 @@
-# clearcote (Node / TypeScript SDK)
+# code_browser (Node / TypeScript SDK)
 
-A **Playwright drop-in** for [Clearcote](https://github.com/clearcotelabs/clearcote-browser) — the
+A **Playwright drop-in** for [CodeBrowser](https://github.com/jyycool/code-browser) — the
 open, reproducible, anti-fingerprint Chromium build. `launch()` returns a standard Playwright
 `Browser`, so migrating is a one-line import change.
 
-The verified Clearcote binary is **auto-downloaded and SHA-256 checked** on first use, then cached —
-you don't manage zips or paths. Or run the same code on a hosted Clearcote browser with
+The verified CodeBrowser binary is **auto-downloaded and SHA-256 checked** on first use, then cached —
+you don't manage zips or paths. Or run the same code on a hosted CodeBrowser browser with
 `launch({ cloud: true })`: see [Local or cloud](#local-or-cloud).
 
-> **What's new** — without a licence key the SDK now downloads the open build **Chromium 151** ([v0.1.0-pre.25](https://github.com/clearcotelabs/clearcote-browser/releases/tag/v0.1.0-pre.25), `151.0.7922.108`), SDK `clearcote` **0.64.0**. `version: "150"` and `"149"` still resolve.
+> **What's new** — without a licence key the SDK now downloads the open build **Chromium 151** ([v0.1.0-pre.25](https://github.com/jyycool/code-browser/releases/tag/v0.1.0-pre.25), `151.0.7922.108`), SDK `code-browser` **0.64.0**. `version: "150"` and `"149"` still resolve.
 
-> **Platform:** Clearcote ships **Windows x64** and **Linux x64** binaries, plus a **macOS arm64** (Apple
+> **Platform:** CodeBrowser ships **Windows x64** and **Linux x64** binaries, plus a **macOS arm64** (Apple
 > Silicon) PRO build; `launch()` runs on all of them and the SDK auto-downloads the right one for your OS. On Linux the persona is Linux-native (Linux
 > GPU/voices/audio-device values) and DRM uses the Linux CDM. On an Apple Silicon Mac
 > `launch()` runs a native macOS build: the PRO build with a licence key, and without one the open macOS build
@@ -19,7 +19,7 @@ you don't manage zips or paths. Or run the same code on a hosted Clearcote brows
 > `platform: "macos"` (the default there); another platform warns unless a `fingerprint_profile` captured on that OS
 > supplies them. On an Intel Mac, `launch()` runs the
 > [Docker image](../../docker/README.md) through Docker Desktop instead (SDK 0.40.0+; `docker: true` or
-> `CLEARCOTE_DOCKER=1` does the same on any OS, an Apple Silicon Mac included). On a minimal Linux host, install `xz-utils` (the Node SDK unpacks the
+> `CODE_BROWSER_DOCKER=1` does the same on any OS, an Apple Silicon Mac included). On a minimal Linux host, install `xz-utils` (the Node SDK unpacks the
 > `.tar.xz` with the system `tar`) plus the browser's runtime libs (e.g.
 > `apt-get install -y xz-utils libnss3 libnspr4 libgbm1 libasound2 libatk1.0-0 libatk-bridge2.0-0 libcups2
 > libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libxfixes3 libxext6 libpango-1.0-0
@@ -32,16 +32,16 @@ you don't manage zips or paths. Or run the same code on a hosted Clearcote brows
 ## Install
 
 ```bash
-npm install clearcote
+npm install code-browser
 ```
 
 `playwright-core` comes as a dependency — you do **not** need to install Playwright separately or
-run `playwright install` (Clearcote uses its own browser binary).
+run `playwright install` (CodeBrowser uses its own browser binary).
 
 ## Usage
 
 ```ts
-import { launch } from "clearcote";
+import { launch } from "code-browser";
 
 const browser = await launch({
   fingerprint: "user-7423",        // per-eTLD+1 seed: same seed => same identity, different => unlinkable
@@ -56,7 +56,7 @@ await page.goto("https://abrahamjuliot.github.io/creepjs/");
 await browser.close();
 ```
 
-Already using Playwright? Swap `chromium.launch(...)` for `launch(...)` from `clearcote` — the
+Already using Playwright? Swap `chromium.launch(...)` for `launch(...)` from `code-browser` — the
 returned object is a normal Playwright `Browser`.
 
 ### Light stealth (`lightStealth: true`)
@@ -80,18 +80,18 @@ const browser = await launch({ hardwareConcurrency: 8, deviceMemory: 8, devicePi
 
 Native overrides: `hardwareConcurrency`, `deviceMemory`, `colorDepth`, `devicePixelRatio`,
 `maxTouchPoints`, and (opt-in) `screenWidth` / `screenHeight` / `availWidth` / `availHeight`. Needs the
-Clearcote 149.0.7827.114 (v0.1.0-pre.22) build or newer.
+CodeBrowser 149.0.7827.114 (v0.1.0-pre.22) build or newer.
 
 ### Standing CDP endpoint (`serve()`)
 
-Run Clearcote as a **stealthy CDP endpoint** any existing automation attaches to unchanged —
+Run CodeBrowser as a **stealthy CDP endpoint** any existing automation attaches to unchanged —
 Playwright's `connectOverCDP`, `puppeteer.connect`, or browser-use / Crawl4AI / Stagehand. Where
 `launch()` spawns a Playwright-owned browser, `serve()` launches the binary **directly** — so
 `--enable-automation` is never added and `navigator.webdriver` stays `false`; the port binds to
 loopback (`127.0.0.1`) behind an origin allowlist.
 
 ```js
-import { serve } from "clearcote";
+import { serve } from "code-browser";
 import { chromium } from "playwright";
 
 const srv = await serve({ fingerprint: "seed-123", platform: "windows" });  // same options as launch()
@@ -113,16 +113,16 @@ opt out. On an engine with persona windows a seeded `serve()` opens the persona'
 (see [Window geometry](#window-geometry-the-personas-own-window)); `windowSize` still wins.
 
 **Drive it from an AI agent (MCP).** Point Claude Desktop / Cursor / Cline at the
-[`clearcote-mcp`](https://github.com/clearcotelabs/clearcote-browser/tree/main/mcp) server
-(`npx -y clearcote-mcp` or `pip install clearcote-mcp`) — ~20 tools over one shared stealth browser.
+[`code-browser-mcp`](https://github.com/jyycool/code-browser/tree/main/mcp) server
+(`npx -y code-browser-mcp` or `pip install code-browser-mcp`) — ~20 tools over one shared stealth browser.
 
-### Many identities on one endpoint (`serveMultiplex`, `clearcote serve`)
+### Many identities on one endpoint (`serveMultiplex`, `code-browser serve`)
 
 One port, one browser per identity, chosen by the connection URL:
 
 ```ts
 import { chromium } from "playwright-core";
-// in another process:  npx clearcote serve --port 9222 --idle-timeout 300
+// in another process:  npx code-browser serve --port 9222 --idle-timeout 300
 const a = await chromium.connectOverCDP("http://127.0.0.1:9222?fingerprint=acct-1&timezone=Europe/Berlin");
 const b = await chromium.connectOverCDP(`http://127.0.0.1:9222?fingerprint=acct-2&proxy=${encodeURIComponent("socks5://u:p@host:1080")}&geoip=true`);
 ```
@@ -135,27 +135,27 @@ const b = await chromium.connectOverCDP(`http://127.0.0.1:9222?fingerprint=acct-
 
 In code: `serveMultiplex({ port: 9222, idleTimeoutSec: 300, dataDir: "./profiles" })`.
 
-### `clearcote` command line
+### `code-browser` command line
 
 ```bash
-npx clearcote install [--version 152] [--channel preview]
-npx clearcote info [--quick] [--json] [--proxy <url>]   # alias: doctor
-npx clearcote bench [--concurrency 3] [--url <url>] [--proxy <url>] [--duration 30] [--json]
-npx clearcote login [key]      # validates the key, saves it to ~/.clearcote/license.key
-npx clearcote logout
-npx clearcote clear-cache
-npx clearcote serve [--port 9222] ...
-npx clearcote connect [<code>]   # start the helper for the web profile manager (app.clearcotelabs.com)
-npx clearcote cloud run|sessions|stop|events|recording|profile sync|webhooks ...   # the hosted API, see Local or cloud
+npx code-browser install [--version 152] [--channel preview]
+npx code-browser info [--quick] [--json] [--proxy <url>]   # alias: doctor
+npx code-browser bench [--concurrency 3] [--url <url>] [--proxy <url>] [--duration 30] [--json]
+npx code-browser login [key]      # validates the key, saves it to ~/.code-browser/license.key
+npx code-browser logout
+npx code-browser clear-cache
+npx code-browser serve [--port 9222] ...
+npx code-browser connect [<code>]   # start the helper for the web profile manager (app.clearcotelabs.com)
+npx code-browser cloud run|sessions|stop|events|recording|profile sync|webhooks ...   # the hosted API, see Local or cloud
 ```
 
-`connect` starts the Clearcote Helper in that terminal, so the web profile manager at https://app.clearcotelabs.com can launch your profiles on this computer. Copy the command with its code from the profile manager's Connect window and that tab connects by itself. The first run downloads the helper release this SDK pins and checks its SHA-256; Ctrl+C closes the helper and its browsers.
+`connect` starts the CodeBrowser Helper in that terminal, so the web profile manager at https://app.clearcotelabs.com can launch your profiles on this computer. Copy the command with its code from the profile manager's Connect window and that tab connects by itself. The first run downloads the helper release this SDK pins and checks its SHA-256; Ctrl+C closes the helper and its browsers.
 
 `info` never downloads: it reports the SDK, this machine (CPU, RAM, VM or not, and whether there is a GPU Chromium can draw with), the cached builds, which engine features the binary supports, a launch test (skipped with `--quick`), licence seats, fonts and missing system libraries.
 
 `bench` answers "why is my CPU at 100 %" and "how many browsers can I run": it starts `--concurrency` browsers (headless, temporary profiles, deleted afterwards), loads `--url` in each for `--duration` seconds, through `--proxy` if you give one, and prints what each browser costs in CPU threads and RAM on this machine, page timings (DOMContentLoaded, load, network idle), errors, about how many browsers the machine runs at once, and what to change. It runs fewer browsers than asked when free RAM looks too small (`--force` runs them all). Each browser holds a licence seat while it runs. Paste the output into a support request; proxy credentials are never printed.
 
-Windows: when a cached build cannot start from the cache (`spawn UNKNOWN`, "the side-by-side configuration is incorrect"; this happens when the SDK runs inside an MSIX-packaged app, whose writes to `%LOCALAPPDATA%` Windows redirects), launches use one copy of that build in `~/.clearcote/recovered/` instead, made once and reused by every later launch from Python or Node. `clear-cache` removes those copies too.
+Windows: when a cached build cannot start from the cache (`spawn UNKNOWN`, "the side-by-side configuration is incorrect"; this happens when the SDK runs inside an MSIX-packaged app, whose writes to `%LOCALAPPDATA%` Windows redirects), launches use one copy of that build in `~/.code-browser/recovered/` instead, made once and reused by every later launch from Python or Node. `clear-cache` removes those copies too.
 
 ### Engine options (PRO 152 r22+)
 
@@ -168,9 +168,9 @@ Windows: when a cached build cannot start from the cache (`spawn UNKNOWN`, "the 
 
 On an older engine each of these is skipped with a warning; the launch still works.
 
-`stockRuntime: true` (or `CLEARCOTE_STOCK_RUNTIME=1`) gives Playwright the browser's stock DevTools behaviour back: `page.on("console")` and `page.on("pageerror")` receive events, `page.setContent()` works, and `exposeFunction()` / `exposeBinding()` keep working after a navigation. It is off by default because pages can observe some of what it restores. It needs an engine from r32 on; an older engine launches without it and the SDK warns once. It applies to local and Docker launches, not to cloud browsers.
+`stockRuntime: true` (or `CODE_BROWSER_STOCK_RUNTIME=1`) gives Playwright the browser's stock DevTools behaviour back: `page.on("console")` and `page.on("pageerror")` receive events, `page.setContent()` works, and `exposeFunction()` / `exposeBinding()` keep working after a navigation. It is off by default because pages can observe some of what it restores. It needs an engine from r32 on; an older engine launches without it and the SDK warns once. It applies to local and Docker launches, not to cloud browsers.
 
-`runtimeBindings: true` (or `CLEARCOTE_RUNTIME_BINDINGS=1`) restores only the last of those: `exposeFunction()` / `exposeBinding()` (and any CDP `Runtime.addBinding`) keep working after `page.goto()` or a reload, while console events stay suppressed. A launch that adds no binding looks the same to a page; one that does shows the page that binding's global, as Chrome does. Off by default. It needs an engine from r54 on; an older engine launches without it and the SDK warns once. Local and Docker launches only.
+`runtimeBindings: true` (or `CODE_BROWSER_RUNTIME_BINDINGS=1`) restores only the last of those: `exposeFunction()` / `exposeBinding()` (and any CDP `Runtime.addBinding`) keep working after `page.goto()` or a reload, while console events stay suppressed. A launch that adds no binding looks the same to a page; one that does shows the page that binding's global, as Chrome does. Off by default. It needs an engine from r54 on; an older engine launches without it and the SDK warns once. Local and Docker launches only.
 
 ### On engines from r32 (`personaEnv`, light or dark)
 
@@ -189,7 +189,7 @@ for each one first, so an older engine launches exactly as before.
   `launchPersistentContext()` leave the colour scheme unemulated (`colorScheme: null`). Pass `colorScheme`
   yourself to emulate one anyway. Docker and cloud launches are unchanged.
 
-Also: `licenseThroughProxy: true` (or `CLEARCOTE_LICENSE_THROUGH_PROXY=1`) sends the licence calls through the launch proxy; `releaseChannel: "preview"` (or `CLEARCOTE_RELEASE_CHANNEL`) picks up PRO preview builds; `getSessionSeats()` reports seats in use.
+Also: `licenseThroughProxy: true` (or `CODE_BROWSER_LICENSE_THROUGH_PROXY=1`) sends the licence calls through the launch proxy; `releaseChannel: "preview"` (or `CODE_BROWSER_RELEASE_CHANNEL`) picks up PRO preview builds; `getSessionSeats()` reports seats in use.
 
 ### Personas come from the persona service (engine r51+)
 
@@ -206,7 +206,7 @@ itself; nothing changes in your code. What you may notice:
   passed on the command line is gone.
 - Daily limits per licence on *new* personas apply (relaunching the same profiles is free). A refusal or an unreachable
   service throws `PersonaServiceError` with the reason; the engine cannot start without a persona.
-- Self-hosting or testing: `CLEARCOTE_PERSONA_API=https://host[,https://host2]` overrides the hosts.
+- Self-hosting or testing: `CODE_BROWSER_PERSONA_API=https://host[,https://host2]` overrides the hosts.
 
 Engines before r51 keep deriving personas themselves; the SDK detects the engine and leaves them as they were.
 
@@ -221,13 +221,13 @@ const browser = await launch({
 });
 ```
 
-**WebRTC won't leak your real IP.** The engine *fabricates* the WebRTC server-reflexive (`srflx`) candidate at `webrtcIp` and sends **no real STUN** from your host — so WebRTC reports the proxy IP and your real IP never leaks at the packet level. A plain candidate "relabel" doesn't stop the leak (the real STUN packet still goes out from your host); Clearcote sends none. Raw host candidates are suppressed, and the candidate set stays coherent (not empty/disabled).
+**WebRTC won't leak your real IP.** The engine *fabricates* the WebRTC server-reflexive (`srflx`) candidate at `webrtcIp` and sends **no real STUN** from your host — so WebRTC reports the proxy IP and your real IP never leaks at the packet level. A plain candidate "relabel" doesn't stop the leak (the real STUN packet still goes out from your host); CodeBrowser sends none. Raw host candidates are suppressed, and the candidate set stays coherent (not empty/disabled).
 
 **`context.request` and `page.request` use the proxy too.** Playwright sends its request API from the driver, not the browser, through the proxy in Playwright's own options. A proxy with credentials is handed to the engine instead (credentials in Playwright's options switch on request interception for the whole context, a detectable side effect), so from 0.59.0 the SDK starts a small proxy on `127.0.0.1` for the request API: it adds your credentials and tunnels to your proxy (HTTP, HTTPS or SOCKS5; SOCKS5 resolves names at the proxy). The browser itself still connects to your proxy directly. Before 0.59.0 these calls connected from your own IP. The request API still uses Node's TLS stack, not Chrome's, so for requests a site should see as the browser, call `fetch` inside the page (`page.evaluate(() => fetch(url))`). A client attached to `serve()` over CDP runs the request API in its own process, where the SDK cannot route it.
 
 ### Auto geo-match (`geoip`)
 
-Set `geoip: true` and Clearcote resolves the **proxy's exit IP** (looked up *through* the proxy) and auto-fills any unset `timezone`, `acceptLanguage`, `location`, **and `webrtcIp`** so the whole identity — clock, language, geo, and WebRTC IP — matches the proxy's region:
+Set `geoip: true` and CodeBrowser resolves the **proxy's exit IP** (looked up *through* the proxy) and auto-fills any unset `timezone`, `acceptLanguage`, `location`, **and `webrtcIp`** so the whole identity — clock, language, geo, and WebRTC IP — matches the proxy's region:
 
 ```ts
 const browser = await launch({
@@ -244,7 +244,7 @@ The whole lookup has one deadline, `CLEARCOTE_GEOIP_TIMEOUT_SECONDS` (default 20
 Geo data comes from the offline [geoip-all-in-one](https://github.com/daijro/geoip-all-in-one) MaxMind database (downloaded + cached on first use, ~52 MB; GPL-3.0 data, the same source Camoufox uses) — more accurate than a single online API. The exit IP comes from a small IP echo through the proxy (`api.ipify.org`, then `icanhazip.com`).
 
 - `CLEARCOTE_GEOIP_ECHO_URL`: your own IP-echo endpoint(s), comma-separated, used instead of the public ones, so no third party learns that the proxy is in use. It should answer with the IP as plain text, or JSON with an `ip` field.
-- `CLEARCOTE_GEOIP_IPAPI=1`: also ask `ip-api.com` when the database has no answer, e.g. while it is still downloading on first use. Off by default: ip-api.com's free endpoint is for non-commercial use only and allows 45 requests a minute per IP.
+- `CODE_BROWSER_GEOIP_IPAPI=1`: also ask `ip-api.com` when the database has no answer, e.g. while it is still downloading on first use. Off by default: ip-api.com's free endpoint is for non-commercial use only and allows 45 requests a minute per IP.
 
 ### In Docker (`docker: true`)
 
@@ -254,12 +254,12 @@ A container has no WebRTC ICE candidates at all unless `webrtcIp` is given. The 
 
 ### Humanized input (`humanize`, `showCursor`)
 
-`humanize: true` installs **one consistent human-input standard** across every Playwright surface (`page.click`/`hover`/`dblclick`/`type`/`fill`/`press`/`selectOption`/`check`/`uncheck`/`setChecked`, `page.mouse.*`, `page.keyboard.type`/`press`, and the `Locator` equivalents incl. `dragTo`), dispatched as **native trusted input** (`isTrusted === true`, `navigator.webdriver` stays `false`). Mouse paths start from the *last* cursor position (no snap to the corner) and are walked as a **sum of sub-movements with a min-jerk velocity profile**: an arcing ballistic primary that reaches its top speed before the halfway point and either stops a little short of the target or, in a share of moves fixed per identity (15–38 %), passes it and comes back, then a short corrective move; a held `mouse.down()` stays pressed across the move so `down → move → up` is a real drag, planned as a flat leg within a few pixels of the line from grab to drop (a slider handle stays on its track), with the occasional small overshoot and pull-back. `page.mouse.click(x, y)` is walked by the engine's own pointer path when the engine has one and knows where the pointer is (nothing else moved it since its last walk); `CLEARCOTE_HUMANIZE_ENGINE_CLICKS=off` keeps every click on the SDK's path, `=all` also sends `page.click(selector)` / `locator.click()` there (plain left single clicks on a point the hit test proved). Typing is key-by-key, each key held for the identity's dwell, with a randomized 45–150 ms gap between keys + occasional thinking pauses + word-boundary pauses + the occasional fat-finger correction + **key rollover** (on some fast pairs the next key goes down before the previous one comes up, at a rate fixed per identity; a `fill` over 200 chars glides to the field and clicks into it, then inserts the value in one go). Every press the SDK makes itself (a selector click, the click into a field, `mouse.down()` after a move, a drag's grab, a drop-down or list-box click) comes after a short pause once the pointer has arrived (40–250 ms, right-skewed, typical length fixed per identity). A `page.mouse.click(x, y)` that the engine's pointer path walks is pressed by the engine, not the SDK: engine builds up to r39 press about 10 ms after their last move, with no such pause (`CLEARCOTE_HUMANIZE_ENGINE_CLICKS=off` keeps those clicks on the SDK's path, pause included). Scrolling moves in **whole wheel notches** (100 px on a Windows identity, 120 on Linux, 40 on macOS; the requested distance is rounded to the nearest notch, at least one), because a browser reports every wheel event as one full notch, in short flicks with the occasional reading pause, and moves the pointer over the content first when it isn't already there (a wheel event carries the cursor position). Click options are honoured (`button`, `clickCount`, `delay` as the hold — `0`, Playwright's default, gets the identity's hold —, `modifiers` held around the press (down 80–360 ms before it, up 20–80 ms after), `position`, `force`; `trial` performs no action: the SDK runs Playwright's checks itself — visible, enabled, stable, the click point receives the press — and rejects with Playwright's `TimeoutError` when they never pass, without moving the pointer or pressing, which Playwright's own trial does). Humanized clicks run no Playwright `trial` first: whether the click point is covered comes from the browser's own hit test, read in an isolated world, so the pointer never jumps onto the target and back. A layer with `pointer-events: none` over the target is skipped, as a real press skips it, and a click point inside a child frame is checked against the `<iframe>` element that holds it. `fill` follows the field: text is typed (cleared with held keys only when it has a value, then checked; a value a formatting mask only re-punctuates counts as typed, and a mask that then stops taking keys (an `MM/YY` expiry, a dashed phone number) is typed once, never wiped and retyped; a `maxlength` field gets only the characters it can hold, as with Playwright's own `fill`), a range slider is dragged or clicked and then nudged with the arrow keys to the exact value (a value off the step or out of range raises Playwright's "Malformed value", as without humanize), and a date / time / month / week / datetime-local field is typed segment by segment in the order the browser shows them, with the same key timing as text; colour and non-text inputs keep Playwright's behaviour. `type`/`press` click into a text field first; keys for a button, a link or a hidden field go through Playwright's own focus, so nothing is activated twice. A `<select>` drop-down is opened with a click, its option is found by typing the first letters of its label (spaces included, so `Item 371` of 400 is typed, not arrowed to; a list with nothing to type is crossed by holding the arrow key) and committed with Enter, so the browser fires one trusted `change`; a list box is clicked row by row, scrolled with the wheel until the row shows, with Ctrl (Cmd on a Mac engine) held for the extra rows of a multi-select. Typos are never made in password, e-mail, number, phone, URL or one-time-code fields, nor in a field inside an iframe, and only what actually landed is deleted; `CLEARCOTE_HUMANIZE_TYPO_RATE` sets the per-key rate (default `0.02`, `0` turns typos off). Waits use the caller's `timeout` (or the page default) and a `TimeoutError` is raised after one wait, never a second native one; `force` skips the waits, as in Playwright. Errors are Playwright's own class, worded for the method you called (`page.click: Timeout 800ms exceeded.`, `locator.check: Error: Not a checkbox or radio button`), and `locator.tap()` in a context without `hasTouch` rejects with Playwright's own error instead of clicking. Frame locators and anything humanize cannot verify (a covered field, a value it cannot read back) fall back to Playwright's own action. Calls on one page run one at a time, so a `Promise.all` of fills cannot mix their keys. `showCursor: true` injects a cursor dot for headed runs. Both default off.
+`humanize: true` installs **one consistent human-input standard** across every Playwright surface (`page.click`/`hover`/`dblclick`/`type`/`fill`/`press`/`selectOption`/`check`/`uncheck`/`setChecked`, `page.mouse.*`, `page.keyboard.type`/`press`, and the `Locator` equivalents incl. `dragTo`), dispatched as **native trusted input** (`isTrusted === true`, `navigator.webdriver` stays `false`). Mouse paths start from the *last* cursor position (no snap to the corner) and are walked as a **sum of sub-movements with a min-jerk velocity profile**: an arcing ballistic primary that reaches its top speed before the halfway point and either stops a little short of the target or, in a share of moves fixed per identity (15–38 %), passes it and comes back, then a short corrective move; a held `mouse.down()` stays pressed across the move so `down → move → up` is a real drag, planned as a flat leg within a few pixels of the line from grab to drop (a slider handle stays on its track), with the occasional small overshoot and pull-back. `page.mouse.click(x, y)` is walked by the engine's own pointer path when the engine has one and knows where the pointer is (nothing else moved it since its last walk); `CODE_BROWSER_HUMANIZE_ENGINE_CLICKS=off` keeps every click on the SDK's path, `=all` also sends `page.click(selector)` / `locator.click()` there (plain left single clicks on a point the hit test proved). Typing is key-by-key, each key held for the identity's dwell, with a randomized 45–150 ms gap between keys + occasional thinking pauses + word-boundary pauses + the occasional fat-finger correction + **key rollover** (on some fast pairs the next key goes down before the previous one comes up, at a rate fixed per identity; a `fill` over 200 chars glides to the field and clicks into it, then inserts the value in one go). Every press the SDK makes itself (a selector click, the click into a field, `mouse.down()` after a move, a drag's grab, a drop-down or list-box click) comes after a short pause once the pointer has arrived (40–250 ms, right-skewed, typical length fixed per identity). A `page.mouse.click(x, y)` that the engine's pointer path walks is pressed by the engine, not the SDK: engine builds up to r39 press about 10 ms after their last move, with no such pause (`CODE_BROWSER_HUMANIZE_ENGINE_CLICKS=off` keeps those clicks on the SDK's path, pause included). Scrolling moves in **whole wheel notches** (100 px on a Windows identity, 120 on Linux, 40 on macOS; the requested distance is rounded to the nearest notch, at least one), because a browser reports every wheel event as one full notch, in short flicks with the occasional reading pause, and moves the pointer over the content first when it isn't already there (a wheel event carries the cursor position). Click options are honoured (`button`, `clickCount`, `delay` as the hold — `0`, Playwright's default, gets the identity's hold —, `modifiers` held around the press (down 80–360 ms before it, up 20–80 ms after), `position`, `force`; `trial` performs no action: the SDK runs Playwright's checks itself — visible, enabled, stable, the click point receives the press — and rejects with Playwright's `TimeoutError` when they never pass, without moving the pointer or pressing, which Playwright's own trial does). Humanized clicks run no Playwright `trial` first: whether the click point is covered comes from the browser's own hit test, read in an isolated world, so the pointer never jumps onto the target and back. A layer with `pointer-events: none` over the target is skipped, as a real press skips it, and a click point inside a child frame is checked against the `<iframe>` element that holds it. `fill` follows the field: text is typed (cleared with held keys only when it has a value, then checked; a value a formatting mask only re-punctuates counts as typed, and a mask that then stops taking keys (an `MM/YY` expiry, a dashed phone number) is typed once, never wiped and retyped; a `maxlength` field gets only the characters it can hold, as with Playwright's own `fill`), a range slider is dragged or clicked and then nudged with the arrow keys to the exact value (a value off the step or out of range raises Playwright's "Malformed value", as without humanize), and a date / time / month / week / datetime-local field is typed segment by segment in the order the browser shows them, with the same key timing as text; colour and non-text inputs keep Playwright's behaviour. `type`/`press` click into a text field first; keys for a button, a link or a hidden field go through Playwright's own focus, so nothing is activated twice. A `<select>` drop-down is opened with a click, its option is found by typing the first letters of its label (spaces included, so `Item 371` of 400 is typed, not arrowed to; a list with nothing to type is crossed by holding the arrow key) and committed with Enter, so the browser fires one trusted `change`; a list box is clicked row by row, scrolled with the wheel until the row shows, with Ctrl (Cmd on a Mac engine) held for the extra rows of a multi-select. Typos are never made in password, e-mail, number, phone, URL or one-time-code fields, nor in a field inside an iframe, and only what actually landed is deleted; `CODE_BROWSER_HUMANIZE_TYPO_RATE` sets the per-key rate (default `0.02`, `0` turns typos off). Waits use the caller's `timeout` (or the page default) and a `TimeoutError` is raised after one wait, never a second native one; `force` skips the waits, as in Playwright. Errors are Playwright's own class, worded for the method you called (`page.click: Timeout 800ms exceeded.`, `locator.check: Error: Not a checkbox or radio button`), and `locator.tap()` in a context without `hasTouch` rejects with Playwright's own error instead of clicking. Frame locators and anything humanize cannot verify (a covered field, a value it cannot read back) fall back to Playwright's own action. Calls on one page run one at a time, so a `Promise.all` of fills cannot mix their keys. `showCursor: true` injects a cursor dot for headed runs. Both default off.
 
 **Press and hold** (`pressAndHold`) is one long press for controls that act only while the button stays down: hold-to-confirm buttons, long-press menus, press-and-hold verification buttons.
 
 ```ts
-import { pressAndHold } from "clearcote";
+import { pressAndHold } from "code-browser";
 
 await page.pressAndHold("#hold", { duration: 3000 });          // humanize: true; hold for 3 s
 await page.pressAndHold("#hold", { until: async () => (await page.locator("#hold[data-state=done]").count()) > 0 });
@@ -275,7 +275,7 @@ It waits for the element and scrolls it into view, glides to a point inside it, 
 A persona can claim a GPU, but if the page is actually painted by a software rasterizer (SwiftShader/llvmpipe — common headless with no GPU) a strict detector can tell:
 
 ```ts
-import { launch, checkRenderCoherence } from "clearcote";
+import { launch, checkRenderCoherence } from "code-browser";
 
 const br = await launch({ fingerprint: "user-7423" });
 const page = await br.newPage(); await page.goto("about:blank");
@@ -291,7 +291,7 @@ On a Linux host the SDK picks the software backend that matches the GPU the pers
 
 ### Hardened launch defaults
 
-Every `launch()` already, with no extra options: **drops Playwright's `--enable-automation`** (so the engine's `AutomationControlled` feature stays off — pass your own `ignoreDefaultArgs` to override); **disables QUIC/HTTP-3 when a proxy is set** (a SOCKS5/HTTP proxy carries only TCP, so no UDP egresses around it); and prints a one-line **coherence warning** to stderr for incoherent option combos (silence with `quiet: true` or `CLEARCOTE_NO_WARN=1`). That includes a one-time warning when a launch claims Linux on a Windows host: Direct3D caps the WebGL and WebGPU limits there, and a persona can lower a limit but never raise one past the driver's, so a Linux persona reports limits no Linux machine has (claim `platform: "windows"` on Windows, or run Linux personas on Linux or in Docker with `docker: true`). On Linux a headless launch's display is sized to the persona's screen (`--screen-info`; your own wins), so full-screen, pop-ups and moved windows stay inside the screen the page is told about.
+Every `launch()` already, with no extra options: **drops Playwright's `--enable-automation`** (so the engine's `AutomationControlled` feature stays off — pass your own `ignoreDefaultArgs` to override); **disables QUIC/HTTP-3 when a proxy is set** (a SOCKS5/HTTP proxy carries only TCP, so no UDP egresses around it); and prints a one-line **coherence warning** to stderr for incoherent option combos (silence with `quiet: true` or `CODE_BROWSER_NO_WARN=1`). That includes a one-time warning when a launch claims Linux on a Windows host: Direct3D caps the WebGL and WebGPU limits there, and a persona can lower a limit but never raise one past the driver's, so a Linux persona reports limits no Linux machine has (claim `platform: "windows"` on Windows, or run Linux personas on Linux or in Docker with `docker: true`). On Linux a headless launch's display is sized to the persona's screen (`--screen-info`; your own wins), so full-screen, pop-ups and moved windows stay inside the screen the page is told about.
 
 ### Your own fonts on Linux (`fontDirs`)
 
@@ -300,7 +300,7 @@ lookalikes (Arial→Arimo, Segoe UI→Selawik, Times New Roman→Tinos, …). Fo
 so nothing on the machine changes what a page measures. Two settings add directories (`launch()`, persistent
 contexts and `serve()`):
 
-- `fontDirs: [...]`, or `CLEARCOTE_FONT_DIRS` (directories separated by `:`): your own fonts, typically a copy of a
+- `fontDirs: [...]`, or `CODE_BROWSER_FONT_DIRS` (directories separated by `:`): your own fonts, typically a copy of a
   Windows machine's `C:\Windows\Fonts`, listed ahead of the bundle. On an engine that lets a genuine face win over
   its lookalike (the licensed build from r32), every family they provide renders as itself, and the names that
   stand for it on Windows follow: Helvetica, Times and Courier, and the CSS generics (`sans-serif` → Arial, `serif` →
@@ -313,28 +313,28 @@ contexts and `serve()`):
   so put only fonts in these directories that you are happy for a page to see.
 
 The font configuration is written next to the browser binary. When that directory is not writable (a binary
-unpacked by another user, a read-only image layer), it goes to `CLEARCOTE_CACHE/fontconfig` or
-`~/.cache/clearcote/fontconfig` instead, then to a private temp directory; if none can be written, the SDK warns
+unpacked by another user, a read-only image layer), it goes to `CODE_BROWSER_CACHE/fontconfig` or
+`~/.cache/code-browser/fontconfig` instead, then to a private temp directory; if none can be written, the SDK warns
 once, because the browser would then see this machine's own fonts.
 
 ```js
-import { launch } from "clearcote";
+import { launch } from "code-browser";
 
 // a copy of a Windows machine's C:\Windows\Fonts on the Linux host
 const browser = await launch({ fingerprint: "acct-1", platform: "windows", fontDirs: ["/srv/windows-fonts"] });
 ```
 
-`npx clearcote info` reports which of 29 writing systems the fonts a launch would see can draw, your font directories,
+`npx code-browser info` reports which of 29 writing systems the fonts a launch would see can draw, your font directories,
 and which of the key Windows families they provide for real. Never point either setting at all of
 `/usr/share/fonts`: the host's Latin families then compete with the bundle and change the widths a Windows persona
 reports. `--disable-genuine-font-faces` in `args` (r32+) keeps the lookalikes even with your fonts listed, and the
 SDK then leaves its font rules alone. Ignored on Windows and macOS, which use their own fonts; refused for cloud and
-Docker launches (in your own container, set `CLEARCOTE_FONT_DIRS` there). Only use fonts you are licensed to use.
+Docker launches (in your own container, set `CODE_BROWSER_FONT_DIRS` there). Only use fonts you are licensed to use.
 
 ### Persistent profile
 
 ```ts
-import { launchPersistentContext } from "clearcote";
+import { launchPersistentContext } from "code-browser";
 
 const context = await launchPersistentContext("./profile-7423", {
   fingerprint: "user-7423",
@@ -364,7 +364,7 @@ have cached. Use one folder per identity (persona, proxy, account) when that mat
 
 ### Widevine / DRM (`widevine`)
 
-clearcote ships the **EME/Widevine plumbing** compiled in, but — being 100% open source — it does
+code-browser ships the **EME/Widevine plumbing** compiled in, but — being 100% open source — it does
 **not** bundle Google's proprietary CDM. The SDK fetches that CDM from Google's own component server
 (same as a real Chrome receives it), caches it, and enables it — so
 `navigator.requestMediaKeySystemAccess('com.widevine.alpha')` resolves and DRM streams play, instead of
@@ -375,22 +375,22 @@ which claims the Google Chrome brand) on an engine from r32 loads the CDM by def
 `launchPersistentContext()` and `serve()` alike:
 
 - The first such launch **downloads Google's CDM from Google** (`update.googleapis.com`), checks its
-  SHA-256 and caches it under `~/.clearcote/WidevineCdm` (`CLEARCOTE_WIDEVINE_DIR` overrides). Later launches
+  SHA-256 and caches it under `~/.code-browser/WidevineCdm` (`CLEARCOTE_WIDEVINE_DIR` overrides). Later launches
   use the cache **at once, with no network**; once a day a background check asks Google for a newer CDM
   (used from the next launch on). A failed check counts as that day's check: the cached CDM keeps working.
   The check gives up after 10 s, so it can hold a finishing script at most that long, once a day.
 - **Fail-soft**: only a launch with nothing cached waits for the download, at most
-  `CLEARCOTE_WIDEVINE_TIMEOUT_SECONDS` (default 15, clamped to 1-600). If it fails — offline, a firewall,
+  `CODE_BROWSER_WIDEVINE_TIMEOUT_SECONDS` (default 15, clamped to 1-600). If it fails — offline, a firewall,
   Google refusing the request — the launch goes on without Widevine and prints one warning per process
-  (`quiet: true` or `CLEARCOTE_NO_WARN=1` silences it); the unfinished download is cancelled, and that process
+  (`quiet: true` or `CODE_BROWSER_NO_WARN=1` silences it); the unfinished download is cancelled, and that process
   retries it after 10 minutes.
-- **Opt out** with `CLEARCOTE_WIDEVINE=0` (every launch), or `widevine: false`. An explicit `widevine` wins
+- **Opt out** with `CODE_BROWSER_WIDEVINE=0` (every launch), or `widevine: false`. An explicit `widevine` wins
   over the environment; `widevine: false` is also accepted (and ignored) by `cloud: true` and Docker launches.
-- **Free (open) builds stay opt-in**: pass `widevine: true` (or set `CLEARCOTE_WIDEVINE=1`). On a
+- **Free (open) builds stay opt-in**: pass `widevine: true` (or set `CODE_BROWSER_WIDEVINE=1`). On a
   persistent context that also seeds the CDM into the profile, so an engine before r32 loads it too.
 
 ```ts
-import { launchPersistentContext } from "clearcote";
+import { launchPersistentContext } from "code-browser";
 
 const ctx = await launchPersistentContext("./profile-drm", { widevine: true }); // free build: fetch + seed + enable
 const page = ctx.pages()[0] ?? (await ctx.newPage());
@@ -412,19 +412,19 @@ await ctx.close();
   for the component updater. Older engines need `widevine: true` on a **persistent** context (the
   seeded-profile route). Your own `--widevine-cdm-path=<dir>` in `args` is left as it is.
 - Fetch the CDM ahead of time (e.g. in a Docker build step) with `fetchWidevine()`.
-- The clearcote package never distributes Google's CDM: it is downloaded from Google, on your machine.
+- The code-browser package never distributes Google's CDM: it is downloaded from Google, on your machine.
 - Cloud launches (`cloud: true`) are unchanged: hosted browsers load Widevine on the server.
 - Software-secure (L3) playback. Hardware-secure (L1) paths are out of scope.
 
 ### Certificate revocation (`crlset`, opt-in)
 
 Real Chrome receives Google's **CRLSet** — the list of revoked and distrusted certificate keys — in the
-background, which is how a CA compromise reaches browsers within hours. A Clearcote engine never downloads
+background, which is how a CA compromise reaches browsers within hours. A CodeBrowser engine never downloads
 it, so on its own it keeps trusting certificates that Chrome already blocks. `crlset: true` closes that gap
 for every engine the SDK launches, old builds included:
 
 - The SDK fetches the current CRLSet **from Google** (`update.googleapis.com`, the same service as the
-  Widevine CDM), checks its SHA-256 and caches it under `~/.clearcote/crlset` (`CLEARCOTE_CRLSET_DIR`
+  Widevine CDM), checks its SHA-256 and caches it under `~/.code-browser/crlset` (`CODE_BROWSER_CRLSET_DIR`
   overrides; the cache is shared with the Python and .NET SDKs). A cache older than 6 hours is refreshed in
   the background; the launch uses the cached copy.
 - It places the CRLSet in the profile and lets the engine's component updater load it (it makes no network
@@ -433,20 +433,20 @@ for every engine the SDK launches, old builds included:
 - `crlset: "nowait"` skips the wait: the CRLSet goes live once the first tab has been idle for a moment.
   `crlset: "<path>"` seeds that file instead. `crlsetTimeout` bounds the wait (default 15 s).
 - Fail-soft: if the first download fails or the CRLSet is not confirmed in time, the launch goes on and
-  prints one warning (`quiet: true` or `CLEARCOTE_NO_WARN=1` silences it).
-- `CLEARCOTE_CRLSET=1` turns it on for every launch. It needs a profile: `launch()` (which uses a temporary
+  prints one warning (`quiet: true` or `CODE_BROWSER_NO_WARN=1` silences it).
+- `CODE_BROWSER_CRLSET=1` turns it on for every launch. It needs a profile: `launch()` (which uses a temporary
   one) and `launchPersistentContext()`; an incognito launch (`ephemeralProfile: false`) prints a warning
   and goes on without it.
 
 ```ts
-import { launch } from "clearcote";
+import { launch } from "code-browser";
 
 const browser = await launch({ crlset: true });
 const page = await browser.newPage();
 await page.goto("https://dv-g3b-emudhra.we-have-a-problem.com/"); // net::ERR_CERT_REVOKED, as in Chrome
 ```
 
-- Fetch it ahead of time with `fetchCrlset()`, or point `CLEARCOTE_CRLSET_URL` at your own mirror of the raw
+- Fetch it ahead of time with `fetchCrlset()`, or point `CODE_BROWSER_CRLSET_URL` at your own mirror of the raw
   `crl-set` file.
 
 ### AI agent (OpenRouter)
@@ -456,7 +456,7 @@ and executes the steps as real, trusted input through Chrome's Actor framework. 
 [OpenRouter](https://openrouter.ai); switch models with a single slug.
 
 ```ts
-import { launchAgent, runAgentTask } from "clearcote";
+import { launchAgent, runAgentTask } from "code-browser";
 
 const ctx = await launchAgent({
   agentLlmKey: process.env.OPENROUTER_API_KEY,   // turns the agent on
@@ -478,7 +478,7 @@ await ctx.close();
 
 ### Capture or import a profile
 
-Make Clearcote present a **real machine's** identity instead of the synthetic seed-derived one. Pass
+Make CodeBrowser present a **real machine's** identity instead of the synthetic seed-derived one. Pass
 a captured fingerprint as `fingerprintProfile` — a file path, a plain object, or a JSON string (the
 SDK gzip+base64-encodes it for the engine):
 
@@ -507,11 +507,11 @@ field drives.
 
 ## Local or cloud
 
-The same `launch()` runs the browser on this machine or on Clearcote's servers. One flag picks which,
+The same `launch()` runs the browser on this machine or on CodeBrowser's servers. One flag picks which,
 and both resolve to the same Playwright `Browser`:
 
 ```ts
-import { launch } from "clearcote";
+import { launch } from "code-browser";
 
 const browser = await launch({ cloud: true, country: "us", identity: "acct-1" });
 const page = await browser.newPage();
@@ -519,8 +519,8 @@ await page.goto("https://example.com");
 await browser.close();               // disconnects and ends the hosted session
 ```
 
-Leave `cloud` unset and set `CLEARCOTE_CLOUD=1` to move existing code to the cloud without editing
-it. The API key comes from `apiKey` or `CLEARCOTE_API_KEY`, and `CLEARCOTE_API_URL` points the SDK at
+Leave `cloud` unset and set `CODE_BROWSER_CLOUD=1` to move existing code to the cloud without editing
+it. The API key comes from `apiKey` or `CODE_BROWSER_API_KEY`, and `CODE_BROWSER_API_URL` points the SDK at
 another server (https only: plain `http://` is accepted for `127.0.0.1`, `::1` and `localhost` alone,
 so the key never crosses a network unencrypted).
 
@@ -565,9 +565,9 @@ What changes in the cloud:
 Everything else the hosted API does is on `Cloud`:
 
 ```ts
-import { Cloud } from "clearcote";
+import { Cloud } from "code-browser";
 
-const cloud = new Cloud();                        // CLEARCOTE_API_KEY
+const cloud = new Cloud();                        // CODE_BROWSER_API_KEY
 
 // An agent run: a task in, JSON out
 const run = await cloud.runs.create("Log in with {{password}} and read the current plan's price", {
@@ -610,21 +610,21 @@ rejects with `CloudTimeoutError`, whose `last` holds the last view (the run carr
 Check a webhook delivery with the raw request body and the `Clearcote-Signature` header:
 
 ```ts
-import { verifyWebhook } from "clearcote";
+import { verifyWebhook } from "code-browser";
 
-const event = verifyWebhook(rawBody, req.headers["clearcote-signature"], "whsec_..."); // throws if forged or stale
+const event = verifyWebhook(rawBody, req.headers["code-browser-signature"], "whsec_..."); // throws if forged or stale
 ```
 
 The same from the command line (`--json` for machine-readable output):
 
 ```bash
-npx clearcote cloud run "Read the price of the Pro plan" --url https://example.com/pricing --schema price.json
-npx clearcote cloud run "Open my account page" --country us --profile acct-1 --persist-profile --max-steps 20
-npx clearcote cloud sessions
-npx clearcote cloud events bs_123
-npx clearcote cloud recording bs_123 -o session.mp4
-npx clearcote cloud profile sync acct-1 --login https://example.com/login --domain example.com
-npx clearcote cloud webhooks add https://hooks.example.com/clearcote --event run.finished
+npx code-browser cloud run "Read the price of the Pro plan" --url https://example.com/pricing --schema price.json
+npx code-browser cloud run "Open my account page" --country us --profile acct-1 --persist-profile --max-steps 20
+npx code-browser cloud sessions
+npx code-browser cloud events bs_123
+npx code-browser cloud recording bs_123 -o session.mp4
+npx code-browser cloud profile sync acct-1 --login https://example.com/login --domain example.com
+npx code-browser cloud webhooks add https://hooks.example.com/code-browser --event run.finished
 ```
 
 ## Fingerprint options
@@ -673,7 +673,7 @@ plus taskbar). `outerWidth`/`outerHeight`/`screenX`/`screenY` are then the real 
 `innerWidth`/`innerHeight`, `visualViewport`, screenshots, mouse-event coordinates, pop-up placement and
 `device-width` media queries without any of them being patched. The same seed opens the same window in
 every process and on every launch path (`launch()`, `launchPersistentContext()`, `serve()` /
-`clearcote serve`, raw CLI and CDP, Docker); different seeds open different windows. The SDK then sends no
+`code-browser serve`, raw CLI and CDP, Docker); different seeds open different windows. The SDK then sends no
 display switch and runs no window fit for that launch (older engines keep the fit). A seedless launch has
 no persona and keeps the behaviour described above.
 
@@ -700,9 +700,9 @@ schema (`--fingerprint-schema=1`..`3`) keeps its previous window too, unless you
 
 ## Personas & Client Hints coherence
 
-A persona's Client Hints are coherent across **JavaScript and HTTP by construction** — clearcote rewrites a single `blink::UserAgentMetadata` (brand list, full-version list, platform, mobile, arch/bitness) that feeds *both* the browser path that attaches the `Sec-CH-UA*` request headers **and** the renderer path that builds `navigator.userAgentData`. There aren't two sides to keep in sync; they read the same source. So `getHighEntropyValues(['fullVersionList', …])` in JS matches `Sec-CH-UA-Full-Version-List` on the wire, `userAgentData.platform` matches `Sec-CH-UA-Platform`, and so on.
+A persona's Client Hints are coherent across **JavaScript and HTTP by construction** — code-browser rewrites a single `blink::UserAgentMetadata` (brand list, full-version list, platform, mobile, arch/bitness) that feeds *both* the browser path that attaches the `Sec-CH-UA*` request headers **and** the renderer path that builds `navigator.userAgentData`. There aren't two sides to keep in sync; they read the same source. So `getHighEntropyValues(['fullVersionList', …])` in JS matches `Sec-CH-UA-Full-Version-List` on the wire, `userAgentData.platform` matches `Sec-CH-UA-Platform`, and so on.
 
-**Chrome — the default and the recommendation** (most coherent: clearcote *is* Chromium, so the claim matches the engine's real behavior):
+**Chrome — the default and the recommendation** (most coherent: code-browser *is* Chromium, so the claim matches the engine's real behavior):
 
 ```ts
 const browser = await launch({ fingerprint: "p1" });  // brand defaults to Chrome; platform defaults to the host OS
@@ -742,7 +742,7 @@ name you can persist and re-launch — so the claimed GPU, the bridge endpoint, 
 GPU-keyed cache stay coherent because they travel together.
 
 ```ts
-import { Profile, launch } from "clearcote";
+import { Profile, launch } from "code-browser";
 
 // save once
 await new Profile("acct-1", {
@@ -757,7 +757,7 @@ const browser = await Profile.load("acct-1").launch({ headless: false });
 // equivalently: await launch({ profile: "acct-1" });
 ```
 
-Profiles are JSON at `~/.clearcote/profiles/<name>.json` (set `CLEARCOTE_PROFILE_DIR` to relocate).
+Profiles are JSON at `~/.code-browser/profiles/<name>.json` (set `CODE_BROWSER_PROFILE_DIR` to relocate).
 
 ## API
 
@@ -776,15 +776,15 @@ Profiles are JSON at `~/.clearcote/profiles/<name>.json` (set `CLEARCOTE_PROFILE
 `launch()` resolves the browser in this order:
 
 1. `executablePath` option, if given;
-2. `CLEARCOTE_BINARY` environment variable, if set;
+2. `CODE_BROWSER_BINARY` environment variable, if set;
 3. otherwise **download** the pinned release, **verify its SHA-256** (the hash is baked into this
    package — it's the trust anchor), extract to a per-version cache, and verify the extracted
    `chrome.exe` hash too.
 
-Cache location (override with `CLEARCOTE_CACHE`):
-- Windows: `%LOCALAPPDATA%\clearcote\Cache\<tag>`
-- macOS: `~/Library/Caches/clearcote/<tag>`
-- Linux: `${XDG_CACHE_HOME:-~/.cache}/clearcote/<tag>`
+Cache location (override with `CODE_BROWSER_CACHE`):
+- Windows: `%LOCALAPPDATA%\code-browser\Cache\<tag>`
+- macOS: `~/Library/Caches/code-browser/<tag>`
+- Linux: `${XDG_CACHE_HOME:-~/.cache}/code-browser/<tag>`
 
 Processes that share this cache take turns installing a build: the first one downloads it, the others
 wait and then use it, whichever SDK (Python, Node or .NET) each one runs. That needs every process
@@ -793,7 +793,7 @@ releases do not wait for it.
 
 A SHA-256 mismatch is a hard error — the SDK refuses to run an unverified binary. You can
 independently confirm the published checksums and GPG signatures on the
-[release page](https://github.com/clearcotelabs/clearcote-browser/releases).
+[release page](https://github.com/jyycool/code-browser/releases).
 
 ### Stay on the latest build (`autoUpdate`)
 
@@ -808,7 +808,7 @@ const browser = await launch({ fingerprint: "seed-123", autoUpdate: true });
 or set the environment variable globally:
 
 ```bash
-CLEARCOTE_AUTO_UPDATE=1
+CODE_BROWSER_AUTO_UPDATE=1
 ```
 
 With `autoUpdate`, the SDK resolves the **newest GitHub release**, downloads its zip, and verifies
@@ -824,7 +824,7 @@ the package deliberately.)
 ## Choosing a browser version
 
 By default the SDK downloads the exact build pinned into this package. To pick a specific browser
-major/version instead, pass `version` (or set `CLEARCOTE_BROWSER_VERSION`):
+major/version instead, pass `version` (or set `CODE_BROWSER_BROWSER_VERSION`):
 
 ```ts
 await launch({ fingerprint: "seed-1", version: "151" });     // newest 151.x (free)
@@ -836,12 +836,12 @@ await launch({ version: "155", licenseKey: "cc_lic_..." });  // a PRO-tier versi
 The request is resolved against a public catalog (`GET /api/v1/versions`) and **validated to exist
 before anything downloads**, so a bad request fails fast instead of getting stuck:
 
-- unknown version → `No Clearcote build matches version '151'. Available: 149.0.7827.114 (free).`
-- a PRO-tier version without a key → `Clearcote 150… is a PRO build … set a license key (CLEARCOTE_LICENSE_KEY).`
+- unknown version → `No CodeBrowser build matches version '151'. Available: 149.0.7827.114 (free).`
+- a PRO-tier version without a key → `CodeBrowser 150… is a PRO build … set a license key (CLEARCOTE_LICENSE_KEY).`
 
 Free versions download from GitHub (no key needed); PRO versions download via the authenticated route.
 Each build is cached per version, so different majors coexist. Binary resolution order:
-`executablePath` > `CLEARCOTE_BINARY` > `version` > pinned default. Also on `launchPersistentContext`,
+`executablePath` > `CODE_BROWSER_BINARY` > `version` > pinned default. Also on `launchPersistentContext`,
 `serve`, `executablePath()`, and `download()`.
 
 ## PRO tier (license key)
@@ -883,7 +883,7 @@ The mouse tier is decided **at runtime** from a signed claim in the run-token �
 same `humanize: true`. With a valid PRO lease the motion comes from recorded human trajectories;
 without one it falls back to the synthetic bézier path. Nothing in your code changes.
 
-Pass a `licenseKey` (or set `CLEARCOTE_LICENSE_KEY`, or drop it in `~/.clearcote/license.key`):
+Pass a `licenseKey` (or set `CLEARCOTE_LICENSE_KEY`, or drop it in `~/.code-browser/license.key`):
 
 ```ts
 const browser = await launch({ fingerprint: "seed-123", licenseKey: "cc_lic_..." });
@@ -899,11 +899,11 @@ When a key is present the SDK:
    paid licence still launches on its last run-token while the lease server cannot be reached.
 
 The PRO engine refuses to launch without a valid run-token, so a copied binary alone won't run.
-Resolution order for the binary is **`executablePath` → `CLEARCOTE_BINARY` → PRO (licensed) →
+Resolution order for the binary is **`executablePath` → `CODE_BROWSER_BINARY` → PRO (licensed) →
 free** — an explicit binary always wins. A revoked/expired key raises (`ConcurrencyLimitError` /
 `LicenseRevokedError` / `LicenseError`); it never silently downgrades to the free binary. Override
-the backend with `licenseApiBase` or `CLEARCOTE_LICENSE_API` (every licence call), or only the lease
-calls with `CLEARCOTE_LEASE_API`.
+the backend with `licenseApiBase` or `CODE_BROWSER_LICENSE_API` (every licence call), or only the lease
+calls with `CODE_BROWSER_LEASE_API`.
 
 ## License
 

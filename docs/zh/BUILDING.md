@@ -1,11 +1,11 @@
-# 从源码构建 Clearcote
+# 从源码构建 CodeBrowser
 
-Clearcote 的设计目标是：任何拥有一台性能足够的 Linux 机器的人都能重新构建它。本指南在 Linux 主机上复现已发布的
+CodeBrowser 的设计目标是：任何拥有一台性能足够的 Linux 机器的人都能重新构建它。本指南在 Linux 主机上复现已发布的
 **Windows x64**（交叉编译）和 **Linux x64**（原生编译）二进制，不需要 Windows 机器。最简单的方式是下面固定版本的
 **[Docker 构建](#容器方式推荐所有人使用相同环境)**。**你应当能够自己产出一个二进制，并确认它与发布版本一致**
 （见文末关于可复现性的说明）。
 
-> Clearcote = Chromium → ungoogled-chromium（去 Google 化）→ Windows 叠加层 + Clearcote 指纹补丁 → 交叉构建。每一层都是开源且固定版本的。
+> CodeBrowser = Chromium → ungoogled-chromium（去 Google 化）→ Windows 叠加层 + CodeBrowser 指纹补丁 → 交叉构建。每一层都是开源且固定版本的。
 
 ## 固定版本（本次发布的构建来源）
 
@@ -27,7 +27,7 @@ Clearcote 的设计目标是：任何拥有一台性能足够的 Linux 机器的
   Chromium 其余的系统构建依赖由 `scripts/02` 通过 `build/install-build-deps.py` 安装（Debian/Ubuntu；以 root 或 sudo 运行；
   其它发行版请安装对应的包）。
 - 不需要系统 MSVC，也不需要 Windows 机器：工具链由 Microsoft 可再分发的 SDK 包通过 `xwin` 组装而成
-  （xwin 下载时你需要接受 Microsoft 的许可协议；Clearcote 不附带其中任何文件）。
+  （xwin 下载时你需要接受 Microsoft 的许可协议；CodeBrowser 不附带其中任何文件）。
 
 ## 容器方式（推荐：所有人使用相同环境）
 
@@ -35,24 +35,24 @@ Clearcote 的设计目标是：任何拥有一台性能足够的 Linux 机器的
 你只需要 Docker（加上足够的内存、磁盘和时间）：
 
 ```bash
-git clone https://github.com/clearcotelabs/clearcote-browser.git && cd clearcote-browser
-docker build -t clearcote-build .                                    # the build environment (fast)
+git clone https://github.com/jyycool/code-browser.git && cd code-browser-browser
+docker build -t code-browser-build .                                    # the build environment (fast)
 
 # then build a target — many hours (official ThinLTO); ~32 GB RAM, ~120 GB disk. Artifacts land in ./out:
-docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build linux     # -> chrome tar.xz
-docker run --rm -v "$PWD/out:/clearcote-build/dist" clearcote-build windows   # -> chrome.exe zip
+docker run --rm -v "$PWD/out:/code-browser-build/dist" code-browser-build linux     # -> chrome tar.xz
+docker run --rm -v "$PWD/out:/code-browser-build/dist" code-browser-build windows   # -> chrome.exe zip
 
 # verify against the release (see docs/zh/VERIFY.md):
-sha256sum -c out/clearcote-151.0.7922.108-linux-x64.tar.xz.sha256
+sha256sum -c out/code-browser-151.0.7922.108-linux-x64.tar.xz.sha256
 gpg --verify out/SHA256SUMS.txt.asc out/SHA256SUMS.txt   # against the release's SHA256SUMS.txt.asc
 ```
 
 ## 快速方式（脚本化，在裸 Linux 主机上）
 
 ```bash
-git clone https://github.com/clearcotelabs/clearcote-browser.git
-cd clearcote-browser
-WORK=~/clearcote-build ./build.sh linux       # or: ./build.sh windows   (default is windows)
+git clone https://github.com/jyycool/code-browser.git
+cd code-browser-browser
+WORK=~/code-browser-build ./build.sh linux       # or: ./build.sh windows   (default is windows)
 ```
 
 [`build.sh`](../../build.sh) 接收目标操作系统（`windows` | `linux`），按顺序运行下面各阶段，把打包好的压缩包放到 `$WORK/dist`。
@@ -61,7 +61,7 @@ WORK=~/clearcote-build ./build.sh linux       # or: ./build.sh windows   (defaul
 | 阶段 | 脚本 | 作用 |
 |---|---|---|
 | 00 | `scripts/00-fetch-source.sh` | 克隆固定版本的 ungoogled 工具，获取并解压 Chromium 151，清理二进制文件 |
-| 01 | `scripts/01-apply-patches.sh` | 应用补丁系列（ungoogled 基础 + windows 叠加层 + Clearcote 补丁集）。**两个目标使用同一棵源码树**：自 150 起，同一棵打过补丁的源码树同时构建 Windows 和 Linux 二进制 |
+| 01 | `scripts/01-apply-patches.sh` | 应用补丁系列（ungoogled 基础 + windows 叠加层 + CodeBrowser 补丁集）。**两个目标使用同一棵源码树**：自 150 起，同一棵打过补丁的源码树同时构建 Windows 和 Linux 二进制 |
 | 02 | `scripts/02-host-toolchain.sh` | 获取 clang/rust/sysroot/node；从源码树内的源码构建 `gn`（两个目标都需要） |
 | 03 | `scripts/03-windows-sdk.sh` | **仅 Windows**：用 xwin 组装 `package_from_installed` 风格的 Windows SDK/CRT sysroot |
 | 04 | `scripts/04-configure-build.sh` | 获取 Windows PGO 配置文件（仅 Windows），复制 `config/args.gn`（Win）或 `config/args.linux.gn`（Linux），`gn gen`，`ninja`（Linux 还会构建 `chrome_sandbox` + `chrome_crashpad_handler`） |
@@ -79,14 +79,14 @@ WORK=~/clearcote-build ./build.sh linux       # or: ./build.sh windows   (defaul
 1. **ungoogled-chromium 基础补丁**：移除 Google 集成/遥测（`utils/patches.py apply`）。
 2. **ungoogled-chromium-windows 叠加层**：Windows 专用补丁。Linux 目标也会应用：发布的 Linux 二进制由同一棵源码树构建，
    并且 `905-rc-invoked-guard` 依赖叠加层中的 `chrome_command_ids.h`。
-3. **Clearcote 指纹补丁**：引擎级的 canvas/WebGL/audio/UA/字体等伪装，位于 [`patches/`](../../patches)，列在 `patches/series` 中。
+3. **CodeBrowser 指纹补丁**：引擎级的 canvas/WebGL/audio/UA/字体等伪装，位于 [`patches/`](../../patches)，列在 `patches/series` 中。
    见 [PATCHES.md](PATCHES.md)。
 
 `scripts/01-apply-patches.sh` 使用 ungoogled 的补丁工具应用它们。每个补丁都是针对固定版本的纯 unified diff。
 
 > **域名替换**（ungoogled 的 URL 改写加固）在这一阶段**不**应用：它会改写 Google 的下载 URL，导致第 02 阶段获取工具链失败。
 > 自 Chromium 151 起，发布的二进制是从*应用了*域名替换的源码树构建的，所以 `scripts/04-configure-build.sh`
-> 在第 02 阶段之后、`gn gen` 之前应用它（在 Clearcote 补丁之后应用与在之前应用得到的源码树相同）。
+> 在第 02 阶段之后、`gn gen` 之前应用它（在 CodeBrowser 补丁之后应用与在之前应用得到的源码树相同）。
 > 重新运行第 02 阶段会撤销它；第 04 阶段会再次应用。
 
 ## 3. 主机工具链

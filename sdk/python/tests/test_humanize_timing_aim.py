@@ -12,9 +12,9 @@ import types
 
 import pytest
 
-from clearcote import _hold
-from clearcote import _humanize_async as H
-from clearcote._motion import (
+from code_browser import _hold
+from code_browser import _humanize_async as H
+from code_browser._motion import (
     click_hold, click_point, drag_dwell, key_dwell, make_persona, mulberry32,
 )
 
@@ -73,17 +73,17 @@ def test_timing_medians_differ_across_seeds_inside_the_human_band(name, fn, lo, 
 
 
 def test_typo_rate_is_per_persona_and_the_env_still_overrides(monkeypatch):
-    monkeypatch.delenv("CLEARCOTE_HUMANIZE_TYPO_RATE", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", raising=False)
     rates = [H.typo_rate(make_persona(pid)) for pid in IDS]
     assert len({round(r, 4) for r in rates}) >= 4, rates
     assert all(0.005 <= r <= 0.04 for r in rates), rates
     assert H.typo_rate() == 0.02                       # no persona: the old default
-    monkeypatch.setenv("CLEARCOTE_HUMANIZE_TYPO_RATE", "0.3")
+    monkeypatch.setenv("CODE_BROWSER_HUMANIZE_TYPO_RATE", "0.3")
     assert H.typo_rate(make_persona("ha-1")) == 0.3    # the env var wins when set
 
 
 def test_double_click_gap_and_pauses_are_persona_draws():
-    from clearcote._motion import dblclick_gap, pause_ms
+    from code_browser._motion import dblclick_gap, pause_ms
     gaps = _medians(dblclick_gap)
     assert len({round(g) for g in gaps}) >= 4 and all(70 <= g <= 170 for g in gaps), gaps
     pauses = [pause_ms(make_persona(pid), 220, 480, mulberry32(3)) for pid in IDS]
@@ -107,7 +107,7 @@ def test_click_point_is_reproducible_with_a_given_rng_and_differs_across_seeds()
 def test_two_sessions_of_one_identity_do_not_replay_the_same_first_click():
     """The seed fixes the aim TRAITS; each click is an unseeded draw. A seeded landing stream put page 1,
     click 1 of every visit on the same pixel: a cross-session fingerprint."""
-    from clearcote._motion import aim_traits
+    from code_browser._motion import aim_traits
     differ = 0
     for _ in range(20):
         a, b = make_persona("ha-1"), make_persona("ha-1")
@@ -118,7 +118,7 @@ def test_two_sessions_of_one_identity_do_not_replay_the_same_first_click():
 
 
 def test_timing_samples_are_unseeded_per_sample_while_the_medians_are_seeded():
-    from clearcote._motion import dblclick_gap, pause_ms, timing_traits
+    from code_browser._motion import dblclick_gap, pause_ms, timing_traits
     a, b = make_persona("ha-2"), make_persona("ha-2")
     assert timing_traits(a) == timing_traits(b)
     for fn in (click_hold, key_dwell, lambda p: drag_dwell(p)[0], dblclick_gap, lambda p: pause_ms(p, 220, 480)):
@@ -202,7 +202,7 @@ def test_mouse_click_raises_when_the_press_fails(fast):
 
 
 def test_sync_mouse_click_raises_when_the_press_fails(monkeypatch):
-    from clearcote import _humanize
+    from code_browser import _humanize
     from test_humanize import _SyncPage
     monkeypatch.setattr(_humanize.time, "sleep", lambda *_: None)
     page = _SyncPage()

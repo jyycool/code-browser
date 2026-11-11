@@ -13,13 +13,13 @@ import { tempDir } from "./helpers/temp.js";
 // configuration is incorrect"). Inside an MSIX-packaged app a build downloaded into %LOCALAPPDATA% is
 // invisible to the activation-context check; real-time AV scanning a fresh chrome_elf.dll causes the same
 // error for a while. winAvRetry retries in place, then launches from one recovered copy per build in
-// ~/.clearcote/recovered that later launches reuse.
+// ~/.code-browser/recovered that later launches reuse.
 //
 // The launch must leave the temp directory as it found it: the old fallback copied the whole browser to a
-// fresh %TEMP%\clearcote-recover-* on every launch and never deleted it, and every failed Playwright attempt
+// fresh %TEMP%\code-browser-recover-* on every launch and never deleted it, and every failed Playwright attempt
 // leaked a playwright_chromiumdev_profile-* and a playwright-artifacts-* directory.
 
-const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_CACHE"] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CODE_BROWSER_CACHE"] as const;
 const saved: Record<string, string | undefined> = {};
 let base: string;
 let home: string;
@@ -62,7 +62,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const root = () => join(home, ".clearcote", "recovered");
+const root = () => join(home, ".code-browser", "recovered");
 
 /** What Playwright does when Windows cannot start the process: make its two directories, then throw. */
 let made = 0;
@@ -112,7 +112,7 @@ describe("Windows launch of a build that cannot start in place", () => {
     expect(existsSync(root())).toBe(false);
   });
 
-  it.skipIf(!birthtimeSupported)("recovers once into ~/.clearcote/recovered, reuses it, and leaves the temp dir empty", async () => {
+  it.skipIf(!birthtimeSupported)("recovers once into ~/.code-browser/recovered, reuses it, and leaves the temp dir empty", async () => {
     fakeWindows();
     const calls: string[] = [];
     const doLaunch = async (e: string) => {
@@ -126,7 +126,7 @@ describe("Windows launch of a build that cannot start in place", () => {
     expect(calls).toEqual([exe, exe, exe, first]); // three attempts in place, then the copy
     expect(existsSync(join(root(), key, RECOVERED_MARKER))).toBe(true);
     expect(existsSync(join(root(), key, "browser", "1.2.3.manifest"))).toBe(true); // the whole build came along
-    expect(readdirSync(tmp)).toEqual([]); // no Playwright leftovers, no clearcote-recover-* copy
+    expect(readdirSync(tmp)).toEqual([]); // no Playwright leftovers, no code-browser-recover-* copy
 
     calls.length = 0;
     expect(await winAvRetry(doLaunch, exe, 1)).toBe(first);
@@ -136,12 +136,12 @@ describe("Windows launch of a build that cannot start in place", () => {
 
   it("a rebuilt build gets a fresh copy and the stale one goes; old SDKs' temp copies are swept", async () => {
     fakeWindows();
-    const oldTemp = join(tmp, "clearcote-recover-old");
+    const oldTemp = join(tmp, "code-browser-recover-old");
     mkdirSync(join(oldTemp, "browser"), { recursive: true });
     writeFileSync(join(oldTemp, "browser", "chrome.exe"), "x");
     const twoMinAgo = (Date.now() - 120_000) / 1000;
     utimesSync(oldTemp, twoMinAgo, twoMinAgo);
-    mkdirSync(join(tmp, "clearcote-recover-new")); // possibly a concurrent old-SDK launch mid-copy
+    mkdirSync(join(tmp, "code-browser-recover-new")); // possibly a concurrent old-SDK launch mid-copy
     const doLaunch = async (e: string) => {
       if (e === exe) throw new Error("spawn UNKNOWN");
       return e;
@@ -153,7 +153,7 @@ describe("Windows launch of a build that cannot start in place", () => {
     expect(second).not.toBe(first);
     expect(readdirSync(root())).toEqual([recoveryKey(exe)]);
     expect(recoveryKey(exe)).not.toBe(oldKey);
-    expect(readdirSync(tmp)).toEqual(["clearcote-recover-new"]);
+    expect(readdirSync(tmp)).toEqual(["code-browser-recover-new"]);
   });
 
   it("a copy a browser is running from is never deleted", async () => {
@@ -208,7 +208,7 @@ describe("Windows launch of a build that cannot start in place", () => {
 
   it("clear-cache removes the recovered copies too", async () => {
     fakeWindows();
-    process.env.CLEARCOTE_CACHE = join(base, "no-cache");
+    process.env.CODE_BROWSER_CACHE = join(base, "no-cache");
     await winAvRetry(async (e) => {
       if (e === exe) throw new Error("spawn UNKNOWN");
       return e;
@@ -257,7 +257,7 @@ describe.skipIf(!birthtimeSupported)("removeFailedLaunchDirs", () => {
     await sleep(30);
     await mk("playwright-artifacts-aaaaaa");
     await mk("playwright-artifacts-bbbbbb"); // a concurrent launch
-    removeFailedLaunchDirs(callLog(join(tmp, "clearcote-run-x")), started);
+    removeFailedLaunchDirs(callLog(join(tmp, "code-browser-run-x")), started);
     expect(readdirSync(tmp)).toHaveLength(2);
   });
 

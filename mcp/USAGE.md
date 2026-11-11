@@ -1,9 +1,9 @@
-# Clearcote MCP — usage
+# CodeBrowser MCP — usage
 
-Two ways to use Clearcote from an agent stack:
+Two ways to use CodeBrowser from an agent stack:
 
 1. **MCP server** — the agent calls tools (`read_page`, `click`, …). Best for Claude Desktop / Cursor / Cline.
-2. **`clearcote-serve`** — a standing raw CDP endpoint your existing Playwright/Puppeteer/browser-use code attaches to unchanged. Best when you already have automation code.
+2. **`code-browser-serve`** — a standing raw CDP endpoint your existing Playwright/Puppeteer/browser-use code attaches to unchanged. Best when you already have automation code.
 
 Both drive the **same stealth engine**; `get_cdp_endpoint` bridges (1)→(2) at runtime.
 
@@ -17,10 +17,10 @@ All expose the same `stdio` server; the persona is set via `env`.
 ```json
 {
   "mcpServers": {
-    "clearcote": {
+    "code-browser": {
       "command": "npx",
-      "args": ["-y", "clearcote-mcp"],
-      "env": { "CLEARCOTE_FINGERPRINT": "acct-1", "CLEARCOTE_PLATFORM": "windows" }
+      "args": ["-y", "code-browser-mcp"],
+      "env": { "CODE_BROWSER_FINGERPRINT": "acct-1", "CODE_BROWSER_PLATFORM": "windows" }
     }
   }
 }
@@ -28,25 +28,25 @@ All expose the same `stdio` server; the persona is set via `env`.
 
 If you prefer the Python entry point instead of `npx`:
 ```json
-{ "mcpServers": { "clearcote": { "command": "clearcote-mcp",
-    "env": { "CLEARCOTE_FINGERPRINT": "acct-1", "CLEARCOTE_PROXY": "http://user:pass@host:port", "CLEARCOTE_GEOIP": "1" } } } }
+{ "mcpServers": { "code-browser": { "command": "code-browser-mcp",
+    "env": { "CODE_BROWSER_FINGERPRINT": "acct-1", "CODE_BROWSER_PROXY": "http://user:pass@host:port", "CODE_BROWSER_GEOIP": "1" } } } }
 ```
 
-**Cloud mode:** add `"CLEARCOTE_CLOUD": "1"` and `"CLEARCOTE_API_KEY": "cc_live_..."` to `env` and the
-same tools drive a hosted Clearcote session instead of a local browser. With the API key set the
+**Cloud mode:** add `"CODE_BROWSER_CLOUD": "1"` and `"CODE_BROWSER_API_KEY": "cc_live_..."` to `env` and the
+same tools drive a hosted CodeBrowser session instead of a local browser. With the API key set the
 server also lists `run_task(task, url?, schema_json?)`, which hands a whole task to the hosted agent
 and returns its JSON result, e.g. `run_task("Find the price of the Pro plan", "https://example.com/pricing",
 '{"type":"object","properties":{"price":{"type":"string"}}}')`. A run can take minutes: the
-tool waits up to `CLEARCOTE_MCP_RUN_TIMEOUT` seconds (default 900) and otherwise returns the run id.
+tool waits up to `CODE_BROWSER_MCP_RUN_TIMEOUT` seconds (default 900) and otherwise returns the run id.
 
 Then just ask the agent to browse. A typical loop the model runs:
 `navigate` → `read_page` / `page_elements` → `click` / `fill_field` → `read_page` … and
 `save_profile` to keep a logged-in session for next time.
 
-## 2. `clearcote-serve` — attach your existing code
+## 2. `code-browser-serve` — attach your existing code
 
 ```bash
-clearcote-serve --port 9222 --fingerprint acct-1 --platform windows --proxy http://user:pass@host:port
+code-browser-serve --port 9222 --fingerprint acct-1 --platform windows --proxy http://user:pass@host:port
 # stdout: http://127.0.0.1:9222
 ```
 
@@ -71,7 +71,7 @@ const browser = await puppeteer.connect({ browserURL: "http://127.0.0.1:9222" })
 
 Programmatic (no separate process):
 ```python
-from clearcote import serve
+from code_browser import serve
 srv = serve(fingerprint="acct-1", platform="windows")   # Server handle
 print(srv.cdp_url)                                       # http://127.0.0.1:<port>
 # ... attach any CDP client to srv.cdp_url ...
@@ -82,8 +82,8 @@ srv.close()
 
 - **Do NOT** add `puppeteer-stealth`, `undetected-chromedriver`, or any JS fingerprint patching — the spoofing is in the engine's C++; JS patches self-reveal and undo it.
 - **Do NOT** pass `--user-agent` / `--enable-automation` or set a custom UA over CDP — it desyncs UA vs UA-CH. Set the persona via env instead.
-- Keep `timezone` / `accept_language` coherent with your proxy's geography (use `CLEARCOTE_GEOIP=1`).
-- Clearcote hardens the **browser fingerprint**. **IP reputation and behavior are still yours** — a residential/mobile proxy and human-like pacing matter as much as the fingerprint.
+- Keep `timezone` / `accept_language` coherent with your proxy's geography (use `CODE_BROWSER_GEOIP=1`).
+- CodeBrowser hardens the **browser fingerprint**. **IP reputation and behavior are still yours** — a residential/mobile proxy and human-like pacing matter as much as the fingerprint.
 
 ## Stealth, verified
 

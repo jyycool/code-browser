@@ -256,7 +256,7 @@ export function selectProfile(
 let cachedStickyKey: string | null = null;
 export function defaultStickyKey(): string {
   if (cachedStickyKey) return cachedStickyKey;
-  const bits = [process.env.CLEARCOTE_PROFILE_KEY, process.env.USERNAME ?? process.env.USER, process.platform];
+  const bits = [process.env.CODE_BROWSER_PROFILE_KEY, process.env.USERNAME ?? process.env.USER, process.platform];
   cachedStickyKey = createHash("sha256").update(bits.filter(Boolean).join("|")).digest("hex").slice(0, 16);
   return cachedStickyKey;
 }

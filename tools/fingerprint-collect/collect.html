@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>clearcote fingerprint collector</title>
+<title>code-browser fingerprint collector</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
@@ -12,7 +12,7 @@
 </style>
 </head>
 <body>
-<h1>clearcote fingerprint collector</h1>
+<h1>code-browser fingerprint collector</h1>
 <p>Open this page in the <b>real Chrome</b> you want to clone, then click capture. It records an
 exhaustive JS-observable profile; if a collector endpoint is configured it also stitches in the
 HTTP-header order + TLS/HTTP-2 fingerprint of your request.</p>
@@ -40,7 +40,7 @@ document.getElementById("go").addEventListener("click", async () => {
     const blob = new Blob([json], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "clearcote-profile-" + (fp.meta.chrome_version || "unknown") + ".json";
+    a.download = "code-browser-profile-" + (fp.meta.chrome_version || "unknown") + ".json";
     a.click();
     const o = document.getElementById("out"); o.hidden = false;
     o.textContent = json.slice(0, 4000) + (json.length > 4000 ? "\n… (" + json.length + " bytes total)" : "");

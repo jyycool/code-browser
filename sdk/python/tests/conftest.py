@@ -6,4 +6,4 @@ covers the default with a stubbed resolver.
 """
 import os
 
-os.environ.setdefault("CLEARCOTE_GEOIP", "0")
+os.environ.setdefault("CODE_BROWSER_GEOIP", "0")

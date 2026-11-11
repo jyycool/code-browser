@@ -7,7 +7,7 @@ other launch (SC 202/203: 16 seeds, one outer size; SC 206: 1,000 seeds, the sam
 one page, but one window shape across a whole fleet of identities.
 
 From r39 the engine derives the window from the persona (``components/ungoogled/
-persona_window_geometry.cc``; ``clearcote._windowgeom`` is its bit-exact port) and applies it to the
+persona_window_geometry.cc``; ``code_browser._windowgeom`` is its bit-exact port) and applies it to the
 real window. These tests lock down:
 
 * the port: the parity vector (``tests/data/window_vectors.txt``) is the engine's own output, generated
@@ -18,7 +18,7 @@ real window. These tests lock down:
 * the SDK's side: on an r39 engine a persona launch gets NO ``--screen-info`` and NO CDP fit (the one
   step a page could see), keeps ``no_viewport`` as its default, and an explicit viewport only moves a
   window that hangs over the work area; on older engines nothing changes;
-* live (``CLEARCOTE_LIVE_ENGINE``): the page sees exactly the derived window, with zero resize events,
+* live (``CODE_BROWSER_LIVE_ENGINE``): the page sees exactly the derived window, with zero resize events,
   the same in fresh processes and after a persistent-profile restart.
 """
 import collections
@@ -27,12 +27,12 @@ import sys
 
 import pytest
 
-import clearcote
-from clearcote import _windowgeom as wg
+import code_browser
+from code_browser import _windowgeom as wg
 import importlib
 
-_download = importlib.import_module("clearcote.download")  # the module; clearcote.download is a function
-from clearcote._geometry import (
+_download = importlib.import_module("code_browser.download")  # the module; code_browser.download is a function
+from code_browser._geometry import (
     HEADLESS_NORMAL_FRAME,
     _reconcile_plan,
     _reconcile_steps,
@@ -336,9 +336,9 @@ class _Recorder:
         class _PW:
             chromium = _Chromium()
 
-        monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-        monkeypatch.setattr(clearcote, "install_humanize", lambda *a, **k: None)
-        monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+        monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+        monkeypatch.setattr(code_browser, "install_humanize", lambda *a, **k: None)
+        monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
         # The stand-in engine's chrome.dll (the switch probe reads it on Windows) would make the
         # install check expect a complete browser directory around it.
         monkeypatch.setattr(_download, "check_install", lambda exe: None)
@@ -350,7 +350,7 @@ class _Recorder:
 
 def test_persistent_context_on_r39_sends_no_screen_info_and_never_resizes(monkeypatch, tmp_path):
     rec = _Recorder().install(monkeypatch)
-    clearcote.launch_persistent_context(str(tmp_path / "p"), executable_path=_engine(tmp_path),
+    code_browser.launch_persistent_context(str(tmp_path / "p"), executable_path=_engine(tmp_path),
                                         fingerprint="7", quiet=True)
     assert rec.context_kwargs["no_viewport"] is True
     assert not [a for a in rec.context_kwargs["args"] if a.startswith(("--screen-info", "--window-"))]
@@ -359,7 +359,7 @@ def test_persistent_context_on_r39_sends_no_screen_info_and_never_resizes(monkey
 
 def test_persistent_context_on_r39_with_no_viewport_is_the_engines_alone(monkeypatch, tmp_path):
     rec = _Recorder().install(monkeypatch)
-    clearcote.launch_persistent_context(str(tmp_path / "p"), executable_path=_engine(tmp_path),
+    code_browser.launch_persistent_context(str(tmp_path / "p"), executable_path=_engine(tmp_path),
                                         fingerprint="7", no_viewport=True, quiet=True)
     assert rec.cdp.calls == []
 
@@ -367,7 +367,7 @@ def test_persistent_context_on_r39_with_no_viewport_is_the_engines_alone(monkeyp
 def test_persistent_context_on_r39_with_a_viewport_frames_it_and_keeps_it_on_the_work_area(monkeypatch, tmp_path):
     rec = _Recorder({"left": 900, "top": 300, "width": 1296, "height": 854, "windowState": "normal"})
     rec.install(monkeypatch)
-    clearcote.launch_persistent_context(str(tmp_path / "p"), executable_path=_engine(tmp_path),
+    code_browser.launch_persistent_context(str(tmp_path / "p"), executable_path=_engine(tmp_path),
                                         fingerprint="7", viewport={"width": 1280, "height": 720}, quiet=True)
     assert rec.context_kwargs["viewport"] == {"width": 1280, "height": 720}
     w, h = 1280 + FW, 720 + FH
@@ -379,7 +379,7 @@ def test_persistent_context_on_r39_with_a_viewport_frames_it_and_keeps_it_on_the
 
 def test_launch_on_r39_new_pages_get_no_fit(monkeypatch, tmp_path):
     rec = _Recorder().install(monkeypatch)
-    browser = clearcote.launch(executable_path=_engine(tmp_path), fingerprint="7", quiet=True,
+    browser = code_browser.launch(executable_path=_engine(tmp_path), fingerprint="7", quiet=True,
                                ephemeral_profile=False)
     browser.new_page()
     browser.new_context().new_page()
@@ -389,7 +389,7 @@ def test_launch_on_r39_new_pages_get_no_fit(monkeypatch, tmp_path):
 
 def test_launch_on_an_older_engine_still_fits(monkeypatch, tmp_path):
     rec = _Recorder().install(monkeypatch)
-    browser = clearcote.launch(executable_path=_engine(tmp_path, with_switch=False), fingerprint="7",
+    browser = code_browser.launch(executable_path=_engine(tmp_path, with_switch=False), fingerprint="7",
                                quiet=True, ephemeral_profile=False)
     browser.new_page()
     assert rec.window_calls(), "r38 and older engines keep the work-area fit"
@@ -398,15 +398,15 @@ def test_launch_on_an_older_engine_still_fits(monkeypatch, tmp_path):
 def test_headed_linux_fit_is_skipped_for_an_r39_persona(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
     exe = _engine(tmp_path)
-    assert clearcote._headed_linux_fit(["--fingerprint=7"], exe) is False
-    assert clearcote._headed_linux_fit([], exe) is True
+    assert code_browser._headed_linux_fit(["--fingerprint=7"], exe) is False
+    assert code_browser._headed_linux_fit([], exe) is True
 
 
 # --------------------------------------------------------------- live engine (r39+)
-LIVE_EXE = os.environ.get("CLEARCOTE_LIVE_ENGINE")
+LIVE_EXE = os.environ.get("CODE_BROWSER_LIVE_ENGINE")
 live_r39 = pytest.mark.skipif(
     not LIVE_EXE or not engine_places_persona_window(LIVE_EXE, ["--fingerprint=1"]),
-    reason="set CLEARCOTE_LIVE_ENGINE to an r39+ engine (plus CLEARCOTE_LICENSE_KEY for PRO)")
+    reason="set CODE_BROWSER_LIVE_ENGINE to an r39+ engine (plus CLEARCOTE_LICENSE_KEY for PRO)")
 
 _RECORDER = ("window.__resizes = 0; "
              "addEventListener('resize', () => { window.__resizes++; }, true);")
@@ -420,7 +420,7 @@ _HOST_PLATFORM = "windows" if sys.platform.startswith("win") else "linux"
 
 
 def _live(udd, seed, **kw):
-    ctx = clearcote.launch_persistent_context(str(udd), executable_path=LIVE_EXE, args=["--no-sandbox"],
+    ctx = code_browser.launch_persistent_context(str(udd), executable_path=LIVE_EXE, args=["--no-sandbox"],
                                               quiet=True, fingerprint=seed, **kw)
     try:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -489,7 +489,7 @@ def test_live_a_profile_reused_with_another_seed_takes_the_new_window(tmp_path):
 
 @live_r39
 def test_live_explicit_window_size_wins(tmp_path):
-    ctx = clearcote.launch_persistent_context(str(tmp_path / "ws"), executable_path=LIVE_EXE, quiet=True,
+    ctx = code_browser.launch_persistent_context(str(tmp_path / "ws"), executable_path=LIVE_EXE, quiet=True,
                                               args=["--no-sandbox", "--window-size=1200,800"], fingerprint="5")
     try:
         page = ctx.pages[0]
@@ -503,7 +503,7 @@ def test_live_explicit_window_size_wins(tmp_path):
 
 @live_r39
 def test_live_start_maximized_wins(tmp_path):
-    ctx = clearcote.launch_persistent_context(str(tmp_path / "mx"), executable_path=LIVE_EXE, quiet=True,
+    ctx = code_browser.launch_persistent_context(str(tmp_path / "mx"), executable_path=LIVE_EXE, quiet=True,
                                               args=["--no-sandbox", "--start-maximized"], fingerprint="5")
     try:
         page = ctx.pages[0]
@@ -528,7 +528,7 @@ def test_live_explicit_viewport_is_kept_framed_and_on_the_work_area(tmp_path, se
 
 @live_r39
 def test_live_fingerprint_window_off_restores_r38(tmp_path):
-    ctx = clearcote.launch_persistent_context(str(tmp_path / "off"), executable_path=LIVE_EXE, quiet=True,
+    ctx = code_browser.launch_persistent_context(str(tmp_path / "off"), executable_path=LIVE_EXE, quiet=True,
                                               args=["--no-sandbox", "--fingerprint-window=off"],
                                               fingerprint="3", no_viewport=True)
     try:

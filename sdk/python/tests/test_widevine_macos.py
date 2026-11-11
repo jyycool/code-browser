@@ -19,8 +19,8 @@ import zipfile
 
 import pytest
 
-import clearcote._widevine as W
-import clearcote.release as release
+import code_browser._widevine as W
+import code_browser.release as release
 
 VERSION = "4.10.3112.0"
 
@@ -124,7 +124,7 @@ def test_the_defaults_follow_this_host(monkeypatch):
 def _before(at_os, platform, version):
     """The body the SDK sent before macOS existed, for Windows / Linux."""
     return {"request": {
-        "@os": at_os, "@updater": "clearcote", "acceptformat": "crx3", "protocol": "3.1",
+        "@os": at_os, "@updater": "code-browser", "acceptformat": "crx3", "protocol": "3.1",
         "arch": "x64", "nacl_arch": "x86-64", "prodversion": "149.0.0.0", "updaterversion": "149.0.0.0",
         "dedup": "cr", "os": {"arch": "x86_64", "platform": platform, "version": version},
         "app": [{"appid": W.WIDEVINE_APP_ID, "version": "0.0.0.0", "updatecheck": {}, "ping": {"r": -2}}],

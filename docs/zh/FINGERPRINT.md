@@ -1,6 +1,6 @@
-# Clearcote 指纹修改详情
+# CodeBrowser 指纹修改详情
 
-本文汇总 Clearcote 内核（Chromium `151.0.7922.108`，见 [`UPSTREAM_REVISION`](../../UPSTREAM_REVISION)）
+本文汇总 CodeBrowser 内核（Chromium `151.0.7922.108`，见 [`UPSTREAM_REVISION`](../../UPSTREAM_REVISION)）
 相对上游 Chromium / ungoogled-chromium **实际改过的指纹能力**，以及对应的命令行开关。
 每一项都能在 [`patches/`](../../patches/) 里找到对应补丁，逐补丁说明见 [`patches/README.md`](../../patches/README.md)。
 
@@ -18,7 +18,7 @@
 
 ## 1. 种子与画像模型
 
-Clearcote 不是给每个 API 单独随机，而是用一个种子推导出一台"完整的机器"，让各个接口彼此对得上。
+CodeBrowser 不是给每个 API 单独随机，而是用一个种子推导出一台"完整的机器"，让各个接口彼此对得上。
 
 - **`--fingerprint=<种子>`**：数字或任意字符串（字符串会被哈希成数字，不会崩溃）。
   同一个种子每次启动得到同一台机器；换一个种子就是一台新的、无法关联的机器。
@@ -255,7 +255,7 @@ chrome.exe ^
 更推荐通过 SDK 启动。SDK 会自动下载并校验浏览器、拼好开关，并返回标准的 Playwright `Browser`：
 
 ```python
-from clearcote import launch
+from code_browser import launch
 
 browser = launch(fingerprint="user-7423", platform="windows")
 ```

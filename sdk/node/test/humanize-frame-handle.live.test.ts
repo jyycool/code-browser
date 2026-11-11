@@ -2,7 +2,7 @@
  * Live, Node: the Frame API and ElementHandle actions on a humanized page are humanized. Before, they went straight
  * to Playwright (a 0.2-0.4 ms press, one teleporting move, 1-4 ms key holds) and strict mode said nothing (measured
  * 2026-10-28, SC 295). A cross-origin frame's handle falls back to Playwright, reported (strict mode throws).
- * Headless; skipped unless CLEARCOTE_LIVE_ENGINE names a Clearcote binary. Mirrors test_humanize_frame_handle_live.py.
+ * Headless; skipped unless CODE_BROWSER_LIVE_ENGINE names a CodeBrowser binary. Mirrors test_humanize_frame_handle_live.py.
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, Frame, Page } from "playwright-core";
 import { launch } from "../src/index.js";
 
-const LIVE = process.env.CLEARCOTE_LIVE_ENGINE;
+const LIVE = process.env.CODE_BROWSER_LIVE_ENGINE;
 const T = 90_000;
 
 const REC = `<script>
@@ -107,9 +107,9 @@ describe.runIf(LIVE)("live frame + element handle humanize (node)", () => {
 
   it("a cross-origin frame's handle falls back to Playwright, reported", async () => {
     const cross = page.frames().find((f) => f.url().startsWith("http://localhost"))!;
-    (page as any)._clearcoteLastFallback = undefined;
+    (page as any)._code_browserLastFallback = undefined;
     await (await cross.$("#fb"))!.click();
-    const fb = (page as any)._clearcoteLastFallback;
+    const fb = (page as any)._code_browserLastFallback;
     expect(fb?.api).toBe("elementHandle.click");
     expect(String(fb?.reason)).toContain("cross-origin");
   }, T);

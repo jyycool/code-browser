@@ -7,10 +7,10 @@
 
 Launches headless and reads a real navigator.userAgent (proves the process started AND runs JS).
 Exits non-zero on ANY failure so a release pipeline can gate on it. This imports whatever
-`clearcote` is installed in the current environment, so run it after installing the version you
-want to verify (e.g. `pip install clearcote==X`). See docs/en/RELEASE-SMOKE-TEST.md.
+`code-browser` is installed in the current environment, so run it after installing the version you
+want to verify (e.g. `pip install code-browser==X`). See docs/en/RELEASE-SMOKE-TEST.md.
 
-A FREE run must really be keyless: the SDK reads CLEARCOTE_LICENSE_KEY and ~/.clearcote/license.key
+A FREE run must really be keyless: the SDK reads CLEARCOTE_LICENSE_KEY and ~/.code-browser/license.key
 on its own, so smoke-release.sh starts it with neither. As a guard, a FREE run whose Chrome major is
 not the SDK's pinned open build fails — that is what a key leaking into it looks like.
 """
@@ -20,10 +20,10 @@ import re
 import sys
 
 try:
-    from clearcote import __version__, launch
-    from clearcote.release import RELEASE
+    from code_browser import __version__, launch
+    from code_browser.release import RELEASE
 except Exception as e:  # noqa: BLE001
-    print(f"[PY] import clearcote FAILED: {type(e).__name__}: {e}")
+    print(f"[PY] import code_browser FAILED: {type(e).__name__}: {e}")
     sys.exit(2)
 
 PIN = str(RELEASE["version"])
@@ -54,7 +54,7 @@ if tier not in ("free", "pro", "both"):
     print(f"usage: {sys.argv[0]} [free|pro|both]")
     sys.exit(2)
 key = os.environ.get("CCKEY") or os.environ.get("CLEARCOTE_LICENSE_KEY")
-print(f"[PY] clearcote {__version__} (pins open build {PIN}) on {platform.system()} py{sys.version.split()[0]}")
+print(f"[PY] code-browser {__version__} (pins open build {PIN}) on {platform.system()} py{sys.version.split()[0]}")
 
 results = []
 if tier in ("free", "both"):

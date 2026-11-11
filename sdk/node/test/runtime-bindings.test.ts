@@ -1,7 +1,7 @@
-// runtimeBindings / CLEARCOTE_RUNTIME_BINDINGS: Runtime.addBinding bindings across navigations, on request.
+// runtimeBindings / CODE_BROWSER_RUNTIME_BINDINGS: Runtime.addBinding bindings across navigations, on request.
 //
 // Patch 110 keeps CDP bindings out of documents created after the binding was added, so Playwright's exposeFunction()
-// and exposeBinding() fail after page.goto() (clearcote-browser#43). Engine r54 (pro-r54-04) adds
+// and exposeBinding() fail after page.goto() (code-browser-browser#43). Engine r54 (pro-r54-04) adds
 // --enable-runtime-bindings, which restores only that. Off by default, gated on the binary like stockRuntime, never
 // part of the persona payload; redundant next to stockRuntime, which already restores it.
 //
@@ -15,7 +15,7 @@ import { join } from "node:path";
 const stub = vi.hoisted(() => ({
   // PROFILE_DIR is read once, at import: point it somewhere empty before the SDK loads, so no saved
   // profile on this machine can change what these tests see.
-  savedProfileDir: ((prev) => { process.env.CLEARCOTE_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CLEARCOTE_PROFILE_DIR),
+  savedProfileDir: ((prev) => { process.env.CODE_BROWSER_PROFILE_DIR = `${process.cwd()}/.no-saved-profiles`; return prev; })(process.env.CODE_BROWSER_PROFILE_DIR),
   launches: [] as Array<{ kind: "persistent" | "incognito"; opts: Record<string, unknown> }>,
   spawns: [] as Array<{ args: string[]; env: Record<string, string | undefined> | undefined }>,
 }));
@@ -81,26 +81,26 @@ import { API_KEY, startFakeCloud, type FakeCloud } from "./helpers/fake-cloud.js
 
 const SWITCH = "--enable-runtime-bindings";
 const STOCK = "--disable-runtime-suppression";
-const ENV = "CLEARCOTE_RUNTIME_BINDINGS";
-const STOCK_ENV = "CLEARCOTE_STOCK_RUNTIME";
+const ENV = "CODE_BROWSER_RUNTIME_BINDINGS";
+const STOCK_ENV = "CODE_BROWSER_STOCK_RUNTIME";
 const ENGINE_R32 = "\0disable-runtime-suppression\0";
 const ENGINE_R54 = "\0enable-runtime-bindings\0";
 const ENGINE_1021 = "\0persona-from-env\0";
-const UNSUPPORTED = "runtimeBindings (CLEARCOTE_RUNTIME_BINDINGS) is on, but this engine does not support it";
-const CLOUD_ONLY_LOCAL = "runtimeBindings (CLEARCOTE_RUNTIME_BINDINGS) only applies to local and Docker launches";
+const UNSUPPORTED = "runtimeBindings (CODE_BROWSER_RUNTIME_BINDINGS) is on, but this engine does not support it";
+const CLOUD_ONLY_LOCAL = "runtimeBindings (CODE_BROWSER_RUNTIME_BINDINGS) only applies to local and Docker launches";
 const BINDINGS_NOTE = "page.exposeFunction()"; // in the engine note about bindings
 const CONSOLE_NOTE = "page.on('console')"; // in the engine note about console events
 
 afterAll(() => {
-  if (stub.savedProfileDir === undefined) delete process.env.CLEARCOTE_PROFILE_DIR;
-  else process.env.CLEARCOTE_PROFILE_DIR = stub.savedProfileDir;
+  if (stub.savedProfileDir === undefined) delete process.env.CODE_BROWSER_PROFILE_DIR;
+  else process.env.CODE_BROWSER_PROFILE_DIR = stub.savedProfileDir;
 });
 
 // No licence (a key would select a lease), nothing inherited from the shell, warnings on, and a TEMP of our own:
 // everything a test or the code under test creates goes under `root`, removed after.
-const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY",
-  "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_API_KEY",
-  "CLEARCOTE_API_URL", ENV, STOCK_ENV, P.OPT_OUT_ENV, P.ENV_VAR] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR", "CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY",
+  "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CODE_BROWSER_API_KEY",
+  "CODE_BROWSER_API_URL", ENV, STOCK_ENV, P.OPT_OUT_ENV, P.ENV_VAR] as const;
 let savedEnv: Record<string, string | undefined>;
 let root: string;
 let stderr: string[];
@@ -116,8 +116,8 @@ beforeEach(() => {
   process.env.TEMP = temp;
   process.env.TMP = temp;
   process.env.TMPDIR = temp;
-  for (const k of ["CLEARCOTE_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION",
-    "CLEARCOTE_CLOUD", "CLEARCOTE_DOCKER", "CLEARCOTE_API_KEY", "CLEARCOTE_API_URL", ENV, STOCK_ENV, P.OPT_OUT_ENV, P.ENV_VAR]) delete process.env[k];
+  for (const k of ["CODE_BROWSER_NO_WARN", "CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION",
+    "CODE_BROWSER_CLOUD", "CODE_BROWSER_DOCKER", "CODE_BROWSER_API_KEY", "CODE_BROWSER_API_URL", ENV, STOCK_ENV, P.OPT_OUT_ENV, P.ENV_VAR]) delete process.env[k];
   stub.launches.length = 0;
   stub.spawns.length = 0;
   resetSeenWarnings();
@@ -232,19 +232,19 @@ describe("an engine without the switch", () => {
     }
     expect(said(UNSUPPORTED)).toBe(1);
     const line = stderr.join("").split("\n").find((l) => l.includes(UNSUPPORTED))!;
-    expect(line.startsWith("clearcote: warning: ")).toBe(true);
+    expect(line.startsWith("code-browser: warning: ")).toBe(true);
     expect(line).toContain("r54");
     expect(line).toContain("stockRuntime: true");
   });
 
-  it("quiet and CLEARCOTE_NO_WARN silence it without using it up", async () => {
+  it("quiet and CODE_BROWSER_NO_WARN silence it without using it up", async () => {
     const exe = fakeEngine();
     const udd = join(root, "udd");
     await (await launchPersistentContext(udd, { ...base(exe, true), runtimeBindings: true })).close();
-    process.env.CLEARCOTE_NO_WARN = "1";
+    process.env.CODE_BROWSER_NO_WARN = "1";
     await (await launchPersistentContext(udd, { ...base(exe, false), runtimeBindings: true })).close();
     expect(said(UNSUPPORTED)).toBe(0);
-    delete process.env.CLEARCOTE_NO_WARN;
+    delete process.env.CODE_BROWSER_NO_WARN;
     await (await launchPersistentContext(udd, { ...base(exe, false), runtimeBindings: true })).close();
     expect(said(UNSUPPORTED)).toBe(1);
   });
@@ -326,8 +326,8 @@ describe("cloud", () => {
   let api: FakeCloud;
   beforeEach(async () => {
     api = await startFakeCloud();
-    process.env.CLEARCOTE_API_KEY = API_KEY;
-    process.env.CLEARCOTE_API_URL = api.url;
+    process.env.CODE_BROWSER_API_KEY = API_KEY;
+    process.env.CODE_BROWSER_API_URL = api.url;
   });
   afterEach(async () => {
     await api.close();
@@ -340,7 +340,7 @@ describe("cloud", () => {
     expect(bodies[0]).toEqual({ country: "us", humanize: false }); // nothing about it reaches the API
     expect(bodies.flatMap((b) => Object.keys(b)).filter((k) => /runtime|binding/i.test(k))).toEqual([]);
     expect(said(CLOUD_ONLY_LOCAL)).toBe(1);
-    expect(stderr.join("").split("\n").find((l) => l.includes(CLOUD_ONLY_LOCAL))!.startsWith("clearcote: warning: runtimeBindings")).toBe(true);
+    expect(stderr.join("").split("\n").find((l) => l.includes(CLOUD_ONLY_LOCAL))!.startsWith("code-browser: warning: runtimeBindings")).toBe(true);
     // the environment variable too
     resetSeenWarnings();
     process.env[ENV] = "1";
@@ -366,7 +366,7 @@ describe("the bindings note", () => {
     await (await launchPersistentContext(udd, base(exe, false))).close();
     const note = stderr.join("").split("\n").filter((l) => l.includes(BINDINGS_NOTE));
     expect(note).toHaveLength(1);
-    expect(note[0].startsWith("clearcote: note: ")).toBe(true);
+    expect(note[0].startsWith("code-browser: note: ")).toBe(true);
     expect(note[0]).toContain("runtimeBindings: true");
     expect(note[0]).toContain("r54");
   });

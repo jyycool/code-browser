@@ -3,7 +3,7 @@ through the real argument-assembly (`_prepare`) with a mocked Playwright driver 
 fake binary, asserting each returns without a wiring/unpack/signature error and threads
 the effective (profile-aware) fingerprint seed into the humanizer.
 
-WHY THIS FILE EXISTS: clearcote 0.15.0 shipped a broken async launch — it unpacked 5 of
+WHY THIS FILE EXISTS: code-browser 0.15.0 shipped a broken async launch — it unpacked 5 of
 `_prepare`'s 6 return values (`ValueError: too many values to unpack`). The prior tests
 missed it because they only *imported* launch, never *called* it. These tests call the
 real entry points (only the driver + humanizer are mocked, so `_prepare` runs for real),
@@ -13,8 +13,8 @@ and async surfaces — fails HERE. Because the publish workflows gate on this su
 """
 import inspect
 
-import clearcote
-from clearcote import async_api
+import code_browser
+from code_browser import async_api
 
 
 def _fake_exe(tmp_path):
@@ -56,17 +56,17 @@ def _patch_sync(monkeypatch, cap):
     class _SyncPW:
         chromium = _SyncChromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _SyncPW())
-    monkeypatch.setattr(clearcote, "install_humanize",
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _SyncPW())
+    monkeypatch.setattr(code_browser, "install_humanize",
                         lambda b, h, s, seed=None: cap.__setitem__("seed", seed))
-    monkeypatch.setattr(clearcote, "install_humanize_on_context",
+    monkeypatch.setattr(code_browser, "install_humanize_on_context",
                         lambda c, h, s, seed=None: cap.__setitem__("seed", seed))
 
 
 def test_sync_launch_invokes_and_threads_seed(monkeypatch, tmp_path):
     cap = {}
     _patch_sync(monkeypatch, cap)
-    browser = clearcote.launch(executable_path=_fake_exe(tmp_path), fingerprint="seed-SYNC")
+    browser = code_browser.launch(executable_path=_fake_exe(tmp_path), fingerprint="seed-SYNC")
     assert browser is not None
     assert cap["seed"] == "seed-SYNC"  # _prepare's effective seed reached the humanizer
 
@@ -74,7 +74,7 @@ def test_sync_launch_invokes_and_threads_seed(monkeypatch, tmp_path):
 def test_sync_launch_persistent_context_invokes_and_threads_seed(monkeypatch, tmp_path):
     cap = {}
     _patch_sync(monkeypatch, cap)
-    ctx = clearcote.launch_persistent_context(
+    ctx = code_browser.launch_persistent_context(
         str(tmp_path / "profile"), executable_path=_fake_exe(tmp_path), fingerprint="seed-LPC")
     assert ctx is not None
     assert cap["seed"] == "seed-LPC"
@@ -132,6 +132,6 @@ def test_sync_async_launch_param_parity():
     """The sync and async surfaces must expose matching parameters for each launch
     entry point, so a positional/keyword added to one but not the other is caught."""
     for name in ("launch", "launch_persistent_context", "launch_agent"):
-        sp = list(inspect.signature(getattr(clearcote, name)).parameters)
+        sp = list(inspect.signature(getattr(code_browser, name)).parameters)
         ap = list(inspect.signature(getattr(async_api, name)).parameters)
         assert sp == ap, f"{name}: sync {sp} vs async {ap} parameter drift"

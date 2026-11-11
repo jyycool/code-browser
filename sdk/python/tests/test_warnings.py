@@ -1,6 +1,6 @@
 import pytest
 
-from clearcote._warnings import coherence_warnings
+from code_browser._warnings import coherence_warnings
 
 
 def codes(opts, host="win32", build="149"):
@@ -112,9 +112,9 @@ def test_engine_notes_fire_once_via_emitter(capsys, monkeypatch):
     """Engine-behaviour notes are NOT coherence findings: coherence_warnings() must stay silent for
     a coherent default (asserted above), so they are emitted by emit_coherence_warnings() instead -
     once per process, and honouring quiet like every other note."""
-    from clearcote import _warnings
+    from code_browser import _warnings
     monkeypatch.setattr(_warnings, "_seen_notes", set())
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
     opts = {"platform": "windows", "fingerprint": "s", "headless": False}
     _warnings.emit_coherence_warnings(opts, host_platform="win32", build_major="149")
     _warnings.emit_coherence_warnings(opts, host_platform="win32", build_major="149")
@@ -148,7 +148,7 @@ def test_cdp_exposure_in_args():
 
 
 def test_serve_exposure_warnings():
-    from clearcote._warnings import serve_exposure_warnings
+    from code_browser._warnings import serve_exposure_warnings
     c = lambda host, origins: {w["code"] for w in serve_exposure_warnings(host, origins)}
     assert c("127.0.0.1", "http://127.0.0.1:9222,http://localhost:9222") == set()
     assert c("localhost", "http://localhost:9222") == set()
@@ -159,14 +159,14 @@ def test_serve_exposure_warnings():
 
 
 def test_emit_warnings_respects_quiet(capsys, monkeypatch):
-    from clearcote._warnings import emit_warnings, serve_exposure_warnings
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
+    from code_browser._warnings import emit_warnings, serve_exposure_warnings
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
     emit_warnings(serve_exposure_warnings("0.0.0.0", "*"), quiet=True)
     assert capsys.readouterr().err == ""
     emit_warnings(serve_exposure_warnings("0.0.0.0", "*"))
     err = capsys.readouterr().err
-    assert err.count("clearcote: warning:") == 2
-    monkeypatch.setenv("CLEARCOTE_NO_WARN", "1")
+    assert err.count("code-browser: warning:") == 2
+    monkeypatch.setenv("CODE_BROWSER_NO_WARN", "1")
     emit_warnings(serve_exposure_warnings("0.0.0.0", "*"))
     assert capsys.readouterr().err == ""
 
@@ -201,9 +201,9 @@ def test_not_without_a_persona():
 
 
 def test_it_is_said_once_per_process(capsys, monkeypatch):
-    from clearcote import _warnings
+    from code_browser import _warnings
     monkeypatch.setattr(_warnings, "_seen_notes", set())
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
     opts = {"platform": "linux", "fingerprint": "17", "headless": False}
     _warnings.emit_coherence_warnings(opts, quiet=True, host_platform="win32", build_major="149")
     assert LINE not in capsys.readouterr().err  # quiet says nothing, and does not use up the one time
@@ -211,7 +211,7 @@ def test_it_is_said_once_per_process(capsys, monkeypatch):
         _warnings.emit_coherence_warnings(opts, host_platform="win32", build_major="149")
     err = capsys.readouterr().err
     assert err.count(LINE) == 1
-    assert ("clearcote: warning: a Linux persona on a Windows host reports Windows GPU limits (Direct3D caps "
+    assert ("code-browser: warning: a Linux persona on a Windows host reports Windows GPU limits (Direct3D caps "
             "WebGL)") in err
     assert "platform='windows'" in err and "docker=True" in err
 
@@ -219,12 +219,12 @@ def test_it_is_said_once_per_process(capsys, monkeypatch):
 @pytest.fixture
 def windows_host(monkeypatch):
     """launch()'s warnings judged as on a Windows host, wherever the suite runs; the launch itself is real."""
-    import clearcote
-    from clearcote import _warnings
+    import code_browser
+    from code_browser import _warnings
     real = _warnings.emit_coherence_warnings
     monkeypatch.setattr(_warnings, "_seen_notes", set())
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
-    monkeypatch.setattr(clearcote, "emit_coherence_warnings",
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
+    monkeypatch.setattr(code_browser, "emit_coherence_warnings",
                         lambda opts, **kw: real(opts, **{**kw, "host_platform": "win32"}))
 
 
@@ -232,11 +232,11 @@ def windows_host(monkeypatch):
 def no_licence(monkeypatch, tmp_path):
     """No saved or exported licence key is visible (a launch would take a real lease), nor anything else from
     this machine's environment that picks a binary or a launch path."""
-    from clearcote._license import resolve_license_key
+    from code_browser._license import resolve_license_key
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
-    for var in ("CLEARCOTE_LICENSE_KEY", "CLEARCOTE_BINARY", "CLEARCOTE_BROWSER_VERSION", "CLEARCOTE_CLOUD",
-                "CLEARCOTE_DOCKER", "CLEARCOTE_PERSONA_ENV"):
+    for var in ("CLEARCOTE_LICENSE_KEY", "CODE_BROWSER_BINARY", "CODE_BROWSER_BROWSER_VERSION", "CODE_BROWSER_CLOUD",
+                "CODE_BROWSER_DOCKER", "CLEARCOTE_PERSONA_ENV"):
         monkeypatch.delenv(var, raising=False)
     assert resolve_license_key() is None
 
@@ -244,7 +244,7 @@ def no_licence(monkeypatch, tmp_path):
 @pytest.fixture
 def no_browser(monkeypatch, no_licence):
     """Playwright replaced by a stand-in: launches record their arguments and start nothing."""
-    import clearcote
+    import code_browser
     seen = {}
 
     class _Context:
@@ -265,11 +265,11 @@ def no_browser(monkeypatch, no_licence):
     class _PW:
         chromium = _Chromium()
 
-    monkeypatch.setattr(clearcote, "_playwright", lambda: _PW())
-    monkeypatch.setattr(clearcote, "install_humanize_on_context", lambda *a, **k: None)
+    monkeypatch.setattr(code_browser, "_playwright", lambda: _PW())
+    monkeypatch.setattr(code_browser, "install_humanize_on_context", lambda *a, **k: None)
     # A seeded persona draws a real font list from the machine's local profile corpus, if it has one: not
     # what these tests are about, and seconds of reading on a machine with a large corpus.
-    monkeypatch.setattr(clearcote, "ensure_persona_fonts", lambda fp, quiet=False: None)
+    monkeypatch.setattr(code_browser, "ensure_persona_fonts", lambda fp, quiet=False: None)
     return seen
 
 
@@ -281,36 +281,36 @@ def _engine(tmp_path):
 
 
 def test_a_local_launch_says_it(windows_host, no_browser, tmp_path, capsys):
-    import clearcote
+    import code_browser
     exe = _engine(tmp_path)
     for udd in ("a", "b"):
-        clearcote.launch_persistent_context(str(tmp_path / udd), executable_path=exe, platform="linux",
+        code_browser.launch_persistent_context(str(tmp_path / udd), executable_path=exe, platform="linux",
                                             fingerprint="17", headless=True)
     assert "--fingerprint-platform=linux" in no_browser["args"]
     assert capsys.readouterr().err.count(LINE) == 1
 
 
 def test_a_local_launch_with_a_windows_persona_or_none_does_not(windows_host, no_browser, tmp_path, capsys):
-    import clearcote
+    import code_browser
     exe = _engine(tmp_path)
-    clearcote.launch_persistent_context(str(tmp_path / "a"), executable_path=exe, platform="windows",
+    code_browser.launch_persistent_context(str(tmp_path / "a"), executable_path=exe, platform="windows",
                                         fingerprint="17", headless=True)
-    clearcote.launch_persistent_context(str(tmp_path / "b"), executable_path=exe, platform="linux",
+    code_browser.launch_persistent_context(str(tmp_path / "b"), executable_path=exe, platform="linux",
                                         fingerprint="off", headless=True)
-    clearcote.launch_persistent_context(str(tmp_path / "c"), executable_path=exe, headless=True)
+    code_browser.launch_persistent_context(str(tmp_path / "c"), executable_path=exe, headless=True)
     assert LINE not in capsys.readouterr().err
 
 
 def test_a_docker_or_cloud_launch_does_not(no_licence, monkeypatch, capsys):
     import sys
-    import clearcote
-    from clearcote import _warnings
+    import code_browser
+    from code_browser import _warnings
     monkeypatch.setattr(_warnings, "_seen_notes", set())
-    monkeypatch.delenv("CLEARCOTE_NO_WARN", raising=False)
+    monkeypatch.delenv("CODE_BROWSER_NO_WARN", raising=False)
     monkeypatch.setattr(sys, "platform", "win32")  # only the routing runs before the stand-ins below
-    monkeypatch.setattr(clearcote, "launch_docker", lambda kwargs: ("docker", kwargs))
-    monkeypatch.setattr(clearcote, "launch_cloud", lambda cloud, kwargs, **kw: ("cloud", kwargs))
-    assert clearcote.launch(docker=True, platform="linux", fingerprint="17")[0] == "docker"
-    assert clearcote.launch(cloud=True, platform="linux", fingerprint="17")[0] == "cloud"
+    monkeypatch.setattr(code_browser, "launch_docker", lambda kwargs: ("docker", kwargs))
+    monkeypatch.setattr(code_browser, "launch_cloud", lambda cloud, kwargs, **kw: ("cloud", kwargs))
+    assert code_browser.launch(docker=True, platform="linux", fingerprint="17")[0] == "docker"
+    assert code_browser.launch(cloud=True, platform="linux", fingerprint="17")[0] == "cloud"
     monkeypatch.undo()
     assert LINE not in capsys.readouterr().err

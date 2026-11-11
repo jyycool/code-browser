@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CodeBrowser</AssemblyName>
+    <RootNamespace>CodeBrowser</RootNamespace>
+
+    <!-- NuGet package metadata -->
+    <PackageId>CodeBrowser</PackageId>
+    <Version>0.69.1</Version>
+    <Authors>clearcotelabs</Authors>
+    <Company>clearcotelabs</Company>
+    <Description>Playwright drop-in for the CodeBrowser anti-fingerprint Chromium build. Launch() returns a standard Microsoft.Playwright IBrowser backed by the verified CodeBrowser binary, which is auto-downloaded and SHA-256 checked. With a PRO license key it pulls the license-gated build and checks out a floating-concurrency lease.</Description>
+    <PackageTags>anti-fingerprint;stealth;chromium;playwright;browser;automation;fingerprint;anti-detect</PackageTags>
+    <PackageLicenseExpression>BSD-3-Clause</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/jyycool/code-browser</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/jyycool/code-browser</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" Version="1.49.0" />
+    <PackageReference Include="MaxMind.Db" Version="5.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <!-- The seccomp profile a Docker launch passes so Chrome's sandbox can run (docker/seccomp.json). -->
+    <EmbeddedResource Include="docker-seccomp.json" LogicalName="CodeBrowser.docker-seccomp.json" />
+    <InternalsVisibleTo Include="CodeBrowser.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,5 @@
 {
-  "_about": "Shared vectors for humanized form input: sdk/python/clearcote/_forms.py, sdk/node/src/forms.ts and sdk/dotnet/src/Clearcote/Forms.cs must give these exact answers. Expected values were worked out by hand from the HTML spec and Blink's type_ahead.cc / StepRange, then confirmed on r37 (SC 197 forms probes). null = no route.",
+  "_about": "Shared vectors for humanized form input: sdk/python/code_browser/_forms.py, sdk/node/src/forms.ts and sdk/dotnet/src/CodeBrowser/Forms.cs must give these exact answers. Expected values were worked out by hand from the HTML spec and Blink's type_ahead.cc / StepRange, then confirmed on r37 (SC 197 forms probes). null = no route.",
   "classify_field": [
     {"tag": "input", "type": "text", "ce": false, "want": "text"},
     {"tag": "input", "type": "", "ce": false, "want": "text"},

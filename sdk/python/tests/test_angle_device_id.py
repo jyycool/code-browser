@@ -6,9 +6,9 @@ import gzip
 import json
 import re
 
-from clearcote._angle_device_id import capture_for_engine, fix_capture_renderers, with_angle_device_id
-from clearcote._angle_device_ids import BY_ARCH, BY_NAME
-from clearcote._fingerprint import encode_profile
+from code_browser._angle_device_id import capture_for_engine, fix_capture_renderers, with_angle_device_id
+from code_browser._angle_device_ids import BY_ARCH, BY_NAME
+from code_browser._fingerprint import encode_profile
 
 OLD = "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti Direct3D11 vs_5_0 ps_5_0, D3D11)"
 NEW = "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)"

@@ -39,7 +39,7 @@ CCKEY=cc_lic_...  sdk/scripts/smoke-release.sh 0.32.0 --docker
 - Pass the version you just published. Omit the key to smoke only the FREE tier (PRO is then
   reported `SKIPPED`). `CLEARCOTE_LICENSE_KEY=` works in place of `CCKEY=`.
 - **The FREE runs are really keyless.** The SDK picks a key up on its own from
-  `CLEARCOTE_LICENSE_KEY` and from `~/.clearcote/license.key`, so a maintainer's own key used to turn
+  `CLEARCOTE_LICENSE_KEY` and from `~/.code-browser/license.key`, so a maintainer's own key used to turn
   the "free" launch into a licensed one without anyone noticing. The script now starts every FREE run
   with neither, and the launchers add a guard: a FREE run whose Chrome major is not the SDK's pinned
   open build fails (`… a licence key reached the free run?`). Only the PRO runs receive the key.

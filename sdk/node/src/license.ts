@@ -7,7 +7,7 @@
 // PRO engine's gate refuses to launch without a valid token.
 //
 // With NO license key this is entirely inert — the free build never calls the
-// backend and never gates. See clearcoat/PRIVATE-SDK-LICENSING-PLAN.md.
+// backend and never gates. See code-browser/PRIVATE-SDK-LICENSING-PLAN.md.
 
 import { offlineLease } from "./offline.js";
 import { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync, renameSync, rmSync, chmodSync } from "node:fs";
@@ -18,14 +18,14 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 import { proxiedRequest, toProxySpec, type ProxySpec, type SimpleResponse } from "./net.js";
 
-/** Default backend. Override with `licenseApiBase` or CLEARCOTE_LICENSE_API. */
+/** Default backend. Override with `licenseApiBase` or CODE_BROWSER_LICENSE_API. */
 const DEFAULT_API_BASE = "https://www.clearcotelabs.com";
 /** The licence lease server: lease checkout, heartbeat, check-in and seats go there first. */
 const DEFAULT_LEASE_BASE = "https://lease.clearcotelabs.com";
 const RUN_TOKEN_ENV = "CLEARCOTE_RUN_TOKEN";
 
 /**
- * Where the lease calls go when no base is set (`licenseApiBase`, CLEARCOTE_LICENSE_API, CLEARCOTE_LEASE_API),
+ * Where the lease calls go when no base is set (`licenseApiBase`, CODE_BROWSER_LICENSE_API, CODE_BROWSER_LEASE_API),
  * and the timings of the fallback and of the rate-limit retries. Tests point the bases at local servers and
  * shorten the timings; nothing else changes them.
  */
@@ -57,11 +57,11 @@ const LICENSE_USER_AGENT = `clearcote-sdk-node/${(() => {
 
 export interface LicenseOptions {
   /** License key (`cc_lic_...`). Resolved from this > CLEARCOTE_LICENSE_KEY env >
-   * ~/.clearcote/license.key. When absent, licensing is fully inert (free mode). */
+   * ~/.code-browser/license.key. When absent, licensing is fully inert (free mode). */
   licenseKey?: string;
   /**
-   * Backend base URL. Default CLEARCOTE_LICENSE_API env or clearcotelabs.com. When set (or with
-   * CLEARCOTE_LICENSE_API / CLEARCOTE_LEASE_API), the lease calls use that base only; by default they go to
+   * Backend base URL. Default CODE_BROWSER_LICENSE_API env or clearcotelabs.com. When set (or with
+   * CODE_BROWSER_LICENSE_API / CODE_BROWSER_LEASE_API), the lease calls use that base only; by default they go to
    * the licence lease server, falling back to clearcotelabs.com when it cannot be reached.
    */
   licenseApiBase?: string;
@@ -69,12 +69,12 @@ export interface LicenseOptions {
    * Send the licence calls (lease checkout / heartbeat / check-in) through the launch's own proxy
    * instead of directly from this machine. Off by default: direct calls never spend proxy bandwidth.
    * Turn it on when the host's own address must not reach the licence server, or when the host has
-   * no direct egress. Also enabled by CLEARCOTE_LICENSE_THROUGH_PROXY=1. No effect without a proxy.
+   * no direct egress. Also enabled by CODE_BROWSER_LICENSE_THROUGH_PROXY=1. No effect without a proxy.
    */
   licenseThroughProxy?: boolean;
   /**
-   * Offline mode: path to an Offline Key file (Platform Licence). Also CLEARCOTE_OFFLINE_KEY. No licence
-   * calls and no download are made; pass `executablePath` (or CLEARCOTE_BINARY) to the offline bundle's
+   * Offline mode: path to an Offline Key file (Platform Licence). Also CODE_BROWSER_OFFLINE_KEY. No licence
+   * calls and no download are made; pass `executablePath` (or CODE_BROWSER_BINARY) to the offline bundle's
    * PRO binary. See ./offline.ts.
    */
   offlineKey?: string;
@@ -83,7 +83,7 @@ export interface LicenseOptions {
 /** Whether licence calls should use the launch proxy: explicit option, else the env switch. */
 export function licenseThroughProxyRequested(opt: boolean | undefined, env: Record<string, string | undefined> = process.env): boolean {
   if (opt !== undefined) return opt;
-  return /^(1|true|yes|on)$/i.test((env.CLEARCOTE_LICENSE_THROUGH_PROXY ?? "").trim());
+  return /^(1|true|yes|on)$/i.test((env.CODE_BROWSER_LICENSE_THROUGH_PROXY ?? "").trim());
 }
 
 export class LicenseError extends Error {
@@ -122,13 +122,13 @@ export class LicenseServerChallengeError extends LicenseError {
   }
 }
 
-/** Resolve a license key: explicit > CLEARCOTE_LICENSE_KEY env > ~/.clearcote/license.key. */
+/** Resolve a license key: explicit > CLEARCOTE_LICENSE_KEY env > ~/.code-browser/license.key. */
 export function resolveLicenseKey(explicit?: string): string | undefined {
   if (explicit && explicit.trim()) return explicit.trim();
   const env = process.env.CLEARCOTE_LICENSE_KEY;
   if (env && env.trim()) return env.trim();
   try {
-    const p = join(homedir(), ".clearcote", "license.key");
+    const p = join(homedir(), ".code-browser", "license.key");
     if (existsSync(p)) {
       const v = readFileSync(p, "utf8").trim();
       if (v) return v;
@@ -141,13 +141,13 @@ export function resolveLicenseKey(explicit?: string): string | undefined {
 
 /** A STABLE per-machine id so a restart REUSES its concurrency slot instead of spawning a second
  * lease (the backend dedupes a machine's own prior live lease on re-checkout). Order:
- * CLEARCOTE_INSTANCE_ID env > ~/.clearcote/instance_id file > a freshly generated id (persisted).
+ * CODE_BROWSER_INSTANCE_ID env > ~/.code-browser/instance_id file > a freshly generated id (persisted).
  * Falls back to an ephemeral id if the file can't be written — in containers with an ephemeral
- * filesystem, set CLEARCOTE_INSTANCE_ID per replica to keep it stable. */
+ * filesystem, set CODE_BROWSER_INSTANCE_ID per replica to keep it stable. */
 export function resolveInstanceId(): string {
-  const env = process.env.CLEARCOTE_INSTANCE_ID;
+  const env = process.env.CODE_BROWSER_INSTANCE_ID;
   if (env && env.trim()) return env.trim();
-  const dir = join(homedir(), ".clearcote");
+  const dir = join(homedir(), ".code-browser");
   const p = join(dir, "instance_id");
   try {
     if (existsSync(p)) {
@@ -162,16 +162,16 @@ export function resolveInstanceId(): string {
     mkdirSync(dir, { recursive: true });
     writeFileSync(p, id + "\n");
   } catch {
-    /* ephemeral fallback — set CLEARCOTE_INSTANCE_ID to persist across restarts */
+    /* ephemeral fallback — set CODE_BROWSER_INSTANCE_ID to persist across restarts */
   }
   return id;
 }
 
 function apiBase(opts: LicenseOptions): string {
-  return (opts.licenseApiBase || process.env.CLEARCOTE_LICENSE_API || DEFAULT_API_BASE).replace(/\/$/, "");
+  return (opts.licenseApiBase || process.env.CODE_BROWSER_LICENSE_API || DEFAULT_API_BASE).replace(/\/$/, "");
 }
 
-/** The licence server base URL (`licenseApiBase` > CLEARCOTE_LICENSE_API > clearcotelabs.com). */
+/** The licence server base URL (`licenseApiBase` > CODE_BROWSER_LICENSE_API > clearcotelabs.com). */
 export function licenseApiBase(explicit?: string): string {
   return apiBase({ licenseApiBase: explicit });
 }
@@ -184,12 +184,12 @@ interface LeaseRoute {
 
 /**
  * The lease call bases (checkout, heartbeat, check-in, seats). A base that is set is the only one used:
- * `licenseApiBase` > CLEARCOTE_LICENSE_API > CLEARCOTE_LEASE_API. Otherwise the licence lease server, with
+ * `licenseApiBase` > CODE_BROWSER_LICENSE_API > CODE_BROWSER_LEASE_API. Otherwise the licence lease server, with
  * clearcotelabs.com as its fallback. Every other licence route (the PRO download, device login) keeps
  * {@link licenseApiBase}.
  */
 function leaseRoute(opts: LicenseOptions, env: Record<string, string | undefined> = process.env): LeaseRoute {
-  const set = opts.licenseApiBase || env.CLEARCOTE_LICENSE_API || env.CLEARCOTE_LEASE_API;
+  const set = opts.licenseApiBase || env.CODE_BROWSER_LICENSE_API || env.CODE_BROWSER_LEASE_API;
   if (set) return { primary: set.replace(/\/$/, ""), fallback: null };
   return { primary: leaseDefaults.primary.replace(/\/$/, ""), fallback: leaseDefaults.fallback.replace(/\/$/, "") };
 }
@@ -252,7 +252,7 @@ const osTag = (): string =>
 // Older caches without lease_id are honored.
 const keyHash = (licenseKey: string): string => createHash("sha256").update(licenseKey).digest("hex").slice(0, 16);
 function cachePath(licenseKey: string): string {
-  return join(homedir(), ".clearcote", `lease-${keyHash(licenseKey)}.json`);
+  return join(homedir(), ".code-browser", `lease-${keyHash(licenseKey)}.json`);
 }
 function readCache(licenseKey: string): { token: string; exp: number; lease_id?: string; scope?: unknown } | null {
   try {
@@ -300,8 +300,8 @@ export const STALE_TOKEN_REFUSAL = "older than the last one accepted";
 /**
  * The newest run-token `iat` the PRO engine has accepted for this OS user (0 if none/unreadable).
  *
- * The engine (patch 990, clock-rollback guard) keeps it in `$LOCALAPPDATA/.clearcote/.cc_hwm`, else
- * `$HOME/.clearcote/.cc_hwm`, as a decimal number, and refuses any token with a lower `iat`. It is per OS
+ * The engine (patch 990, clock-rollback guard) keeps it in `$LOCALAPPDATA/.code-browser/.cc_hwm`, else
+ * `$HOME/.code-browser/.cc_hwm`, as a decimal number, and refuses any token with a lower `iat`. It is per OS
  * user, not per licence or process: another SDK process, the hosted-browser gateway or a run with a
  * different key can all move it past a token this process still holds. Looked up exactly as the engine
  * does it, env var by env var.
@@ -310,7 +310,7 @@ export function engineHwm(env: Record<string, string | undefined> = process.env)
   const baseDir = env.LOCALAPPDATA || env.HOME;
   if (!baseDir) return 0;
   try {
-    const v = Number.parseInt(readFileSync(join(baseDir, ".clearcote", ".cc_hwm"), "ascii").trim(), 10);
+    const v = Number.parseInt(readFileSync(join(baseDir, ".code-browser", ".cc_hwm"), "ascii").trim(), 10);
     return Number.isFinite(v) ? v : 0;
   } catch {
     return 0;
@@ -363,7 +363,7 @@ function writeCache(licenseKey: string, token: string, exp: number, leaseId?: st
 // while the licence server cannot be reached (see MachineLease.uncountedLaunch). A file of its own: older
 // SDKs read lease-<hash>.json and would hand a per-browser token to every launch.
 function gracePath(licenseKey: string): string {
-  return join(homedir(), ".clearcote", `grace-${keyHash(licenseKey)}.json`);
+  return join(homedir(), ".code-browser", `grace-${keyHash(licenseKey)}.json`);
 }
 
 function readGrace(licenseKey: string): { token: string; exp: number } | null {
@@ -405,7 +405,7 @@ const noticesShown = new Set<string>();
 function showNotice(notice: unknown, quiet: boolean): void {
   if (typeof notice !== "string" || !notice.trim() || quiet || noticesShown.has(notice)) return;
   noticesShown.add(notice);
-  process.stderr.write(`[clearcote] [license] ${notice.trim()}\n`);
+  process.stderr.write(`[code-browser] [license] ${notice.trim()}\n`);
 }
 
 interface CheckoutResponse {
@@ -591,8 +591,8 @@ export function tokenHostTag(): string {
   return createHash("sha256").update(hostname()).digest("hex").slice(0, 8);
 }
 
-/** clearcote-rt-<pid>-<hosttag>-<uuid>.tok; the old clearcote-rt-<uuid>.tok has no owner and is never swept. */
-const TOKEN_FILE_RE = /^clearcote-rt-(\d+)-([0-9a-f]{8})-[0-9a-f-]{36}\.tok$/;
+/** code-browser-rt-<pid>-<hosttag>-<uuid>.tok; the old code-browser-rt-<uuid>.tok has no owner and is never swept. */
+const TOKEN_FILE_RE = /^code-browser-rt-(\d+)-([0-9a-f]{8})-[0-9a-f-]{36}\.tok$/;
 
 function tokenPidAlive(pid: number): boolean {
   try {
@@ -635,7 +635,7 @@ class TokenFileSet {
   bind(current: string): { file: string; release: () => void } {
     if (!tokenSwept) { tokenSwept = true; sweepDeadTokenFiles(); }
     if (!tokenExitHooked) { tokenExitHooked = true; process.once("exit", removeLiveTokenFiles); }
-    const path = join(tmpdir(), `clearcote-rt-${process.pid}-${tokenHostTag()}-${randomUUID()}.tok`);
+    const path = join(tmpdir(), `code-browser-rt-${process.pid}-${tokenHostTag()}-${randomUUID()}.tok`);
     this.writeOne(path, current);
     const entry = { path };
     this.files.add(entry);
@@ -845,7 +845,7 @@ class MachineLease {
       const now = Math.floor(Date.now() / 1000);
       if (cached && cached.exp > now + SKEW_SEC) {
         if (!this.quiet)
-          process.stderr.write(`[clearcote] [license] backend unreachable (${String(e)}); using cached run-token.\n`);
+          process.stderr.write(`[code-browser] [license] backend unreachable (${String(e)}); using cached run-token.\n`);
         this.token = cached.token;
         this.exp = cached.exp;
         this.leaseId = cached.lease_id ?? null;
@@ -876,7 +876,7 @@ class MachineLease {
     if (!token) return null;
     if (!this.quiet)
       process.stderr.write(
-        `[clearcote] [license] licence server unreachable (${failureReason(e)}); this browser starts on a cached run-token and is not counted.\n`,
+        `[code-browser] [license] licence server unreachable (${failureReason(e)}); this browser starts on a cached run-token and is not counted.\n`,
       );
     uncountedLaunches.set(this.key, (uncountedLaunches.get(this.key) ?? 0) + 1);
     return uncountedSession(token);
@@ -1234,7 +1234,7 @@ export async function acquireLease(
   const route = leaseRoute(opts);
   const viaProxy = licenseThroughProxyRequested(opts.licenseThroughProxy) ? toProxySpec(opts.proxy ?? null) : null;
   if (licenseThroughProxyRequested(opts.licenseThroughProxy) && !viaProxy && !opts.quiet) {
-    process.stderr.write("[clearcote] [license] licenseThroughProxy is on but this launch has no proxy; licence calls go direct.\n");
+    process.stderr.write("[code-browser] [license] licenseThroughProxy is on but this launch has no proxy; licence calls go direct.\n");
   }
   // One lease per (key, route): a direct lease and a proxied lease are different network paths, so
   // they must not share the in-process heartbeat owner.
@@ -1291,8 +1291,8 @@ function hookExitRelease(): void {
 
 /** Child script for checkinSync(): each lease id to the first base that answers (the lease server, then its fallback). */
 const CHECKIN_SCRIPT = `
-const { bases, ids, ua } = JSON.parse(process.env.CLEARCOTE_EXIT_CHECKIN);
-const key = process.env.CLEARCOTE_EXIT_KEY;
+const { bases, ids, ua } = JSON.parse(process.env.CODE_BROWSER_EXIT_CHECKIN);
+const key = process.env.CODE_BROWSER_EXIT_KEY;
 Promise.all(ids.map(async (id) => {
   for (const base of bases) {
     try {
@@ -1310,8 +1310,8 @@ function checkinSync(left: { bases: string[]; key: string; leaseIds: string[] })
     spawnSync(process.execPath, ["-e", CHECKIN_SCRIPT], {
       // The key goes in the env, never on the command line. ELECTRON_RUN_AS_NODE: an Electron host's
       // execPath is the app, which runs as plain Node with it.
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", CLEARCOTE_EXIT_KEY: left.key,
-        CLEARCOTE_EXIT_CHECKIN: JSON.stringify({ bases: left.bases, ids: left.leaseIds, ua: LICENSE_USER_AGENT }) },
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", CODE_BROWSER_EXIT_KEY: left.key,
+        CODE_BROWSER_EXIT_CHECKIN: JSON.stringify({ bases: left.bases, ids: left.leaseIds, ua: LICENSE_USER_AGENT }) },
       timeout: EXIT_CHECKIN_MS, stdio: "ignore", windowsHide: true,
     });
   } catch {
@@ -1335,7 +1335,7 @@ export function withRunToken(
   return out;
 }
 
-// ── seats, key storage (used by the `clearcote` CLI) ─────────────────────────
+// ── seats, key storage (used by the `code-browser` CLI) ─────────────────────────
 
 /** Concurrency seats on a licence, as reported by the backend. */
 export interface SessionSeats {
@@ -1385,9 +1385,9 @@ export async function getSessionSeats(opts: LicenseOptions & { proxy?: string | 
   }
 }
 
-/** Where `clearcote login` stores the key: ~/.clearcote/license.key. */
+/** Where `code-browser login` stores the key: ~/.code-browser/license.key. */
 export function licenseKeyPath(): string {
-  return join(homedir(), ".clearcote", "license.key");
+  return join(homedir(), ".code-browser", "license.key");
 }
 
 /** Save a licence key for every later launch (owner-only permissions where the OS supports it). */
@@ -1395,7 +1395,7 @@ export function saveLicenseKey(key: string): string {
   const k = key.trim();
   if (!k) throw new LicenseError("Empty licence key.", "LICENSE_EMPTY");
   const p = licenseKeyPath();
-  mkdirSync(join(homedir(), ".clearcote"), { recursive: true });
+  mkdirSync(join(homedir(), ".code-browser"), { recursive: true });
   writeFileSync(p, k + "\n", { mode: 0o600 });
   try { chmodSync(p, 0o600); } catch { /* not supported on this filesystem */ }
   return p;
@@ -1411,20 +1411,20 @@ export function removeLicenseKey(): boolean {
   return true;
 }
 
-// What `clearcote login --device` learned about the key it saved. No licence endpoint reports a key's
+// What `code-browser login --device` learned about the key it saved. No licence endpoint reports a key's
 // expiry (GET /api/v1/lease/seats answers used/limit/plan only), so the device-token answer is the one
-// source; `clearcote info` reports it as such. Bound to the key by its SHA-256, so a key saved later
+// source; `code-browser info` reports it as such. Bound to the key by its SHA-256, so a key saved later
 // (pasted, or set in CLEARCOTE_LICENSE_KEY) is never described by another key's record.
-const EXPIRY_NOTE = "as the site reported it at `clearcote login --device`; no licence endpoint reports a key's expiry";
-const EXPIRY_UNKNOWN_NOTE = "not known: only `clearcote login --device` records it, and no licence endpoint reports a key's expiry";
+const EXPIRY_NOTE = "as the site reported it at `code-browser login --device`; no licence endpoint reports a key's expiry";
+const EXPIRY_UNKNOWN_NOTE = "not known: only `code-browser login --device` records it, and no licence endpoint reports a key's expiry";
 
-/** What `clearcote info` reports about the expiry of the key a launch would use. */
+/** What `code-browser info` reports about the expiry of the key a launch would use. */
 export type LicenseExpiry =
   | { expiresAt: string | null; source: "device-login"; recordedAt?: string; note: string }
   | { source: "unknown"; note: string };
 
 export function licenseMetaPath(): string {
-  return join(homedir(), ".clearcote", "license.meta.json");
+  return join(homedir(), ".code-browser", "license.meta.json");
 }
 
 const keyDigest = (key: string): string => createHash("sha256").update(key.trim()).digest("hex");
@@ -1432,7 +1432,7 @@ const keyDigest = (key: string): string => createHash("sha256").update(key.trim(
 /** Record the plan and expiry the device login returned for `key` (never the key itself). */
 export function saveLicenseMeta(key: string, plan?: string | null, expiresAt?: string | null): string {
   const p = licenseMetaPath();
-  mkdirSync(join(homedir(), ".clearcote"), { recursive: true });
+  mkdirSync(join(homedir(), ".code-browser"), { recursive: true });
   const record = {
     key_sha256: keyDigest(key), plan: plan ?? null, expires_at: expiresAt ?? null, source: "device-login",
     recorded_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),

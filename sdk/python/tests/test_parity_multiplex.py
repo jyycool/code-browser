@@ -14,7 +14,7 @@ import urllib.request
 
 import pytest
 
-from clearcote._multiplex import (
+from code_browser._multiplex import (
     QUERY_PARAMS,
     SEED_PATTERN,
     MultiplexRequestError,

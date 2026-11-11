@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 r"""
-Fetch + verify + extract the SDK-pinned clearcote chrome.exe (Windows).
+Fetch + verify + extract the SDK-pinned code-browser chrome.exe (Windows).
 
-Reads the ``RELEASE`` pin from ``sdk/python/clearcote/release.py`` (the single
+Reads the ``RELEASE`` pin from ``sdk/python/code_browser/release.py`` (the single
 source of truth, also checked by ``check_release_pin.py``), downloads the pinned
 zip asset, verifies BOTH the zip sha256 and the extracted ``chrome.exe``
 exe_sha256 against the pin, and unpacks the full archive (chrome.exe + its
@@ -24,7 +24,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PY_RELEASE = ROOT / "sdk" / "python" / "clearcote" / "release.py"
+PY_RELEASE = ROOT / "sdk" / "python" / "code-browser" / "release.py"
 
 
 def _fail(msg):
@@ -51,7 +51,7 @@ def main():
     zip_path = dest / rel["asset"]
 
     print(f"downloading {rel['url']}", flush=True)
-    req = urllib.request.Request(rel["url"], headers={"User-Agent": "clearcote-ci", "Accept": "*/*"})
+    req = urllib.request.Request(rel["url"], headers={"User-Agent": "code-browser-ci", "Accept": "*/*"})
     try:
         with urllib.request.urlopen(req, timeout=300) as resp, open(zip_path, "wb") as f:
             while True:

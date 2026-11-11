@@ -883,7 +883,7 @@
 					"op": "SCMP_CMP_MASKED_EQ"
 				}
 			],
-			"comment": "clearcote: Chrome's namespace sandbox. Docker's clone rule above refuses every namespace flag; this one lets CLONE_NEWUSER, CLONE_NEWPID and CLONE_NEWNET through and still refuses CLONE_NEWNS, CLONE_NEWCGROUP, CLONE_NEWUTS and CLONE_NEWIPC (mask 0x0E020000). Chrome calls clone(CLONE_NEWUSER) to check that user namespaces work, clone(CLONE_NEWUSER|CLONE_NEWPID|CLONE_NEWNET) to start its zygote, and clone(CLONE_NEWPID) for each renderer.",
+			"comment": "code-browser: Chrome's namespace sandbox. Docker's clone rule above refuses every namespace flag; this one lets CLONE_NEWUSER, CLONE_NEWPID and CLONE_NEWNET through and still refuses CLONE_NEWNS, CLONE_NEWCGROUP, CLONE_NEWUTS and CLONE_NEWIPC (mask 0x0E020000). Chrome calls clone(CLONE_NEWUSER) to check that user namespaces work, clone(CLONE_NEWUSER|CLONE_NEWPID|CLONE_NEWNET) to start its zygote, and clone(CLONE_NEWPID) for each renderer.",
 			"excludes": {
 				"arches": [
 					"s390",
@@ -903,7 +903,7 @@
 					"op": "SCMP_CMP_EQ"
 				}
 			],
-			"comment": "clearcote: Chrome's check that a user without privileges can use user namespaces calls unshare(CLONE_NEWUSER) in a new user namespace after dropping its capabilities (sandbox::Credentials::CanCreateProcessInNewUserNS). Only that exact flag is allowed."
+			"comment": "code-browser: Chrome's check that a user without privileges can use user namespaces calls unshare(CLONE_NEWUSER) in a new user namespace after dropping its capabilities (sandbox::Credentials::CanCreateProcessInNewUserNS). Only that exact flag is allowed."
 		}
 	]
 }

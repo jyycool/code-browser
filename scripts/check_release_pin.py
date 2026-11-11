@@ -2,7 +2,7 @@
 """Version-drift guard for the SDK's pinned browser release.
 
 Asserts that the RELEASE constant pinned in ALL THREE SDKs (sdk/node/src/release.ts,
-sdk/python/clearcote/release.py and sdk/dotnet/src/Clearcote/Release.cs):
+sdk/python/code_browser/release.py and sdk/dotnet/src/CodeBrowser/Release.cs):
   1. is identical across the three SDKs (same platforms, same fields per platform),
   2. is internally consistent (url <-> repo <-> tag <-> asset <-> version, hex digests),
   3. actually exists as a published GitHub release with that asset,
@@ -35,9 +35,9 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PY_RELEASE = ROOT / "sdk" / "python" / "clearcote" / "release.py"
+PY_RELEASE = ROOT / "sdk" / "python" / "code-browser" / "release.py"
 TS_RELEASE = ROOT / "sdk" / "node" / "src" / "release.ts"
-CS_RELEASE = ROOT / "sdk" / "dotnet" / "src" / "Clearcote" / "Release.cs"
+CS_RELEASE = ROOT / "sdk" / "dotnet" / "src" / "CodeBrowser" / "Release.cs"
 
 # The .NET SDK names platforms "windows"/"linux"/"macos" (its Platforms keys and ReleaseInfo.Os); the other
 # two use Node/Python platform ids. Normalised here so all three compare field by field.
@@ -56,7 +56,7 @@ ARCHIVES = ("zip", "tar.xz")
 def asset_matcher(glob: str) -> "re.Pattern[str]":
     """The asset pattern every SDK's auto-update uses (download.py _resolve_latest, download.ts resolveLatest,
     Download.cs ResolveLatestAsync): the first release asset that matches is the one it downloads."""
-    return re.compile(rf"^clearcote-.*-{re.escape(glob)}\.(?:zip|tar\.xz)$")
+    return re.compile(rf"^code-browser-.*-{re.escape(glob)}\.(?:zip|tar\.xz)$")
 
 
 def strip_comments(src: str) -> str:
@@ -222,7 +222,7 @@ def check_asset_digest(oskey: str, pin: dict, asset: dict) -> None:
 
 
 def http(url: str, token: "str | None") -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "clearcote-ci", "Accept": "*/*"})
+    req = urllib.request.Request(url, headers={"User-Agent": "code-browser-ci", "Accept": "*/*"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=60) as resp:
