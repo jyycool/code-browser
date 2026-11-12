@@ -1,0 +1,26 @@
+{
+  "appName": "code-browser",
+  "tagline": "安全、独立的浏览环境",
+  "accent": "#2563EB",
+
+  "startUrl": "https://example.com",
+
+  "fingerprint": "user-0001",
+  "platform": "windows",
+  "brand": "Chrome",
+  "proxy": "",
+  "geoip": true,
+  "timezone": "",
+  "acceptLanguage": "",
+
+  "executablePath": "",
+  "kernelSha256": "",
+  "extraArgs": [],
+
+  "showNavBar": true,
+  "newWindow": "same-page",
+  "embedMode": "child",
+  "blockShortcuts": true,
+  "writePolicies": false,
+  "maxWindow": { "width": 1920, "height": 1080 }
+}

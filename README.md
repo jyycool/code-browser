@@ -58,6 +58,7 @@ SDK 第一次使用时会下载浏览器二进制，校验 SHA-256 后缓存下�
 | 接入已经支持 CDP 的工具 | CDP 端点 | [作为 CDP 端点运行](#作为-cdp-端点运行) |
 | 在容器里运行 | Docker 镜像 | [在 Docker 中运行](#在-docker-中运行) |
 | 让 AI 助手（Claude、Cursor、Cline）操作浏览器 | MCP 服务 | [给 AI 助手一个浏览器](#给-ai-助手一个浏览器) |
+| 做一个桌面应用：点"开始"，浏览器嵌在应用里打开 | 桌面应用（Windows） | [`app/README.md`](app/README.md) |
 | 不用 SDK，直接启动浏览器 | 命令行开关 | [直接使用浏览器二进制](#直接使用浏览器二进制) |
 
 ### 在代码中使用
@@ -334,6 +335,7 @@ code-browser/
 ├── config/              # args.gn 构建配置
 ├── sdk/                 # SDK：python/、node/、dotnet/
 ├── mcp/                 # MCP 服务（code-browser-mcp）
+├── app/                 # Windows 桌面应用（Electron，浏览器嵌入在应用内）
 ├── docker/              # CDP 端点 Docker 镜像
 ├── tools/               # 指纹采集器、Canvas 渲染桥服务
 └── docs/                # 文档：zh/（中文）、en/（英文）

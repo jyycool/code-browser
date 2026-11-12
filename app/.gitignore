@@ -1,0 +1,5 @@
+node_modules/
+dist/
+release/
+# The compiled browser engine goes here locally; it is never committed.
+kernel/

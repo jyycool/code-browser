@@ -1,0 +1,34 @@
+appId: com.codebrowser.app
+productName: code-browser
+copyright: Copyright © 2026 code-browser contributors
+directories:
+  output: release
+files:
+  - dist/**
+  - src/renderer/**
+  - src/preload.cjs
+  - config.default.json
+  - package.json
+asarUnpack:
+  - node_modules/koffi/**
+# Put your compiled engine (the whole unzipped folder with chrome.exe) in app/kernel/ before
+# packaging; it is copied next to the app as resources/kernel/.
+extraResources:
+  - from: kernel
+    to: kernel
+    filter: ["**/*"]
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  # Set to true (the default) when building on Windows: it writes the icon and version info
+  # into the .exe. It needs Wine when building on Linux.
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: code-browser
